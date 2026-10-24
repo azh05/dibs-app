@@ -1,17 +1,23 @@
-"""FastAPI app: verified deal JSON from Claude web search (/extract/search) or Bright Data (/extract/serp, /extract/instagram)."""
+"""FastAPI app: verified deal JSON from Claude web search (/extract/search), Bright Data (/extract/serp,
+/extract/instagram), or a user's photo of an in-store deal (/extract/photo)."""
 from __future__ import annotations
 
 import logging
+from datetime import date
 from functools import lru_cache
-from typing import Callable, TypeVar
+from pathlib import Path
+from typing import Annotated, Callable, Optional, TypeVar
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 
 from .bd_pipeline import BrightDataPipeline
 from .errors import http_error
-from .extractor import DealExtractor
+from .extractor import DealExtractor, _today
 from .jobs import JobStore
+from .photo import MAX_IMAGE_BYTES, PhotoExtractor, sniff_media_type
 from .schemas import InstagramRequest, JobCreated, JobStatus, SearchRequest, SearchResponse, SerpSearchRequest
 
 logging.basicConfig(level=logging.INFO)
@@ -26,6 +32,8 @@ app = FastAPI(
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 T = TypeVar("T")
+
+DEMO_PAGE = Path(__file__).resolve().parent.parent / "demo" / "index.html"
 
 
 @lru_cache
@@ -43,6 +51,11 @@ def get_jobs() -> JobStore:
     return JobStore()
 
 
+@lru_cache
+def get_photo_extractor() -> PhotoExtractor:
+    return PhotoExtractor()
+
+
 def _call(fn: Callable[[], T]) -> T:
     try:
         return fn()
@@ -51,6 +64,12 @@ def _call(fn: Callable[[], T]) -> T:
         if mapped is None:
             raise
         raise HTTPException(status_code=mapped[0], detail=mapped[1]) from exc
+
+
+@app.get("/demo", include_in_schema=False)
+def demo() -> FileResponse:
+    """Phone-sized demo of the photo flow (camera or upload -> /extract/photo). Served here so it's same-origin."""
+    return FileResponse(DEMO_PAGE)
 
 
 @app.get("/health")
@@ -87,3 +106,26 @@ def instagram_job(job_id: str, jobs: JobStore = Depends(get_jobs)) -> JobStatus:
     if job is None:
         raise HTTPException(status_code=404, detail="unknown job_id (jobs are kept in memory and lost on restart)")
     return job
+
+
+@app.post("/extract/photo", response_model=SearchResponse)
+def extract_photo(
+    image: Annotated[UploadFile, File(description="JPEG, PNG, WebP or GIF, up to 5 MB")],
+    shop: Annotated[Optional[str], Form(description="Shop name hint, e.g. 'Chipotle Westwood'")] = None,
+    photo_date: Annotated[Optional[date], Form(description="When the photo was taken. Default: today")] = None,
+    timezone: Annotated[str, Form()] = "America/Los_Angeles",
+    extractor: PhotoExtractor = Depends(get_photo_extractor),
+) -> SearchResponse:
+    """A user's photo of a poster, window sign or menu board: what the deal is and when it runs. Takes 5 to 20 s."""
+    try:
+        ZoneInfo(timezone)
+    except (ZoneInfoNotFoundError, ValueError):
+        raise HTTPException(status_code=422, detail=f"unknown timezone {timezone!r}")
+    data = image.file.read(MAX_IMAGE_BYTES + 1)
+    if len(data) > MAX_IMAGE_BYTES:
+        raise HTTPException(status_code=413, detail="image is over 5 MB")
+    media_type = sniff_media_type(data)
+    if media_type is None:
+        raise HTTPException(status_code=415, detail="image must be JPEG, PNG, WebP or GIF")
+    today = _today(timezone)
+    return _call(lambda: extractor.extract(data, media_type, photo_date or today, shop=shop, filename=image.filename, today=today))

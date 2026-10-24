@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import re
-from datetime import date, datetime
+from datetime import date, datetime, time
 from enum import Enum
 from typing import Literal, Optional
 
@@ -42,6 +42,8 @@ class RawDeal(BaseModel):
     conditions: list[str] = Field(default_factory=list, description="Fine print: in-store only, first order, min spend...")
     start_date: Optional[date] = None
     end_date: Optional[date] = Field(None, description="Only if the source states it. Never inferred.")
+    start_time: Optional[time] = Field(None, description="Local start time as HH:MM, only if stated, e.g. '3PM' -> 15:00")
+    end_time: Optional[time] = Field(None, description="Local end time as HH:MM, only if stated. 'Until close' -> null plus a condition")
     source_url: str
     source_post_date: Optional[date] = Field(None, description="When the source was posted, if shown")
     verbatim_quote: str = Field(..., description="Exact text from the source that supports the offer")
@@ -94,7 +96,7 @@ class Usage(BaseModel):
     web_search_requests: int = 0
 
 
-Provider = Literal["claude_web_search", "brightdata_serp", "brightdata_instagram"]
+Provider = Literal["claude_web_search", "brightdata_serp", "brightdata_instagram", "user_photo"]
 
 
 class SearchResponse(BaseModel):
@@ -107,6 +109,7 @@ class SearchResponse(BaseModel):
     usage: Usage
     provider: Provider = "claude_web_search"
     brightdata_requests: int = 0
+    transcript: Optional[str] = Field(None, description="user_photo only: all text Claude read in the image")
 
 
 class SerpSearchRequest(BaseModel):

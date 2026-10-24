@@ -1,6 +1,6 @@
 # Dibs API
 
-Finds short-lived local deals, returns them as structured JSON, and checks each one with plain Python rules before anyone sees it. Two ways to fetch: Claude's own web search (`/extract/search`), or Bright Data public web data (`/extract/serp` for Google results, `/extract/instagram` for shops' public posts) with Claude doing extraction only.
+Finds short-lived local deals, returns them as structured JSON, and checks each one with plain Python rules before anyone sees it. Two ways to fetch: Claude's own web search (`/extract/search`), or Bright Data public web data (`/extract/serp` for Google results, `/extract/instagram` for shops' public posts) with Claude doing extraction only. Users can also upload a photo of an in-store deal (`/extract/photo`).
 
 ## Run it
 
@@ -62,6 +62,7 @@ Deals come back sorted live → needs_check → stale → expired.
     "shop_name": "Milksha Westwood", "shop_handle": "milksha_ca", "address": "1009 Broxton Ave",
     "category": "drink", "offer": "Buy 1 drink, get the 2nd 50% off", "code": "BOGO50",
     "conditions": ["in-store only"], "start_date": null, "end_date": "2026-10-31",
+    "start_time": null, "end_time": null,
     "source_url": "https://www.instagram.com/p/...", "source_post_date": "2026-10-01",
     "verbatim_quote": "Buy 1 drink and get the second 50% off...", "confidence": "high",
     "status": "live", "flags": []
@@ -119,6 +120,28 @@ Both return the usual response plus `provider` (`claude_web_search`, `brightdata
 | Other Bright Data failure (every SERP query failed, job `failed`, ...) | 502 |
 | One of several SERP queries failed | 200, noted in `search_errors` |
 
+## Photo confirmation
+
+### `POST /extract/photo` (blocking, 5 to 20 s)
+
+A user's photo of a poster, window sign, flyer or menu board. Multipart form: `image` (JPEG, PNG, WebP or GIF, up to 5 MB; the type is checked from the file bytes), optional `shop` (name hint), `photo_date` (default today) and `timezone` (default `America/Los_Angeles`).
+
+```bash
+curl -s -F image=@poster.jpg -F shop="Chipotle Westwood" localhost:8000/extract/photo | python -m json.tool
+```
+
+Claude transcribes every word in the image (returned as `transcript`), then records the deals with a time window (`start_time` / `end_time`, e.g. "3PM to close" is `15:00` / `null` plus the condition "until close"). The usual rules apply, with the transcript as the source text:
+
+| Rule | Result |
+| --- | --- |
+| Quote isn't in the transcript | rejected: `quote_not_in_source` |
+| Date shown without a year ("July 6th") | year set to the occurrence nearest `photo_date`, flag `year_inferred` |
+| Post date | always `photo_date` |
+
+**Demo:** open http://localhost:8000/demo for a phone-sized version of the flow (the Figma "Earn $5" and "Submission result" screens). Take a photo with your webcam or upload one, and it calls `/extract/photo` and shows whether the deal is confirmed, when it runs, its fine print, and the quote found on the poster. Photos are shrunk to 1568 px on the long edge before upload. Camera access needs `localhost` or HTTPS.
+
+Status is judged against today, so a poster for a date that has passed comes back `expired`. Returns the usual response with `provider: "user_photo"` and one source, `https://dibs.local/photo/<hash>` (a stable id for the image, not a real page). Errors: 413 over 5 MB, 415 not an image, 422 missing image or unknown timezone. Nothing is stored.
+
 ## Bright Data setup
 
 1. Sign up with the Cal Hacks promo ($300 credits): https://brightdata.com/?promo=calhack2026&hs_signup=1
@@ -147,7 +170,7 @@ curl -s localhost:8000$JOB | python -m json.tool   # repeat until "status": "don
 uv run pytest -q
 ```
 
-110 tests: every verification rule, the multi-turn tool loop (pause_turn, forced tool, give-up), malformed output, search errors, the Bright Data client (retries, polling, timeouts, error rows), both Bright Data pipelines, the job flow, and the API. They use a fake Claude client returning real SDK `Message` objects and `httpx.MockTransport` for Bright Data, so no keys or credits are needed.
+131 tests: every verification rule, the multi-turn tool loop (pause_turn, forced tool, give-up), malformed output, search errors, the Bright Data client (retries, polling, timeouts, error rows), both Bright Data pipelines, photo extraction (year inference, time windows, upload checks), the job flow, and the API. They use a fake Claude client returning real SDK `Message` objects and `httpx.MockTransport` for Bright Data, so no keys or credits are needed.
 
 ## Cost and settings
 
@@ -158,7 +181,7 @@ uv run pytest -q
 
 ## Not in this MVP
 
-Image upload (story screenshots, window signs), Instagram story mentions, storage, scheduling, and auth. The mobile app is in `../app/`. CORS is wide open for the hackathon; tighten it before launch.
+Storing photo submissions and rewards, Instagram story mentions, storage, scheduling, and auth. The mobile app is in `../app/`. CORS is wide open for the hackathon; tighten it before launch.
 
 ## Layout
 
@@ -168,6 +191,7 @@ app/extractor.py  Claude web search call, tool definitions, prompt, turn loop
 app/brightdata.py Bright Data client: SERP API, Instagram posts scraper
 app/sources.py    SourceDoc: one shape for everything Bright Data fetched
 app/bd_pipeline.py Bright Data fetch -> Claude extraction -> verification
+app/photo.py      User photo -> Claude transcript + deals -> verification
 app/jobs.py       In-memory background jobs (Instagram)
 app/errors.py     Upstream error -> HTTP status mapping
 app/verify.py     Deterministic verification rules

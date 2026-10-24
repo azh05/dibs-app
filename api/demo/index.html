@@ -1,0 +1,483 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>dibs · Spot a deal</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  /* Colors from the Figma "dibs / color" collection. */
+  :root {
+    --orange: #FF5A1F;
+    --ink: #16161A;
+    --soft: #FFF1EA;
+    --muted: #F5F5F7;
+    --white: #FFFFFF;
+    --sub: #6B6B76;
+    --line: #E7E7EC;
+    --green: #12A150;
+    --green-soft: #E7F7EE;
+    --amber: #B7791F;
+    --amber-soft: #FDF4E3;
+    --red: #D13B3B;
+    --red-soft: #FDECEC;
+    --desk: #E9E6E3;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  html, body { height: 100%; }
+  body {
+    font-family: "Plus Jakarta Sans", system-ui, sans-serif;
+    color: var(--ink);
+    background: var(--desk);
+    display: flex; align-items: center; justify-content: center;
+    -webkit-font-smoothing: antialiased;
+  }
+  button, input { font: inherit; color: inherit; }
+  button { cursor: pointer; border: 0; background: none; }
+
+  /* iPhone 15 frame on desktop; full screen on a real phone. */
+  .phone {
+    width: 393px; height: 852px; background: var(--white);
+    border-radius: 54px; overflow: hidden; position: relative;
+    box-shadow: 0 0 0 11px #1c1c1f, 0 0 0 13px #3a3a3f, 0 40px 80px rgba(0,0,0,.25);
+    display: flex; flex-direction: column;
+  }
+  @media (max-width: 500px) {
+    body { background: var(--white); align-items: stretch; }
+    .phone { width: 100%; height: 100dvh; border-radius: 0; box-shadow: none; }
+    .status, .island { display: none !important; }
+  }
+  .island { position: absolute; top: 11px; left: 50%; transform: translateX(-50%); width: 124px; height: 36px; background: #000; border-radius: 20px; z-index: 5; }
+  .status { height: 54px; flex: none; display: flex; align-items: center; justify-content: space-between; padding: 6px 34px 0 46px; font-weight: 700; font-size: 16px; }
+  .status svg { display: block; }
+  .screen { flex: 1; overflow-y: auto; display: none; flex-direction: column; }
+  .screen.on { display: flex; }
+  .pad { padding: 8px 20px 24px; }
+
+  h1 { font-size: 30px; font-weight: 800; letter-spacing: -.5px; line-height: 1.15; }
+  .lede { color: var(--sub); font-size: 14px; font-weight: 500; line-height: 1.5; margin-top: 8px; }
+
+  .reward { margin-top: 20px; background: var(--orange); color: var(--white); border-radius: 22px; padding: 18px 20px; display: flex; align-items: center; justify-content: space-between; }
+  .reward b { font-size: 40px; font-weight: 800; line-height: 1; letter-spacing: -1px; }
+  .reward p { font-size: 14px; font-weight: 600; margin-top: 6px; }
+  .reward small { font-size: 12px; font-weight: 500; opacity: .85; }
+  .reward .gift { width: 56px; height: 56px; background: rgba(255,255,255,.18); border-radius: 18px; display: grid; place-items: center; }
+
+  .cam { margin-top: 18px; position: relative; border-radius: 22px; overflow: hidden; background: var(--soft); aspect-ratio: 4 / 3; display: grid; place-items: center; border: 1.5px dashed #FFC9B3; }
+  .cam.live, .cam.shot { border: 0; background: #000; }
+  .cam video, .cam img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  .cam .empty { text-align: center; padding: 16px; }
+  .cam .empty .thumb { width: 56px; height: 56px; border-radius: 18px; background: var(--white); display: grid; place-items: center; margin: 0 auto 10px; }
+  .cam .empty b { font-size: 16px; font-weight: 700; display: block; }
+  .cam .empty span { font-size: 12px; color: var(--sub); font-weight: 500; }
+  .shutter { position: absolute; bottom: 14px; left: 50%; transform: translateX(-50%); width: 64px; height: 64px; border-radius: 50%; background: var(--white); box-shadow: 0 0 0 4px rgba(255,255,255,.45); display: none; }
+  .cam.live .shutter { display: block; }
+  .shutter:active { transform: translateX(-50%) scale(.93); }
+
+  .row { display: flex; gap: 10px; margin-top: 12px; }
+  .btn { flex: 1; height: 54px; border-radius: 16px; font-weight: 700; font-size: 16px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
+  .btn.primary { background: var(--orange); color: var(--white); }
+  .btn.primary:disabled { opacity: .45; cursor: default; }
+  .btn.ghost { background: var(--white); border: 1.5px solid var(--line); }
+  .btn svg { flex: none; }
+
+  .field { margin-top: 14px; display: flex; align-items: center; gap: 10px; height: 48px; border-radius: 14px; background: var(--muted); padding: 0 14px; }
+  .field input { border: 0; background: none; outline: none; flex: 1; font-size: 14px; font-weight: 500; }
+  .field input::placeholder { color: #9A9AA5; }
+
+  .steps { display: flex; gap: 8px; margin-top: 18px; }
+  .step { flex: 1; display: flex; align-items: center; gap: 8px; background: var(--muted); border-radius: 14px; padding: 10px; font-size: 13px; font-weight: 600; }
+  .step i { width: 22px; height: 22px; border-radius: 50%; background: var(--white); display: grid; place-items: center; font-style: normal; font-size: 12px; font-weight: 800; flex: none; }
+  .step.done i { background: var(--orange); color: var(--white); }
+  .step.now { background: var(--soft); }
+  .step.now i { border: 2px solid var(--orange); border-top-color: transparent; animation: spin .8s linear infinite; background: none; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .err { margin-top: 12px; background: var(--red-soft); color: var(--red); border-radius: 14px; padding: 12px 14px; font-size: 13px; font-weight: 600; display: none; }
+  .err.on { display: block; }
+
+  /* Result */
+  .hero { position: relative; height: 250px; flex: none; background: var(--soft); display: grid; place-items: center; }
+  .hero img { width: 230px; height: 200px; object-fit: cover; border-radius: 18px; box-shadow: 0 12px 30px rgba(22,22,26,.18); background: var(--white); }
+  .hero .back { position: absolute; top: 4px; left: 20px; width: 42px; height: 42px; border-radius: 50%; background: var(--white); display: grid; place-items: center; box-shadow: 0 2px 8px rgba(0,0,0,.06); }
+  .verdict { display: flex; align-items: center; gap: 12px; border-radius: 18px; padding: 14px; margin-top: 18px; }
+  .verdict .ic { width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center; flex: none; }
+  .verdict b { font-size: 16px; font-weight: 800; display: block; }
+  .verdict span { font-size: 12px; font-weight: 500; color: var(--sub); }
+  .v-ok { background: var(--green-soft); } .v-ok .ic { background: var(--green); }
+  .v-warn { background: var(--amber-soft); } .v-warn .ic { background: var(--amber); }
+  .v-bad { background: var(--red-soft); } .v-bad .ic { background: var(--red); }
+
+  .store { display: flex; align-items: center; gap: 12px; margin-top: 20px; }
+  .store .thumb { width: 44px; height: 44px; border-radius: 14px; background: var(--soft); display: grid; place-items: center; flex: none; }
+  .store b { font-size: 16px; font-weight: 700; display: block; }
+  .store span { font-size: 12px; color: var(--sub); font-weight: 500; }
+  .offer { font-size: 28px; font-weight: 800; letter-spacing: -.5px; line-height: 1.15; margin-top: 16px; }
+  .pills { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+  .pill { display: inline-flex; align-items: center; gap: 6px; height: 27px; padding: 0 10px; border-radius: 999px; font-size: 12px; font-weight: 700; }
+  .pill::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+  .p-live { background: var(--green-soft); color: var(--green); }
+  .p-up { background: var(--soft); color: var(--orange); }
+  .p-check { background: var(--amber-soft); color: var(--amber); }
+  .p-exp { background: var(--muted); color: var(--sub); }
+  .p-note { background: var(--muted); color: var(--sub); }
+  .p-note::before { display: none; }
+
+  .details { background: var(--muted); border-radius: 20px; margin-top: 18px; }
+  .drow { display: flex; gap: 14px; padding: 14px 16px; align-items: flex-start; }
+  .drow + .drow { border-top: 1px solid var(--line); }
+  .drow svg { flex: none; margin-top: 1px; }
+  .drow b { font-size: 14px; font-weight: 700; display: block; }
+  .drow span { font-size: 12px; color: var(--sub); font-weight: 500; line-height: 1.45; display: block; margin-top: 2px; }
+  .drow code { font-family: inherit; font-weight: 800; background: var(--white); padding: 1px 6px; border-radius: 6px; }
+
+  details.read { margin-top: 14px; border-radius: 16px; border: 1.5px solid var(--line); padding: 12px 14px; }
+  details.read summary { font-size: 13px; font-weight: 700; cursor: pointer; }
+  details.read pre { white-space: pre-wrap; font-family: inherit; font-size: 12px; color: var(--sub); margin-top: 8px; line-height: 1.5; }
+  .more { margin-top: 22px; font-size: 13px; font-weight: 800; letter-spacing: .4px; color: var(--sub); }
+  .mini { margin-top: 10px; background: var(--muted); border-radius: 16px; padding: 12px 14px; }
+  .mini b { font-size: 14px; display: block; } .mini span { font-size: 12px; color: var(--sub); font-weight: 500; }
+
+  .bar { flex: none; display: flex; gap: 12px; padding: 14px 20px 30px; border-top: 1px solid var(--line); background: var(--white); }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+<div class="phone">
+  <div class="island"></div>
+  <div class="status">
+    <span id="clock">9:41</span>
+    <svg width="72" height="14" viewBox="0 0 72 14" aria-hidden="true"><g fill="#16161A"><rect x="0" y="9" width="3" height="5" rx="1"/><rect x="5" y="6" width="3" height="8" rx="1"/><rect x="10" y="3" width="3" height="11" rx="1"/><rect x="15" y="0" width="3" height="14" rx="1"/><path d="M31 3.5a9 9 0 0 1 12 0l-1.6 1.7a6.6 6.6 0 0 0-8.8 0zM33.6 6.6a5.2 5.2 0 0 1 6.8 0L37 10z"/><rect x="48" y="1" width="21" height="12" rx="3.5" fill="none" stroke="#16161A" stroke-opacity=".4"/><rect x="50" y="3" width="17" height="8" rx="2"/><rect x="70" y="5" width="1.5" height="4" rx=".75" fill-opacity=".4"/></g></svg>
+  </div>
+
+  <!-- 05 · Earn $5 -->
+  <section class="screen on" id="capture">
+    <div class="pad">
+      <h1>Spot a deal.<br>Get $5.</h1>
+      <p class="lede">Some deals only live on a poster or a menu board. Snap it and we'll check what it says.</p>
+
+      <div class="reward">
+        <div><b>$5</b><p>gift card per verified deal</p><small>Redeemable at most stores</small></div>
+        <div class="gift"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="8" width="18" height="4" rx="1"/><path d="M12 8v13M19 12v7a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-7M7.5 8a2.5 2.5 0 0 1 0-5C10 3 12 8 12 8s2-5 4.5-5a2.5 2.5 0 0 1 0 5"/></svg></div>
+      </div>
+
+      <div class="cam" id="cam">
+        <div class="empty" id="camEmpty">
+          <div class="thumb"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#FF5A1F" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3z"/><circle cx="12" cy="13" r="3.5"/></svg></div>
+          <b>Snap a deal in store</b>
+          <span>Posters, window signs, or menu boards</span>
+        </div>
+        <video id="video" playsinline muted class="hidden"></video>
+        <img id="preview" alt="Your photo" class="hidden">
+        <button class="shutter" id="shutter" aria-label="Take photo"></button>
+      </div>
+
+      <div class="row" id="pickRow">
+        <button class="btn primary" id="openCam">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3z"/><circle cx="12" cy="13" r="3.5"/></svg>
+          Take photo
+        </button>
+        <button class="btn ghost" id="uploadBtn">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V3M7 8l5-5 5 5M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/></svg>
+          Upload
+        </button>
+        <input type="file" id="file" accept="image/*" class="hidden">
+      </div>
+
+      <div class="row hidden" id="shotRow">
+        <button class="btn ghost" id="retake">Retake</button>
+        <button class="btn primary" id="check">Check this deal</button>
+      </div>
+
+      <label class="field">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#9A9AA5" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0z"/><circle cx="12" cy="10" r="3"/></svg>
+        <input id="shop" placeholder="Which store? (optional)" autocomplete="off">
+      </label>
+
+      <div class="steps" id="steps">
+        <div class="step" data-step="1"><i>1</i>Snap it</div>
+        <div class="step" data-step="2"><i>2</i>We verify</div>
+        <div class="step" data-step="3"><i>3</i>Get $5</div>
+      </div>
+      <div class="err" id="err"></div>
+    </div>
+  </section>
+
+  <!-- 05b · Submission result -->
+  <section class="screen" id="result">
+    <div class="hero">
+      <button class="back" id="back" aria-label="Back"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#16161A" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg></button>
+      <img id="resultImg" alt="Your photo">
+    </div>
+    <div class="pad" id="resultBody"></div>
+  </section>
+  <div class="bar hidden" id="resultBar">
+    <button class="btn ghost" id="again">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3z"/><circle cx="12" cy="13" r="3.5"/></svg>
+      Retake
+    </button>
+    <button class="btn primary" id="done">Done</button>
+  </div>
+</div>
+
+<script>
+const API = "/extract/photo";
+const MAX_EDGE = 1568; // Claude's recommended long edge; smaller uploads, same accuracy
+const $ = id => document.getElementById(id);
+const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "America/Los_Angeles";
+let stream = null, opening = false, photo = null, photoUrl = null;
+let photoVersion = 0; // bumped whenever the photo changes, so a late response for an old photo is ignored
+
+const ICON = {
+  clock: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#16161A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>',
+  tag: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#16161A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8z"/><circle cx="7.5" cy="7.5" r="1.5"/></svg>',
+  quote: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#16161A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>',
+  code: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#16161A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h8M6 14h12"/></svg>',
+  gift: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#16161A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="8" width="18" height="4" rx="1"/><path d="M12 8v13M19 12v7a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-7"/></svg>',
+  check: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>',
+  warn: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8v5M12 17h.01"/></svg>',
+  x: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg>',
+  food: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#FF5A1F" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 11h16a8 8 0 0 1-16 0zM12 3v4M8 5l1 2M16 5l-1 2"/></svg>',
+};
+
+const FLAG_TEXT = {
+  year_inferred: "Year inferred from your photo date",
+  no_end_date: "No end date on the poster",
+  no_dates: "No dates on the poster",
+  starts_later: "Starts later",
+  low_confidence: "Hard to read, needs a second look",
+  code_not_in_quote: "Promo code couldn't be confirmed",
+};
+const REJECT_TEXT = {
+  quote_not_in_source: "the text Claude quoted isn't on the poster",
+  missing_quote: "there was no quote from the poster to back it up",
+  source_not_in_search_results: "it didn't come from your photo",
+};
+
+function localISO(d = new Date()) {
+  const z = n => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${z(d.getMonth() + 1)}-${z(d.getDate())}`;
+}
+function esc(s) { return String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
+function fmtDate(iso) {
+  const [y, m, d] = iso.split("-").map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric", year: y === new Date().getFullYear() ? undefined : "numeric" });
+}
+function fmtTime(t) {
+  const [h, m] = t.split(":").map(Number);
+  return new Date(2000, 0, 1, h, m).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+}
+function cleanConditions(deal) { return (deal.conditions || []).map(c => String(c).trim()).filter(Boolean); }
+function cap(s) { return s[0].toUpperCase() + s.slice(1); }
+function when(deal) {
+  const { start_date: s, end_date: e, start_time: st, end_time: et } = deal;
+  const untilClose = cleanConditions(deal).some(c => /until close/i.test(c));
+  let days = "";
+  if (s && e && s === e) days = fmtDate(s);
+  else if (s && e) days = `${fmtDate(s)} – ${fmtDate(e)}`;
+  else if (e) days = `Until ${fmtDate(e)}`;
+  else if (s) days = `From ${fmtDate(s)}`;
+  let hours = "";
+  if (st && et) hours = `${fmtTime(st)} – ${fmtTime(et)}`;
+  else if (st) hours = untilClose ? `${fmtTime(st)} – close` : `from ${fmtTime(st)}`;
+  else if (et) hours = `until ${fmtTime(et)}`;
+  return [days, hours].filter(Boolean).join(" · ") || "No dates on the poster";
+}
+function statusOf(deal) {
+  if (deal.status === "live" && deal.flags.includes("starts_later")) return ["Upcoming", "p-up"];
+  return { live: ["Live now", "p-live"], needs_check: ["Needs a check", "p-check"], stale: ["Old post", "p-exp"], expired: ["Expired", "p-exp"] }[deal.status];
+}
+
+// --- Camera and upload ---
+function setStep(n) {
+  document.querySelectorAll(".step").forEach(el => {
+    const i = Number(el.dataset.step);
+    el.classList.toggle("done", i < n);
+    el.classList.toggle("now", i === n);
+    el.querySelector("i").textContent = i < n ? "✓" : i === n ? "" : i;
+  });
+}
+function showError(msg) { $("err").textContent = msg; $("err").classList.toggle("on", !!msg); }
+function stopCamera() { if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; } $("video").srcObject = null; }
+
+async function openCamera() {
+  if (opening || stream) return; // already opening or live: don't start a second stream
+  showError("");
+  opening = true; $("openCam").disabled = true;
+  const v = $("video");
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment", width: { ideal: 1920 }, height: { ideal: 1440 } }, audio: false });
+    v.srcObject = stream;
+    await v.play();
+  } catch (e) {
+    stopCamera(); v.srcObject = null;
+    showError("Couldn't open the camera (" + (e.name || e) + "). Allow camera access, or use Upload.");
+    return;
+  } finally {
+    opening = false; $("openCam").disabled = false;
+  }
+  photoVersion++;
+  $("camEmpty").classList.add("hidden"); $("preview").classList.add("hidden"); v.classList.remove("hidden");
+  $("cam").classList.add("live"); $("cam").classList.remove("shot");
+}
+
+function capture() {
+  const v = $("video");
+  if (!stream || !v.videoWidth) return;
+  const scale = Math.min(1, MAX_EDGE / Math.max(v.videoWidth, v.videoHeight));
+  const c = document.createElement("canvas");
+  c.width = Math.round(v.videoWidth * scale); c.height = Math.round(v.videoHeight * scale);
+  c.getContext("2d").drawImage(v, 0, 0, c.width, c.height);
+  stopCamera();
+  c.toBlob(b => setPhoto(new File([b], "camera.jpg", { type: "image/jpeg" })), "image/jpeg", 0.88);
+}
+
+async function shrink(file) {
+  // Re-encode big photos (and HEIC, where the browser can decode it) to a JPEG under Claude's limits.
+  try {
+    const bmp = await createImageBitmap(file);
+    const scale = Math.min(1, MAX_EDGE / Math.max(bmp.width, bmp.height));
+    if (scale === 1 && file.size < 4_000_000 && /jpe?g|png|webp|gif/.test(file.type)) return file;
+    const c = document.createElement("canvas");
+    c.width = Math.round(bmp.width * scale); c.height = Math.round(bmp.height * scale);
+    c.getContext("2d").drawImage(bmp, 0, 0, c.width, c.height);
+    const blob = await new Promise(r => c.toBlob(r, "image/jpeg", 0.88));
+    return new File([blob], (file.name || "photo").replace(/\.\w+$/, "") + ".jpg", { type: "image/jpeg" });
+  } catch {
+    return file; // let the API say whether it can read it
+  }
+}
+
+function setPhoto(file) {
+  photo = file; photoVersion++;
+  if (photoUrl) URL.revokeObjectURL(photoUrl);
+  photoUrl = URL.createObjectURL(file);
+  const img = $("preview");
+  img.src = photoUrl;
+  img.classList.remove("hidden"); $("video").classList.add("hidden"); $("camEmpty").classList.add("hidden");
+  $("cam").classList.remove("live"); $("cam").classList.add("shot");
+  $("pickRow").classList.add("hidden"); $("shotRow").classList.remove("hidden");
+  readyToCheck();
+  setStep(2); document.querySelector('.step[data-step="2"]').classList.remove("now");
+  document.querySelector('.step[data-step="2"] i').textContent = "2";
+}
+
+function reset() {
+  stopCamera(); photo = null; photoVersion++; showError("");
+  $("cam").classList.remove("live", "shot");
+  $("camEmpty").classList.remove("hidden"); $("video").classList.add("hidden"); $("preview").classList.add("hidden");
+  $("pickRow").classList.remove("hidden"); $("shotRow").classList.add("hidden");
+  $("file").value = "";
+  document.querySelectorAll(".step").forEach(el => { el.classList.remove("done", "now"); el.querySelector("i").textContent = el.dataset.step; });
+  showScreen("capture");
+}
+
+function showScreen(id) {
+  document.querySelectorAll(".screen").forEach(s => s.classList.toggle("on", s.id === id));
+  $("resultBar").classList.toggle("hidden", id !== "result");
+}
+
+// --- Verify ---
+async function check() {
+  if (!photo) return;
+  const version = photoVersion, sentUrl = photoUrl;
+  showError(""); setStep(2);
+  $("check").disabled = true; $("check").textContent = "Checking…";
+  const form = new FormData();
+  form.append("image", photo, photo.name || "photo.jpg");
+  form.append("photo_date", localISO());
+  form.append("timezone", tz);
+  const shop = $("shop").value.trim();
+  if (shop) form.append("shop", shop);
+  try {
+    const r = await fetch(API, { method: "POST", body: form });
+    const body = await r.json().catch(() => ({}));
+    if (version !== photoVersion) return; // photo was retaken or replaced while we waited
+    if (!r.ok) throw new Error(typeof body.detail === "string" ? body.detail : `Request failed (${r.status})`);
+    renderResult(body, sentUrl);
+  } catch (e) {
+    if (version !== photoVersion) return;
+    showError(e.message || String(e));
+    $("check").disabled = false; $("check").textContent = "Try again";
+    document.querySelector('.step[data-step="2"]').classList.remove("now");
+    document.querySelector('.step[data-step="2"] i').textContent = "2";
+  }
+}
+
+function verdictFor(deal, resp) {
+  if (!deal) {
+    const rej = resp.rejected[0];
+    return rej
+      ? ["v-bad", ICON.x, "Couldn't confirm this deal", `We read a deal, but ${REJECT_TEXT[rej.reason] || rej.reason}.`]
+      : ["v-bad", ICON.x, "No deal found", "We couldn't find an offer in this photo. Try a closer, straighter shot."];
+  }
+  const lowConf = deal.flags.includes("low_confidence");
+  if (deal.status === "live" && !lowConf) {
+    const up = deal.flags.includes("starts_later");
+    return ["v-ok", ICON.check, up ? "Deal confirmed · coming up" : "Deal confirmed", "Everything we show was read off your photo and checked."];
+  }
+  if (deal.status === "expired") return ["v-warn", ICON.warn, "Deal confirmed, but it's over", "The poster is real, but its date has passed."];
+  return ["v-warn", ICON.warn, "Deal found, needs a check", lowConf ? "Parts of the photo were hard to read." : "The poster doesn't say when it runs."];
+}
+
+function rewardLine(deal) {
+  if (!deal) return ["No reward", "Only verified deals earn the $5 gift card."];
+  if (deal.status === "live" && !deal.flags.includes("low_confidence")) return ["Eligible for $5", "Rewards are coming soon. Nothing is stored yet."];
+  if (deal.status === "expired") return ["Not eligible", "Expired deals don't earn the $5 reward."];
+  return ["Pending", "A second check is needed before this earns $5."];
+}
+
+function dealBlock(deal) {
+  const [label, cls] = statusOf(deal);
+  const notes = deal.flags.map(f => FLAG_TEXT[f]).filter(Boolean)
+    .filter(t => t !== "Starts later" && t !== "No dates on the poster");
+  const conds = cleanConditions(deal);
+  return `
+    <div class="store">
+      <div class="thumb">${ICON.food}</div>
+      <div><b>${esc(deal.shop_name)}</b><span>${esc(cap(deal.category || "other"))} · read from your photo</span></div>
+    </div>
+    <div class="offer">${esc(deal.offer)}</div>
+    <div class="pills"><span class="pill ${cls}">${label}</span>${notes.map(n => `<span class="pill p-note">${esc(n)}</span>`).join("")}</div>
+    <div class="details">
+      <div class="drow">${ICON.clock}<div><b>${esc(when(deal))}</b><span>${deal.status === "expired" ? "This date has passed" : deal.flags.includes("starts_later") ? "Hasn't started yet" : "As printed on the poster"}</span></div></div>
+      ${deal.code ? `<div class="drow">${ICON.code}<div><b>Code <code>${esc(deal.code)}</code></b><span>Found in the poster's text</span></div></div>` : ""}
+      ${conds.length ? `<div class="drow">${ICON.tag}<div><b>${esc(cap(conds[0]))}</b>${conds.length > 1 ? `<span>${esc(conds.slice(1).join(" · "))}</span>` : ""}</div></div>` : ""}
+      <div class="drow">${ICON.quote}<div><b>Quote found on the poster</b><span>“${esc(deal.verbatim_quote)}”</span></div></div>
+    </div>`;
+}
+
+function renderResult(resp, imageUrl) {
+  setStep(3);
+  const [main, ...others] = resp.deals;
+  const [vcls, vicon, vtitle, vsub] = verdictFor(main, resp);
+  const [rTitle, rSub] = rewardLine(main);
+  $("resultImg").src = imageUrl;
+  $("resultBody").innerHTML = `
+    <div class="verdict ${vcls}"><div class="ic">${vicon}</div><div><b>${vtitle}</b><span>${esc(vsub)}</span></div></div>
+    ${main ? dealBlock(main) : ""}
+    ${others.length ? `<div class="more">ALSO ON THIS POSTER</div>` + others.map(d => `<div class="mini"><b>${esc(d.offer)}</b><span>${esc(when(d))} · ${statusOf(d)[0]}</span></div>`).join("") : ""}
+    <div class="details" style="margin-top:14px"><div class="drow">${ICON.gift}<div><b>${rTitle}</b><span>${esc(rSub)}</span></div></div></div>
+    ${resp.transcript ? `<details class="read"><summary>What we read</summary><pre>${esc(resp.transcript)}</pre></details>` : ""}
+  `;
+  $("result").scrollTop = 0;
+  showScreen("result");
+}
+
+// --- Wiring ---
+$("openCam").onclick = openCamera;
+$("shutter").onclick = capture;
+$("uploadBtn").onclick = () => $("file").click();
+$("file").onchange = async e => { const f = e.target.files[0]; if (f) { stopCamera(); setPhoto(await shrink(f)); } };
+$("retake").onclick = reset;
+$("check").onclick = check;
+function readyToCheck() { $("check").disabled = false; $("check").textContent = "Check this deal"; }
+$("back").onclick = () => { readyToCheck(); showScreen("capture"); };
+$("again").onclick = reset;
+$("done").onclick = reset;
+(function tick() { const d = new Date(); $("clock").textContent = d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }).replace(/\s?[AP]M/i, ""); setTimeout(tick, 15000); })();
+</script>
+</body>
+</html>
