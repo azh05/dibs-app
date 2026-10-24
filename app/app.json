@@ -43,6 +43,12 @@
           "cameraPermission": "dibs uses the camera so you can snap deals in store.",
           "photosPermission": "dibs lets you pick a photo of a deal you spotted."
         }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "dibs uses your location to show deals near you and to ask about line lengths while you are at a store."
+        }
       ]
     ],
     "experiments": {

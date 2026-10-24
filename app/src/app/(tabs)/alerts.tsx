@@ -6,36 +6,31 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import DotRead from '@/assets/shapes/dot-read.svg';
 import DotUnread from '@/assets/shapes/dot-unread.svg';
-import { AppIcon } from '@/components/app-icon';
 import { EventCard } from '@/components/event-card';
 import { Icon } from '@/components/icon';
 import { InterestChip } from '@/components/interest-chip';
+import { NotificationCard } from '@/components/notification-card';
 import { Overline } from '@/components/section-header';
 import { Text } from '@/components/text';
 import { Thumb } from '@/components/thumb';
 import { findDeal, useDeals } from '@/lib/api';
-import { expiryText } from '@/lib/format';
 import { INTERESTS } from '@/lib/interests';
+import { alertBody } from '@/lib/notifications';
 import { useStore } from '@/lib/store';
 import { colors, gutter, radii } from '@/theme';
 
 /** Picked interests shown before the "+N more" pill. */
 const SHOWN_INTERESTS = 7;
 
-/** "Ends 6 PM" → "ends 6 PM", to follow the distance mid-sentence. */
-function lowerFirst(text: string) {
-  return text.charAt(0).toLowerCase() + text.slice(1);
-}
-
-// 06 · Alerts (Figma 5:559)
+// 12 · Alerts (Figma 5:559)
 export default function AlertsScreen() {
   const insets = useSafeAreaInsets();
   const { deals, events } = useDeals();
   const store = useStore();
-  const { activity, instant, topics, radiusMi, reminders } = store;
+  const { activity, instant, topics, alertRadiusMi, reminders } = store;
 
-  const latestActivity = activity[0];
-  const latest = latestActivity?.dealId ? findDeal(deals, latestActivity.dealId) : undefined;
+  const latestId = activity[0]?.dealId;
+  const latest = latestId ? findDeal(deals, latestId) : undefined;
   const nextEvent = events[0];
   const picked = INTERESTS.filter((i) => topics.has(i.label));
   const editInterests = () => router.push({ pathname: '/onboarding/interests', params: { edit: '1' } });
@@ -91,12 +86,12 @@ export default function AlertsScreen() {
                 Distance
               </Text>
               <Text weight="bold" size={14} color={colors.orange}>
-                Within {radiusMi} mi
+                Within {alertRadiusMi} mi
               </Text>
             </View>
             <Slider
-              value={radiusMi}
-              onValueChange={store.setRadiusMi}
+              value={alertRadiusMi}
+              onValueChange={store.setAlertRadiusMi}
               minimumValue={0.25}
               maximumValue={5}
               step={0.25}
@@ -108,22 +103,15 @@ export default function AlertsScreen() {
         </View>
 
         {instant && latest && (
-          <Pressable onPress={() => router.push(`/deal/${latest.id}`)} style={styles.push}>
-            <AppIcon />
-            <View style={{ flex: 1, gap: 3 }}>
-              <View style={styles.pushHeader}>
-                <Text weight="bold" size={14} color={colors.surface} numberOfLines={1} style={{ flexShrink: 1 }}>
-                  {latestActivity.title} · {latest.store}
-                </Text>
-                <Text size={12} color={colors.inkTertiary}>
-                  now
-                </Text>
-              </View>
-              <Text size={13} color={colors.border} style={{ lineHeight: 18 }}>
-                {latest.distanceMi} mi · {lowerFirst(expiryText(latest))}
-              </Text>
-            </View>
-          </Pressable>
+          <NotificationCard
+            tone="dark"
+            title={latest.store}
+            body={alertBody(latest)}
+            time="now"
+            logo={latest.logo}
+            icon={latest.icon}
+            onPress={() => router.push(`/deal/${latest.id}`)}
+          />
         )}
 
         {nextEvent && (
@@ -181,15 +169,6 @@ const styles = StyleSheet.create({
   content: { paddingTop: 8, paddingHorizontal: gutter, paddingBottom: 24, gap: 18 },
   titleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   instant: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  push: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 12,
-    padding: 14,
-    borderRadius: 22,
-    backgroundColor: colors.ink,
-  },
-  pushHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 },
   rowBetween: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   reminder: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   activity: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 12 },

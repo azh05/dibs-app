@@ -5,18 +5,21 @@ import { SourcePill, StatusPill } from '@/components/pills';
 import { Text } from '@/components/text';
 import { Thumb } from '@/components/thumb';
 import { SOURCE_ICONS, dealMeta, expiryText, sourceText } from '@/lib/format';
-import type { Deal } from '@/lib/types';
+import { lineLabel } from '@/lib/line-check';
+import type { Deal, LineEstimate } from '@/lib/types';
 import { colors, radii } from '@/theme';
 
 type Props = {
   deal: Deal;
+  /** Combined line reports, shown as "~15 min line" next to the distance. */
+  line?: LineEstimate | null;
   saved: boolean;
   onPress: () => void;
   onToggleSaved: () => void;
 };
 
 // Figma "Deal Card" (2:155).
-export function DealCard({ deal, saved, onPress, onToggleSaved }: Props) {
+export function DealCard({ deal, line, saved, onPress, onToggleSaved }: Props) {
   return (
     <Pressable onPress={onPress} style={({ pressed }) => [styles.card, pressed && { opacity: 0.85 }]}>
       <View style={styles.header}>
@@ -25,9 +28,19 @@ export function DealCard({ deal, saved, onPress, onToggleSaved }: Props) {
           <Text weight="bold" size={15} numberOfLines={1}>
             {deal.store}
           </Text>
-          <Text size={13} color={colors.inkTertiary} numberOfLines={1}>
-            {dealMeta(deal)}
-          </Text>
+          <View style={styles.meta}>
+            <Text size={13} color={colors.inkTertiary} numberOfLines={1}>
+              {dealMeta(deal)}
+            </Text>
+            {line && (
+              <View style={styles.line}>
+                <Icon name="clock" size={12} color={colors.inkTertiary} />
+                <Text size={13} color={colors.inkTertiary}>
+                  {lineLabel(line.minutes)} line
+                </Text>
+              </View>
+            )}
+          </View>
         </View>
         <Pressable
           onPress={onToggleSaved}
@@ -60,5 +73,7 @@ const styles = StyleSheet.create({
   },
   header: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   store: { flex: 1, gap: 2 },
+  meta: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  line: { flexDirection: 'row', alignItems: 'center', gap: 3 },
   footer: { flexDirection: 'row', alignItems: 'center', gap: 8 },
 });

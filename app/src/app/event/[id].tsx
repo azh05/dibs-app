@@ -11,11 +11,13 @@ import { Overline } from '@/components/section-header';
 import { Text } from '@/components/text';
 import { findEvent } from '@/lib/api';
 import { countdown, eventRange } from '@/lib/format';
+import { interestIcon } from '@/lib/interests';
+import { scheduleEventReminder } from '@/lib/notifications';
 import { useStore } from '@/lib/store';
 import { useNow } from '@/lib/use-now';
 import { colors, gutter, radii } from '@/theme';
 
-// 07 · Upcoming event (Figma 9:766)
+// 10 · Upcoming event (Figma 9:766)
 export default function EventDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const insets = useSafeAreaInsets();
@@ -73,7 +75,7 @@ export default function EventDetail() {
               {event.title}
             </Text>
             <View style={styles.place}>
-              <Icon name={event.icon} size={16} color={colors.orange} />
+              <Icon name={interestIcon(event.storeType)} size={16} color={colors.orange} />
               <Text size={13} color={colors.inkTertiary}>
                 {event.store} · {event.area} · {event.distanceMi} mi
               </Text>
@@ -131,7 +133,10 @@ export default function EventDetail() {
         <Button
           label={reminding ? 'Reminder on' : 'Remind me'}
           icon={reminding ? 'check' : 'bell'}
-          onPress={() => toggleReminder(event.id)}
+          onPress={() => {
+            if (!reminding) scheduleEventReminder(event).catch(() => undefined);
+            toggleReminder(event.id);
+          }}
           style={{ flex: 1, paddingHorizontal: 16 }}
         />
       </ActionBar>

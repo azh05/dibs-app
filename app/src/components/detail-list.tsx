@@ -4,7 +4,16 @@ import { StyleSheet, View } from 'react-native';
 import { Text } from '@/components/text';
 import { colors, radii } from '@/theme';
 
-export type DetailRow = { key: string; icon: ReactNode; title: string; subtitle: string };
+export type DetailRow = {
+  key: string;
+  icon: ReactNode;
+  title: string;
+  /** Emphasised end of the title, e.g. "~15 min" in "Line now: ~15 min". */
+  accent?: string;
+  subtitle: string;
+  /** Pill or control at the right edge ("Live"). */
+  trailing?: ReactNode;
+};
 
 // The grey "Details" panel on the deal and event screens: icon + title + subtitle rows.
 export function DetailList({ rows }: { rows: DetailRow[] }) {
@@ -16,11 +25,17 @@ export function DetailList({ rows }: { rows: DetailRow[] }) {
           <View style={styles.text}>
             <Text weight="semibold" size={14}>
               {row.title}
+              {row.accent && (
+                <Text weight="extrabold" size={14} color={colors.orange}>
+                  {row.accent}
+                </Text>
+              )}
             </Text>
             <Text size={12} color={colors.inkTertiary}>
               {row.subtitle}
             </Text>
           </View>
+          {row.trailing}
         </View>
       ))}
     </View>

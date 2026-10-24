@@ -31,12 +31,18 @@ export type ApiSearchResponse = {
   transcript?: string | null;
 };
 
-/** Store types behind the filter chips. */
-export type StoreType = 'food' | 'boba' | 'cafe' | 'barber' | 'gym' | 'grocery' | 'boxing' | 'fastfood' | 'nails';
-
 export type SourceKind = 'instagram' | 'community' | 'website';
 
 export type LatLng = { latitude: number; longitude: number };
+
+/** Figma "Store Logo": the store's brand colour behind its category icon. */
+export type StoreLogo = { bg: string; fg: string };
+
+/** Deal types a deal can carry, as named in the interest catalog (`DEAL_TYPES`). */
+export type DealTag = 'BOGO' | '% off' | 'Free stuff' | 'Student deals' | 'Happy hour' | 'Late night' | 'New openings';
+
+/** Crowd-reported wait, combined from line checks in the last hour. */
+export type LineEstimate = { minutes: number; reports: number };
 
 /** The source post shown at the top of the deal / event detail screens. */
 export type SourcePost = {
@@ -55,11 +61,16 @@ export type SourcePost = {
 export type Deal = {
   id: string;
   store: string;
-  storeType: StoreType;
+  /** Store type from the interest catalog, e.g. "Boba & tea". */
+  storeType: string;
   /** Shown before the distance, e.g. "Boba" in "Boba · 0.3 mi". */
   typeLabel: string;
   icon: IconName;
+  logo: StoreLogo | null;
   offer: string;
+  /** Short name for lists and notifications, e.g. "BOGO milk tea". */
+  shortOffer: string;
+  tags: DealTag[];
   /** Short text on the map pin, e.g. "BOGO". */
   pinLabel: string;
   distanceMi: number | null;
@@ -67,6 +78,8 @@ export type Deal = {
   address: string | null;
   walk: string | null;
   openUntil: string | null;
+  /** Opening hours as [open, close] in 24h hours, for "Open now". */
+  hours: [number, number] | null;
   /** End of the deal, if known. Drives "Ends 6 PM" and "Ends in 2h 14m". */
   endsAt: Date | null;
   /** Expiry text when there is no clock time, e.g. "Today only". */
@@ -77,6 +90,8 @@ export type Deal = {
   postedHoursAgo: number;
   confirmations: number;
   lastCheckMinutes: number | null;
+  /** Line reports from other dibs users in the last hour. */
+  line: LineEstimate | null;
   post: SourcePost;
 };
 
@@ -85,8 +100,9 @@ export type DealEvent = {
   title: string;
   store: string;
   area: string;
-  storeType: StoreType;
+  storeType: string;
   icon: IconName;
+  logo: StoreLogo | null;
   pinLabel: string;
   distanceMi: number;
   travel: string;

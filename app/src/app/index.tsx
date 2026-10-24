@@ -1,16 +1,16 @@
 import { router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
-import { Animated, StyleSheet, useAnimatedValue, View } from 'react-native';
+import { Animated, Pressable, StyleSheet, useAnimatedValue, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import DotWelcome from '@/assets/shapes/dot-welcome.svg';
-import { Button } from '@/components/button';
+import { Icon } from '@/components/icon';
 import { Text } from '@/components/text';
 import { Wordmark } from '@/components/wordmark';
 import { colors } from '@/theme';
 
-// 01 · Welcome (Figma 3:97), onboarding step 1 of 3.
+// 01 · Welcome (Figma 3:97). Both buttons lead to Sign in, as in the prototype.
 export default function Welcome() {
   const insets = useSafeAreaInsets();
   const pulse = useAnimatedValue(1);
@@ -26,8 +26,7 @@ export default function Welcome() {
     return () => loop.stop();
   }, [pulse]);
 
-  const signUp = () => router.push('/onboarding/interests');
-  const signIn = () => router.replace('/deals');
+  const signIn = () => router.push('/onboarding/sign-in');
 
   return (
     <View style={[styles.screen, { paddingTop: insets.top, paddingBottom: Math.max(insets.bottom, 24) + 24 }]}>
@@ -38,20 +37,33 @@ export default function Welcome() {
           Never miss out on a deal again.
         </Text>
         <Text weight="semibold" size={17} color={colors.orangeSoft} style={{ lineHeight: 24 }}>
-          Your personal AI agent runs 24/7 and pings you the second a deal you care about drops.
+          Your personal AI agent that runs 24/7 and pings you the second a deal drops.
         </Text>
         <View style={styles.scanning}>
           <Animated.View style={{ opacity: pulse }}>
             <DotWelcome width={8} height={8} />
           </Animated.View>
           <Text weight="semibold" size={13} color={colors.surface}>
-            Watching 1,284 spots near you · 24/7
+            Watching 1,284 spots near you
           </Text>
         </View>
       </View>
       <View style={styles.actions}>
-        <Button label="Find deals near me" variant="dark" onPress={signUp} style={styles.cta} />
-        <Button label="I already have an account" variant="ghost" onPress={signIn} style={styles.cta} />
+        <Pressable
+          onPress={signIn}
+          accessibilityRole="button"
+          style={({ pressed }) => [styles.primary, pressed && { opacity: 0.9 }]}>
+          <Icon name="navigation" size={20} color={colors.orange} />
+          <Text weight="extrabold" size={17}>
+            Find deals near me
+          </Text>
+          <Icon name="arrow" size={20} color={colors.orange} />
+        </Pressable>
+        <Pressable onPress={signIn} accessibilityRole="button" style={styles.secondary}>
+          <Text weight="bold" size={15} color={colors.surface}>
+            I already have an account
+          </Text>
+        </Pressable>
         <Text size={12} color={colors.orangeSoft} style={{ textAlign: 'center' }}>
           We only read public posts. No store pays to be in your feed.
         </Text>
@@ -73,5 +85,18 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.16)',
   },
   actions: { gap: 12 },
-  cta: { paddingVertical: 17 },
+  primary: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    paddingVertical: 20,
+    borderRadius: 18,
+    backgroundColor: colors.surface,
+    shadowColor: '#8C2605',
+    shadowOpacity: 0.35,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 10 },
+  },
+  secondary: { alignItems: 'center', paddingVertical: 10 },
 });

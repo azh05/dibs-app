@@ -4,6 +4,11 @@ import { colors } from '@/theme';
 const WEEKDAYS = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
+/** "1 deal", "9 deals" */
+export function plural(count: number, word: string) {
+  return `${count} ${count === 1 ? word : `${word}s`}`;
+}
+
 /** "6 PM", "6:30 PM" */
 export function clock(date: Date) {
   const h = date.getHours() % 12 || 12;
