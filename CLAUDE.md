@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-Dibs finds short-lived local deals, has Claude extract them as structured JSON, and checks every deal with deterministic Python rules before returning it. This is a monorepo: the FastAPI backend lives in `api/` and a mobile app is planned in `mobile/`. The app should only ever call the API, never Anthropic or Bright Data directly.
+Dibs finds short-lived local deals, has Claude extract them as structured JSON, and checks every deal with deterministic Python rules before returning it. This is a monorepo: the FastAPI backend lives in `api/` and the Expo mobile app lives in `app/` (see `app/README.md`). The app should only ever call the API, never Anthropic or Bright Data directly.
 
 `api/README.md` documents the HTTP API, verification rules tables, and Bright Data setup in detail; keep it in sync when behavior changes. The root `README.md` only describes the folder layout.
 
