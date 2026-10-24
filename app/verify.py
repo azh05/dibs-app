@@ -36,6 +36,14 @@ def _alnum(text: str) -> str:
     return re.sub(r"[^a-z0-9]", "", text.lower())
 
 
+_TYPOGRAPHY = str.maketrans({"‘": "'", "’": "'", "“": '"', "”": '"', "–": "-", "—": "-", "…": "..."})
+
+
+def _loose(text: str) -> str:
+    """Case, whitespace and curly-quote insensitive form, for checking a quote against its source."""
+    return re.sub(r"\s+", " ", text.translate(_TYPOGRAPHY).lower()).strip()
+
+
 _DATE_FORMATS = ("%Y-%m-%d", "%B %d, %Y", "%b %d, %Y", "%d %B %Y", "%d %b %Y")
 _RELATIVE = re.compile(r"^(\d+)\s+(minute|hour|day|week|month|year)s?\s+ago$", re.I)
 _UNIT_DAYS = {"minute": 0, "hour": 0, "day": 1, "week": 7, "month": 30, "year": 365}
@@ -62,7 +70,12 @@ def verify_deals(
     sources: list[SearchResultSource],
     today: date,
     stale_after_days: int = STALE_AFTER_DAYS,
+    *,
+    source_texts: Optional[dict[str, str]] = None,
+    authoritative_post_dates: Optional[dict[str, date]] = None,
 ) -> tuple[list[Deal], list[RejectedDeal]]:
+    """`source_texts` and `authoritative_post_dates` are keyed by normalize_url(). Pass them when
+    we hold the full source text (Bright Data pipelines), so quotes and post dates can be checked."""
     by_url = {normalize_url(s.url): s for s in sources}
     kept: list[Deal] = []
     rejected: list[RejectedDeal] = []
@@ -74,13 +87,25 @@ def verify_deals(
             continue
 
         # 2. Source must be a page the search actually returned (blocks invented links).
-        source = by_url.get(normalize_url(raw.source_url))
+        url_key = normalize_url(raw.source_url)
+        source = by_url.get(url_key)
         if source is None:
             rejected.append(RejectedDeal(deal=raw, reason="source_not_in_search_results"))
             continue
 
+        # 2b. With the full source text in hand, the quote must really be in it.
+        if source_texts is not None and _loose(raw.verbatim_quote) not in _loose(source_texts.get(url_key, "")):
+            rejected.append(RejectedDeal(deal=raw, reason="quote_not_in_source"))
+            continue
+
         data = raw.model_dump()
         flags: list[str] = []
+
+        # 2c. A scraper's post timestamp beats Claude's reading of the page.
+        known_date = (authoritative_post_dates or {}).get(url_key)
+        if known_date is not None and known_date != raw.source_post_date:
+            data["source_post_date"] = known_date
+            flags.append("post_date_from_source")
 
         # 3. A promo code must appear in the quote, or we drop it.
         if raw.code and _alnum(raw.code) not in _alnum(raw.verbatim_quote):
@@ -88,7 +113,7 @@ def verify_deals(
             flags.append("code_not_in_quote")
 
         # 4. Post date: Claude's reading of the page, else the search result's page_age.
-        post_date = raw.source_post_date
+        post_date = data["source_post_date"]
         if post_date is None:
             post_date = parse_page_age(source.page_age, today)
             if post_date is not None:

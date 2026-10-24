@@ -1,11 +1,12 @@
 """Data models for extracted deals and API requests/responses."""
 from __future__ import annotations
 
-from datetime import date
+import re
+from datetime import date, datetime
 from enum import Enum
-from typing import Optional
+from typing import Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class Category(str, Enum):
@@ -93,6 +94,9 @@ class Usage(BaseModel):
     web_search_requests: int = 0
 
 
+Provider = Literal["claude_web_search", "brightdata_serp", "brightdata_instagram"]
+
+
 class SearchResponse(BaseModel):
     as_of: date
     deals: list[Deal]
@@ -101,3 +105,59 @@ class SearchResponse(BaseModel):
     sources: list[SearchResultSource]
     search_errors: list[str] = Field(default_factory=list)
     usage: Usage
+    provider: Provider = "claude_web_search"
+    brightdata_requests: int = 0
+
+
+class SerpSearchRequest(BaseModel):
+    location: Location = Field(default_factory=Location)
+    radius_miles: float = Field(1.0, gt=0, le=25)
+    categories: list[Category] = Field(default_factory=list)
+    shop: Optional[str] = Field(None, description="Focus on one shop, e.g. 'Milksha Westwood'")
+    query: Optional[str] = Field(None, description="Free-text extra instructions for extraction")
+    queries: list[str] = Field(default_factory=list, description="Google queries to run instead of the automatic ones")
+    max_queries: int = Field(4, ge=1, le=8)
+    past_month: bool = Field(True, description="Limit Google to the past month (tbs=qdr:m)")
+
+
+_HANDLE = re.compile(r"^[A-Za-z0-9._]{1,30}$")
+
+
+class InstagramRequest(BaseModel):
+    handles: list[str] = Field(..., min_length=1, max_length=20, examples=[["milksha_ca"]])
+    num_of_posts: int = Field(6, ge=1, le=20, description="Newest posts to fetch per profile")
+    since_days: int = Field(30, ge=1, le=90)
+    location: Location = Field(default_factory=Location)
+    radius_miles: float = Field(1.0, gt=0, le=25)
+
+    @field_validator("handles")
+    @classmethod
+    def _clean_handles(cls, handles: list[str]) -> list[str]:
+        """Accept '@milksha_ca', 'milksha_ca' or a profile URL; only public profile handles get through."""
+        cleaned: list[str] = []
+        for h in handles:
+            h = re.sub(r"^(https?://)?(www\.)?instagram\.com/", "", h.strip(), flags=re.I).strip("/").lstrip("@")
+            if not _HANDLE.match(h):
+                raise ValueError(f"not an Instagram handle: {h!r}")
+            if h.lower() not in {c.lower() for c in cleaned}:
+                cleaned.append(h)
+        return cleaned
+
+
+class JobError(BaseModel):
+    status_code: int
+    detail: str
+
+
+class JobStatus(BaseModel):
+    job_id: str
+    status: Literal["queued", "running", "done", "failed"]
+    created_at: datetime
+    progress: list[str] = Field(default_factory=list)
+    result: Optional[SearchResponse] = None
+    error: Optional[JobError] = None
+
+
+class JobCreated(BaseModel):
+    job_id: str
+    status_url: str

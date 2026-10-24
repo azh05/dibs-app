@@ -100,7 +100,7 @@ def test_prose_answer_forces_tool_next_turn():
     second = msg([record_block([GOOD_DEAL])], stop_reason="tool_use")
     out, calls = run([first, second])
     assert len(calls) == 2
-    assert calls[1]["tool_choice"] == {"type": "tool", "name": RECORD_TOOL_NAME}
+    assert calls[1]["tool_choice"] == {"type": "auto"}  # forced tool_choice is a 400 on claude-opus-5-5
     # Assistant turn sent back with the search blocks intact, then the nudge.
     sent_back = calls[1]["messages"][1]
     assert sent_back["role"] == "assistant"
@@ -160,3 +160,12 @@ def test_record_tool_schema_is_self_contained():
     item = schema["properties"]["deals"]["items"]
     assert "verbatim_quote" in item["required"] and "source_url" in item["required"]
     assert "$defs" not in item
+
+
+def test_system_prompt_unchanged_by_refactor():
+    import hashlib
+
+    from app.extractor import SYSTEM_PROMPT
+
+    # Hash of the prompt before DEAL_RULES was split out for the Bright Data pipeline.
+    assert hashlib.sha256(SYSTEM_PROMPT.encode()).hexdigest() == "f51ec42e717cf7f93ed41c6bf27852bdd0194d65e7ea81c9d865a4eca53bc82e"

@@ -121,3 +121,43 @@ def test_parse_page_age_formats():
     assert parse_page_age("3 days ago", TODAY) == date(2026, 10, 20)
     assert parse_page_age("2 weeks ago", TODAY) == date(2026, 10, 9)
     assert parse_page_age("sometime", TODAY) is None
+
+
+# --- full-source checks (Bright Data pipelines) -----------------------------------
+
+FULL_TEXT = {"instagram.com/p/milksha123": "Buy 1 drink and get the second 50% off with code BOGO50,\nall October long! ’Tis the season"}
+
+
+def test_quote_must_appear_in_source_text():
+    kept, rejected = verify_deals([deal(verbatim_quote="Buy 1 drink, get 2 free with BOGO50")], SOURCES, TODAY, source_texts=FULL_TEXT)
+    assert not kept and rejected[0].reason == "quote_not_in_source"
+
+
+def test_quote_match_ignores_case_whitespace_and_curly_quotes():
+    quote = "buy 1 drink and get the second 50% off with code BOGO50, all october long! 'tis"
+    kept, rejected = verify_deals([deal(verbatim_quote=quote)], SOURCES, TODAY, source_texts=FULL_TEXT)
+    assert kept and not rejected
+
+
+def test_authoritative_post_date_overrides_claude():
+    raw = deal(end_date=None, source_post_date=date(2026, 9, 1))
+    kept, _ = verify_deals([raw], SOURCES, TODAY, authoritative_post_dates={"instagram.com/p/milksha123": date(2026, 10, 20)})
+    assert kept[0].source_post_date == date(2026, 10, 20)
+    assert "post_date_from_source" in kept[0].flags
+    assert kept[0].status == DealStatus.live  # would be stale on Claude's date
+
+
+def test_matching_authoritative_date_adds_no_flag():
+    raw = deal(source_post_date=date(2026, 10, 20))
+    kept, _ = verify_deals([raw], SOURCES, TODAY, authoritative_post_dates={"instagram.com/p/milksha123": date(2026, 10, 20)})
+    assert "post_date_from_source" not in kept[0].flags
+
+
+def test_invented_url_rejected_even_with_source_texts():
+    kept, rejected = verify_deals([deal(source_url="https://instagram.com/p/fake")], SOURCES, TODAY, source_texts=FULL_TEXT)
+    assert rejected[0].reason == "source_not_in_search_results"
+
+
+def test_without_new_args_quote_is_not_checked():
+    kept, rejected = verify_deals([deal(verbatim_quote="anything at all with BOGO50")], SOURCES, TODAY)
+    assert kept and not rejected

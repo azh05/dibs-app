@@ -28,10 +28,12 @@ RECORD_TOOL_NAME = "record_deals"
 MAX_TURNS = 4
 DATE_FIELDS = ("start_date", "end_date", "source_post_date")
 
-SYSTEM_PROMPT = """\
+DEAL_TYPES = """\
 You find current, short-lived deals at small local businesses: grand-opening specials, \
 BOGO offers, promo codes, sign-up bonuses, collab drinks, happy hours, limited-time menu deals.
+"""
 
+SEARCH_INSTRUCTIONS = """
 How to work:
 - Use web search. Instagram posts from shops are often the best source, so try queries like \
 "<shop or neighborhood> deal", "<neighborhood> grand opening", "<shop> promo code", and \
@@ -42,6 +44,10 @@ site:instagram.com searches.
 Rules for every deal you record:
 - Only record deals you saw in a search result in this conversation. source_url must be the exact \
 URL of that result.
+"""
+
+# Shared with the Bright Data pipeline (bd_pipeline.py), which supplies its own source rule.
+DEAL_RULES = """\
 - verbatim_quote must be copied word for word from the source and must support the offer. If a \
 promo code is recorded, the code must appear in the quote.
 - Never infer or guess an end_date. If the source doesn't state one, use null.
@@ -52,10 +58,14 @@ app sign-up required, and so on.
 Don't merge them.
 - Use confidence "low" when the source is ambiguous, second-hand, or you're unsure the deal is current.
 - One deal per distinct offer. Skip anything that isn't a deal (menus, reviews, general posts).
+"""
 
+SEARCH_FINISH = """
 When you're done searching, call the record_deals tool exactly once with every deal you found. \
 If you found none, call it with an empty list.
 """
+
+SYSTEM_PROMPT = DEAL_TYPES + SEARCH_INSTRUCTIONS + DEAL_RULES + SEARCH_FINISH
 
 
 def _inline_refs(schema: dict[str, Any]) -> dict[str, Any]:
@@ -192,9 +202,9 @@ class DealExtractor:
             messages.append({"role": "assistant", "content": [b.model_dump(exclude_none=True) for b in resp.content]})
             if resp.stop_reason == "pause_turn":
                 continue
-            # Claude answered in prose: force the structured tool on the next turn.
+            # Claude answered in prose: ask for the structured tool on the next turn. (Forcing it with
+            # tool_choice {"type": "tool"} returns a 400 on claude-opus-5-5, so tool_choice stays auto.)
             messages.append({"role": "user", "content": "Now call record_deals with every deal you found, or an empty list."})
-            tool_choice = {"type": "tool", "name": RECORD_TOOL_NAME}
 
         if recorded is None:
             errors.append("Claude never called record_deals")
