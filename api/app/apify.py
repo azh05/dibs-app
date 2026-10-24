@@ -9,6 +9,7 @@ import logging
 import os
 import re
 import threading
+import time
 from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
 from typing import Any, Callable, Iterable, Optional
@@ -29,6 +30,21 @@ FACEBOOK_ACTOR = "apify~facebook-posts-scraper"
 WEBSITE_ACTOR = "apify~website-content-crawler"
 
 RUN_TIMEOUT_S = 240  # Actor run limit; the sync endpoint itself gives up at 300 s
+# Apify caps the memory of all running Actors per account (16 GB on the free plan, even with promo credits;
+# see GET /v2/users/me/limits). Actor defaults add up past that (website crawler alone asks for 8 GB), so each
+# run asks for less, and runs wait their turn instead of failing with HTTP 402.
+ACCOUNT_MEMORY_MB = int(os.getenv("APIFY_MEMORY_MB", "16384"))
+ACTOR_MEMORY_MB = {
+    "compass~crawler-google-places": 2048,  # default 4096
+    "apify~instagram-scraper": 1024,
+    "apify~instagram-hashtag-scraper": 1024,
+    "clockworks~tiktok-scraper": 2048,  # default 4096
+    "apify~facebook-posts-scraper": 2048,  # default 4096
+    "apify~website-content-crawler": 4096,  # default 8192; a browser for JS sites needs ~4 GB
+}
+DEFAULT_ACTOR_MEMORY_MB = 2048
+MEMORY_RETRIES = 3  # when runs started elsewhere (the console, another server) hold the memory
+MEMORY_RETRY_WAIT_S = 20
 HTTP_TIMEOUT_S = 310
 # Pages worth reading on a shop's site, besides its home page.
 WEBSITE_KEYWORDS = ("deal", "special", "promo", "offer", "happy", "menu", "event", "news", "student", "discount", "sale", "coupon")
@@ -63,6 +79,29 @@ class WebPage:
     url: str
     title: Optional[str]
     text: str
+
+
+class MemoryGate:
+    """Blocks a run until the account has room for its memory, counting this process's runs."""
+
+    def __init__(self, capacity_mb: int):
+        self.capacity_mb = capacity_mb
+        self.used_mb = 0
+        self._cond = threading.Condition()
+
+    def acquire(self, mb: int) -> None:
+        mb = min(mb, self.capacity_mb)
+        with self._cond:
+            self._cond.wait_for(lambda: self.used_mb + mb <= self.capacity_mb)
+            self.used_mb += mb
+
+    def release(self, mb: int) -> None:
+        with self._cond:
+            self.used_mb -= min(mb, self.capacity_mb)
+            self._cond.notify_all()
+
+
+ACCOUNT_GATE = MemoryGate(ACCOUNT_MEMORY_MB)
 
 
 class RunCounter:
@@ -284,10 +323,19 @@ def parse_pages(items: Iterable[Any], errors: list[str]) -> list[WebPage]:
 # --- client --------------------------------------------------------------------------
 
 class ApifyClient:
-    def __init__(self, token: Optional[str] = None, http: Optional[httpx.Client] = None, run_timeout_s: int = RUN_TIMEOUT_S):
+    def __init__(
+        self,
+        token: Optional[str] = None,
+        http: Optional[httpx.Client] = None,
+        run_timeout_s: int = RUN_TIMEOUT_S,
+        gate: Optional[MemoryGate] = None,
+        sleep: Callable[[float], None] = time.sleep,
+    ):
         self.token = token or os.getenv("APIFY_TOKEN") or os.getenv("APIFY_API_TOKEN")
         self.http = http or httpx.Client(timeout=HTTP_TIMEOUT_S)
         self.run_timeout_s = run_timeout_s
+        self.gate = gate or ACCOUNT_GATE
+        self.sleep = sleep
 
     def require_token(self) -> None:
         if not self.token:
@@ -296,19 +344,17 @@ class ApifyClient:
     def run(self, actor: str, actor_input: dict[str, Any], max_items: int, counter: Optional[RunCounter] = None) -> list[Any]:
         """Run an Actor and return its dataset items. max_items caps what pay-per-result Actors bill."""
         self.require_token()
-        if counter is not None:
-            counter.add()
-        try:
-            resp = self.http.post(
-                f"{API_BASE}/acts/{actor}/run-sync-get-dataset-items",
-                params={"timeout": self.run_timeout_s, "maxItems": max_items, "format": "json", "clean": "true"},
-                headers={"Authorization": f"Bearer {self.token}"},
-                json=actor_input,
-            )
-        except httpx.TimeoutException as exc:
-            raise ApifyTimeout(f"{actor} timed out") from exc
-        except httpx.HTTPError as exc:
-            raise ApifyError(f"{actor}: {exc}") from exc
+        memory = ACTOR_MEMORY_MB.get(actor, DEFAULT_ACTOR_MEMORY_MB)
+        for attempt in range(MEMORY_RETRIES + 1):
+            self.gate.acquire(memory)
+            try:
+                resp = self._post(actor, actor_input, max_items, memory, counter)
+            finally:
+                self.gate.release(memory)
+            if not (resp.status_code == 402 and "memory limit" in resp.text) or attempt == MEMORY_RETRIES:
+                break
+            log.info("Apify account memory is full; retrying %s in %s s", actor, MEMORY_RETRY_WAIT_S)
+            self.sleep(MEMORY_RETRY_WAIT_S)
         if resp.status_code in (401, 403):
             raise ApifyAuthError(f"Apify rejected APIFY_TOKEN: HTTP {resp.status_code}")
         if resp.status_code == 408:
@@ -322,6 +368,21 @@ class ApifyClient:
         if not isinstance(data, list):
             raise ApifyError(f"{actor} returned {type(data).__name__}, expected a list of items")
         return data
+
+    def _post(self, actor: str, actor_input: dict[str, Any], max_items: int, memory: int, counter: Optional[RunCounter]) -> httpx.Response:
+        if counter is not None:
+            counter.add()
+        try:
+            return self.http.post(
+                f"{API_BASE}/acts/{actor}/run-sync-get-dataset-items",
+                params={"timeout": self.run_timeout_s, "memory": memory, "maxItems": max_items, "format": "json", "clean": "true"},
+                headers={"Authorization": f"Bearer {self.token}"},
+                json=actor_input,
+            )
+        except httpx.TimeoutException as exc:
+            raise ApifyTimeout(f"{actor} timed out") from exc
+        except httpx.HTTPError as exc:
+            raise ApifyError(f"{actor}: {exc}") from exc
 
     # --- one method per Actor ----------------------------------------------------------
 

@@ -5,6 +5,7 @@ import httpx
 import pytest
 
 from app.apify import (
+    MemoryGate,
     ApifyAuthError,
     ApifyClient,
     ApifyError,
@@ -23,8 +24,8 @@ from app.apify import (
 SINCE = date(2026, 10, 10)
 
 
-def client(handler, token="tok"):
-    return ApifyClient(token=token, http=httpx.Client(transport=httpx.MockTransport(handler)))
+def client(handler, token="tok", gate=None):
+    return ApifyClient(token=token, http=httpx.Client(transport=httpx.MockTransport(handler)), gate=gate or MemoryGate(16384), sleep=lambda s: None)
 
 
 def test_run_sends_input_with_token_and_limits():
@@ -41,6 +42,7 @@ def test_run_sends_input_with_token_and_limits():
     posts = client(handler).instagram_posts(["milksha_ca"], SINCE, 6, errors, counter)
     assert seen["url"].path == "/v2/acts/apify~instagram-scraper/run-sync-get-dataset-items"
     assert seen["url"].params["maxItems"] == "6" and seen["url"].params["timeout"] == "240"
+    assert seen["url"].params["memory"] == "1024"
     assert seen["auth"] == "Bearer tok"
     assert seen["body"]["directUrls"] == ["https://www.instagram.com/milksha_ca/"]
     assert seen["body"]["onlyPostsNewerThan"] == "2026-10-10"
@@ -211,3 +213,49 @@ def test_parse_pages_skips_empty():
     rows = [{"url": "https://milksha.com/", "text": "Happy hour 3-5pm", "metadata": {"title": "Milksha"}}, {"url": "https://milksha.com/x", "text": " "}]
     [p] = parse_pages(rows, [])
     assert p.title == "Milksha"
+
+
+MEMORY_FULL = {"error": {"type": "actor-memory-limit-exceeded", "message": "By launching this job you will exceed the memory limit of 16384MB for all your Actor runs and builds"}}
+
+
+def test_memory_limit_402_waits_and_retries():
+    calls = []
+
+    def handler(request):
+        calls.append(1)
+        return httpx.Response(402, json=MEMORY_FULL) if len(calls) < 3 else httpx.Response(201, json=[])
+
+    assert client(handler).run("apify~website-content-crawler", {}, 1) == []
+    assert len(calls) == 3
+
+
+def test_memory_limit_gives_up_after_retries():
+    with pytest.raises(ApifyError, match="memory limit"):
+        client(lambda r: httpx.Response(402, json=MEMORY_FULL)).run("x~y", {}, 1)
+
+
+def test_out_of_credits_402_is_not_retried():
+    calls = []
+
+    def handler(request):
+        calls.append(1)
+        return httpx.Response(402, json={"error": {"message": "Not enough usage credits"}})
+
+    with pytest.raises(ApifyError):
+        client(handler).run("x~y", {}, 1)
+    assert len(calls) == 1
+
+
+def test_memory_gate_blocks_until_room():
+    import threading
+
+    gate = MemoryGate(4096)
+    gate.acquire(4096)
+    got = threading.Event()
+    t = threading.Thread(target=lambda: (gate.acquire(2048), got.set()))
+    t.start()
+    assert not got.wait(0.1)  # full: the second run waits
+    gate.release(4096)
+    assert got.wait(1)
+    t.join()
+    assert gate.used_mb == 2048
