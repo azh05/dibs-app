@@ -4,12 +4,12 @@ Finds short-lived local deals, returns them as structured JSON, and checks each 
 
 ## Run it
 
-Needs [uv](https://docs.astral.sh/uv/). It installs Python 3.13 and the dependencies for you. Run every command below from this `api/` folder.
+Needs [uv](https://docs.astral.sh/uv/). It installs Python 3.13 and the dependencies for you. From the repo root:
 
 ```bash
-cd api
+cd api                                     # every command below runs from here
 uv sync
-cp .env.example .env                       # then add your ANTHROPIC_API_KEY
+cp .env.example .env                       # then add ANTHROPIC_API_KEY (+ BRIGHTDATA_API_KEY, see Bright Data setup)
 uv run --env-file .env uvicorn app.main:app --reload --port 8000
 ```
 
@@ -32,7 +32,7 @@ Other request fields: `shop` ("Milksha Westwood"), `query` ("boba BOGO"), `allow
 
 1. **One Claude call, two tools.** `web_search` (server-side, capped by `max_searches`, located to the request's city) and `record_deals`, a client tool whose input schema is the deal JSON. Claude searches, then calls `record_deals` once.
    - `pause_turn` → the assistant turn is sent back unchanged and Claude continues.
-   - Plain-text answer → one follow-up turn forces `record_deals`.
+   - Plain-text answer → one follow-up turn asks for `record_deals`. (`tool_choice` stays `auto`: forcing a tool returns a 400 on `claude-opus-5-5`.)
    - Gives up after 4 turns and reports it in `search_errors`.
 2. **Per-deal validation.** A date Claude can't express as `YYYY-MM-DD` becomes `null`, never a guess. Other bad fields drop that one deal, not the batch.
 3. **Verification** (`app/verify.py`, no AI):
@@ -70,13 +70,15 @@ Deals come back sorted live → needs_check → stale → expired.
   "queries": ["Westwood boba deal October", "..."],
   "sources": [{"url": "...", "title": "...", "page_age": "October 1, 2026"}],
   "search_errors": [],
-  "usage": {"input_tokens": 0, "output_tokens": 0, "web_search_requests": 0}
+  "usage": {"input_tokens": 0, "output_tokens": 0, "web_search_requests": 0},
+  "provider": "claude_web_search",
+  "brightdata_requests": 0
 }
 ```
 
 ## Bright Data pipelines
 
-Bright Data fetches the pages; Claude only extracts from them (no web search tool, one forced `record_deals` call over numbered sources `[S1]`, `[S2]`...). Because we hold each source's full text, verification is stricter than on `/extract/search`:
+Bright Data fetches the pages; Claude only extracts from them (no web search tool; one `record_deals` call over numbered sources `[S1]`, `[S2]`..., with one nudge turn if Claude answers in prose). Because we hold each source's full text, verification is stricter than on `/extract/search`:
 
 | Extra rule | Result |
 | --- | --- |
@@ -89,7 +91,7 @@ All the rules in the table above still apply. Instagram posts are first-hand onl
 
 Bright Data SERP API, queries run in parallel. Body: `location`, `radius_miles`, `categories`, `shop`, `query`, `queries` (your own Google queries), `max_queries` (default 4, max 8), `past_month` (default true, adds `tbs=qdr:m`), `enrich_instagram` (default true). Automatic queries, where `{area}` is "neighborhood city" (plain "Westwood" also matches Westwood NJ, MA and KS): `{shop} promo code` (if `shop`), `site:instagram.com {area} deal`, `{area} grand opening special`, `{area} {category} BOGO`.
 
-Checked live on 2026-10-23:
+Checked live on 2026-10-23 and 10-24:
 - Bright Data returns the parsed Google page as a JSON object (`organic[]` items have `title, link, description, global_rank`).
 - `tbs=qdr:m` passes through: with it, every snippet was from Sep to Oct 2026; without it, results went back to May 2025.
 - Good answers take 2 to 15 s. Blocked ones hang about 60 s and come back empty (`x-brd-error-code: expect_element`), or fail with `failed_query_rejected` or a 502. Each attempt is cut off at 20 s and retried once, so a dead query costs about 42 s, and queries run in parallel.
@@ -156,7 +158,7 @@ uv run pytest -q
 
 ## Not in this MVP
 
-Image upload (story screenshots, window signs), Instagram story mentions, storage, scheduling, and the frontend. CORS is wide open for the hackathon; tighten it before launch.
+Image upload (story screenshots, window signs), Instagram story mentions, storage, scheduling, and auth. The mobile app is next, in `../mobile/`. CORS is wide open for the hackathon; tighten it before launch.
 
 ## Layout
 
