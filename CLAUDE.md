@@ -24,18 +24,19 @@ Add dependencies with `uv add <pkg>` (dev-only: `uv add --dev <pkg>`), never pip
 
 `pytest.ini` sets `pythonpath = .`, so tests import `app.*` directly. Tests need no API keys or credits. There is no linter/formatter configured.
 
-Env vars (see `api/.env.example`; keys live only in the gitignored `api/.env`): `ANTHROPIC_API_KEY`, `DIBS_MODEL` (default `claude-opus-5-5`), `BRIGHTDATA_API_KEY` (or `BRIGHTDATA_API_TOKEN`), `BRIGHTDATA_SERP_ZONE`. The `/extract/serp` and `/extract/instagram` endpoints spend real Bright Data credits and have no auth — keep uvicorn bound to 127.0.0.1.
+Env vars (see `api/.env.example`; keys live only in the gitignored `api/.env`): `ANTHROPIC_API_KEY`, `DIBS_MODEL` (default `claude-opus-5-5`), `BRIGHTDATA_API_KEY` (or `BRIGHTDATA_API_TOKEN`), `BRIGHTDATA_SERP_ZONE`, `APIFY_TOKEN`, `DIBS_SHOP_CACHE` (shop-list cache path, `off` disables). `/extract/serp`, `/extract/instagram` and `/extract/shops` spend real Bright Data / Apify credits and have no auth — keep uvicorn bound to 127.0.0.1.
 
 ## Architecture
 
-Four endpoints, three source types, one shared verification layer:
+Five extract endpoints, one shared verification layer:
 
 - **`/extract/search`** → `app/extractor.py` `DealExtractor`. A single multi-turn Claude call with two tools: server-side `web_search` (`web_search_20250305`) and the client tool `record_deals`, whose input schema is generated from `RawDeal` (refs inlined by `_inline_refs`). The loop (max `MAX_TURNS`=4) handles `pause_turn` by resending the assistant turn unchanged, and nudges once if Claude answers in prose. Sources for verification are the URLs the web search actually returned.
 - **`/extract/serp`** and **`/extract/instagram`** → `app/bd_pipeline.py` `BrightDataPipeline`. `app/brightdata.py` fetches (SERP API with retries; Instagram posts scraped by URL). `/extract/instagram` finds each shop's posts through Google first, then fetches them by URL, because Bright Data's profile discovery is unreliable; `/extract/serp` re-extracts deals that cite an Instagram post from the full caption (`enrich_instagram`), `app/sources.py` normalizes everything into `SourceDoc`, then `extract_from_docs` makes a Claude call with **only** `record_deals` over numbered sources `[S1]`, `[S2]`.... Instagram runs as a background job via `app/jobs.py` `JobStore` (in-memory, thread pool; `POST` returns 202 + `status_url`).
+- **`/extract/shops`** → `app/shop_pipeline.py` `ShopPipeline` (background job). `app/apify.py` `ApifyClient` runs public Store Actors through `run-sync-get-dataset-items` (one parser per Actor's output). Google Maps (`compass/crawler-google-places`, `scrapeContacts`) finds shops with their Instagram/TikTok/Facebook links, cached per area by `ShopCache` (`api/.cache/shops.json`, 7 days); a keyword sweep (TikTok search + Instagram hashtags) runs alongside and its @mentions become extra shops; then one run per channel (Instagram, TikTok, Facebook, website crawler) for all shops, in parallel. `_attribute` marks posts from a shop's own account (`SourceDoc.shop`, rendered as "shop's own <channel>"); everything else is second-hand. Extraction/verification reuse `extract_docs`/`verify_docs` from `bd_pipeline.py`. Website docs carry a `prompt_text` excerpt (`deal_excerpt`) for Claude while verification uses the full page.
 - **`/extract/photo`** → `app/photo.py` `PhotoExtractor`. Multipart upload; Claude gets the image and calls `record_photo_deals` with a full `transcript` plus deals (`PhotoRawDeal` adds `year_stated`). The transcript is passed to `verify_deals` as `source_texts`, so quotes are machine-checked like the Bright Data path. Dates without a year are fixed in Python (`resolve_missing_year`, nearest to `photo_date`) and flagged `year_inferred`; status is judged against today. `GET /demo` serves `demo/index.html`, a dependency-free phone-sized page that drives this endpoint from a webcam or upload.
 - **`app/verify.py` `verify_deals`** is the AI-free gate every path goes through: rejects deals lacking a quote or citing a URL not in the fetched sources, strips promo codes not in the quote, assigns `live`/`needs_check`/`stale`/`expired`, dedupes, and sorts. The Bright Data path additionally passes `source_texts` and `authoritative_post_dates` (keyed by `normalize_url()`) so quotes must appear in the source text and Bright Data post dates override Claude's.
 - **`app/schemas.py`**: `RawDeal` (what Claude emits) vs `Deal` (verified, adds `status`/`flags`); request/response models. Every endpoint returns `SearchResponse` with a `provider` field.
-- **`app/errors.py` `http_error`** maps upstream exceptions (Anthropic, `BrightDataAuthError`/`BrightDataTimeout`/`BrightDataError`) to HTTP status codes; `main._call` and `JobStore` both use it.
+- **`app/errors.py` `http_error`** maps upstream exceptions (Anthropic, Bright Data and Apify auth/timeout/other errors) to HTTP status codes; `main._call` and `JobStore` both use it.
 
 ### Non-obvious constraints
 
@@ -47,5 +48,5 @@ Four endpoints, three source types, one shared verification layer:
 ## Testing approach
 
 - Claude is faked with objects returning real `anthropic` SDK `Message` objects (see `msg()`/`FakeClient` in `tests/test_extractor.py`); constructors accept injected clients (`DealExtractor(client=...)`, `BrightDataPipeline(bd=..., anthropic_client=...)`).
-- Bright Data is faked with `httpx.MockTransport`.
+- Bright Data and Apify are faked with `httpx.MockTransport`; `tests/test_shop_pipeline.py` uses a `FakeApify` with one method per Actor and `ShopCache(None)` (disabled).
 - API tests use `app.dependency_overrides` on `get_extractor`/`get_pipeline`/`get_jobs` and a `JobStore(executor=InlineExecutor())` to run jobs synchronously.

@@ -62,17 +62,21 @@ PROMPT_CHAR_BUDGET = 120_000  # roughly 30k tokens of sources per call
 EXTRACTION_PROMPT = (
     DEAL_TYPES
     + """
-You don't search. Bright Data already fetched the public pages in the user message, numbered [S1], [S2]... \
+You don't search. The public pages in the user message were already fetched, numbered [S1], [S2]... \
 Read them and record the deals they contain.
 
 Rules for every deal you record:
 - Use ONLY the numbered sources. source_url must be exactly one of their URLs.
 - verbatim_quote must be copied exactly from that source's text, word for word. It is checked by machine.
 - Google results are short snippets. If a snippet doesn't show the whole offer, use confidence "low".
-- For Instagram sources, the posted date is given; use it as source_post_date.
+- When a source's posted date is given, use it as source_post_date.
 - An Instagram post is first-hand only if the shop posted it or co-posted it ("co-posted with @shop" in the \
 header); then set shop_handle to the shop's account. A post by another account that only mentions the shop \
 is second-hand: use confidence "low".
+- A source marked "shop's own" (the shop's website, Instagram, TikTok or Facebook) is first-hand for that shop. \
+A TikTok, Instagram or Facebook post by any other account (an influencer, a food blog) is second-hand: use \
+confidence "low".
+- Website text shows only the lines that look like offers. A menu price alone is not a deal.
 """
     + DEAL_RULES
     + """
@@ -124,13 +128,16 @@ def render_sources(docs: list[SourceDoc], errors: list[str]) -> str:
             header += f" | @{d.handle}"
         if d.coauthors:
             header += " | co-posted with " + ", ".join(f"@{c}" for c in d.coauthors)
+        if d.shop:
+            header += f" | shop's own {d.origin}: {d.shop}"
         if d.post_date:
             header += f" | posted: {d.post_date.isoformat()}"
         elif d.page_age:
             header += f" | posted: {d.page_age} (date shown by Google)"
         else:
             header += " | posted: unknown"
-        text = d.text if len(d.text) <= DOC_CHAR_LIMIT else d.text[:DOC_CHAR_LIMIT] + " [truncated]"
+        text = d.prompt_text or d.text
+        text = text if len(text) <= DOC_CHAR_LIMIT else text[:DOC_CHAR_LIMIT] + " [truncated]"
         block = f"{header}\n{text}"
         if used + len(block) > PROMPT_CHAR_BUDGET:
             errors.append(f"only the first {len(blocks)} of {len(docs)} sources fit in one Claude call")
@@ -173,6 +180,34 @@ def extract_from_docs(
         messages.append({"role": "user", "content": "Now call record_deals with every deal you found, or an empty list."})
     errors.append("Claude never called record_deals")
     return [], usage
+
+
+def extract_docs(
+    client: Any,
+    model: str,
+    docs: list[SourceDoc],
+    context: SearchRequest,
+    today: date,
+    errors: list[str],
+    on_progress: Optional[Callable[[str], None]] = None,
+    provider_name: str = "Bright Data",
+) -> tuple[list[RawDeal], Usage]:
+    """extract_from_docs, or a note in errors when there is nothing to read."""
+    if not docs:
+        errors.append(f"{provider_name} returned no usable sources, so there was nothing to extract")
+        return [], Usage()
+    if on_progress:
+        on_progress(f"extracting deals from {len(docs)} source(s) with Claude")
+    return extract_from_docs(client, model, docs, build_user_prompt(context, today), errors)
+
+
+def verify_docs(docs: list[SourceDoc], raw: list[RawDeal], today: date):
+    """verify_deals with the full fetched text and the scrapers' post dates. Returns (sources, deals, rejected)."""
+    sources = to_search_sources(docs)
+    deals, rejected = verify_deals(
+        raw, sources, today, source_texts=source_texts(docs), authoritative_post_dates=post_dates(docs)
+    )
+    return sources, deals, rejected
 
 
 class BrightDataPipeline:
@@ -374,12 +409,7 @@ class BrightDataPipeline:
         errors: list[str],
         on_progress: Optional[Callable[[str], None]] = None,
     ) -> tuple[list[RawDeal], Usage]:
-        if not docs:
-            errors.append("Bright Data returned no usable sources, so there was nothing to extract")
-            return [], Usage()
-        if on_progress:
-            on_progress(f"extracting deals from {len(docs)} source(s) with Claude")
-        return extract_from_docs(self.anthropic, self.model, docs, build_user_prompt(context, today), errors)
+        return extract_docs(self.anthropic, self.model, docs, context, today, errors, on_progress)
 
     def _respond(
         self,
@@ -393,10 +423,7 @@ class BrightDataPipeline:
         provider: Provider,
         fetched_codes: Optional[set[str]] = None,
     ) -> SearchResponse:
-        sources = to_search_sources(docs)
-        deals, rejected = verify_deals(
-            raw, sources, today, source_texts=source_texts(docs), authoritative_post_dates=post_dates(docs)
-        )
+        sources, deals, rejected = verify_docs(docs, raw, today)
         for d in deals:
             if fetched_codes and ig_shortcode(d.source_url) in fetched_codes:
                 d.flags.append("full_post_fetched")

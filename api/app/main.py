@@ -1,5 +1,5 @@
 """FastAPI app: verified deal JSON from Claude web search (/extract/search), Bright Data (/extract/serp,
-/extract/instagram), or a user's photo of an in-store deal (/extract/photo)."""
+/extract/instagram), Apify shop scraping (/extract/shops), or a user's photo of an in-store deal (/extract/photo)."""
 from __future__ import annotations
 
 import logging
@@ -18,13 +18,22 @@ from .errors import http_error
 from .extractor import DealExtractor, _today
 from .jobs import JobStore
 from .photo import MAX_IMAGE_BYTES, PhotoExtractor, sniff_media_type
-from .schemas import InstagramRequest, JobCreated, JobStatus, SearchRequest, SearchResponse, SerpSearchRequest
+from .shop_pipeline import ShopPipeline
+from .schemas import (
+    InstagramRequest,
+    JobCreated,
+    JobStatus,
+    SearchRequest,
+    SearchResponse,
+    SerpSearchRequest,
+    ShopsRequest,
+)
 
 logging.basicConfig(level=logging.INFO)
 
 app = FastAPI(
     title="Dibs",
-    description="Short-lived local deals from Claude web search or Bright Data public web data, with deterministic verification.",
+    description="Short-lived local deals from Claude web search, Bright Data or Apify public web data, with deterministic verification.",
     version="0.2.0",
 )
 
@@ -49,6 +58,11 @@ def get_pipeline() -> BrightDataPipeline:
 @lru_cache
 def get_jobs() -> JobStore:
     return JobStore()
+
+
+@lru_cache
+def get_shop_pipeline() -> ShopPipeline:
+    return ShopPipeline()
 
 
 @lru_cache
@@ -102,6 +116,28 @@ def extract_instagram(
 
 @app.get("/extract/instagram/{job_id}", response_model=JobStatus)
 def instagram_job(job_id: str, jobs: JobStore = Depends(get_jobs)) -> JobStatus:
+    return _job(jobs, job_id)
+
+
+@app.post("/extract/shops", status_code=202, response_model=JobCreated)
+def extract_shops(
+    req: ShopsRequest,
+    pipeline: ShopPipeline = Depends(get_shop_pipeline),
+    jobs: JobStore = Depends(get_jobs),
+) -> JobCreated:
+    """Start a background job: find shops on Google Maps, scrape their website, Instagram, TikTok and Facebook
+    with Apify, plus a TikTok/hashtag sweep. Poll status_url (1 to 5 min)."""
+    _call(pipeline.check_ready)
+    job_id = jobs.submit(lambda on_progress: pipeline.run(req, on_progress=on_progress))
+    return JobCreated(job_id=job_id, status_url=f"/extract/shops/{job_id}")
+
+
+@app.get("/extract/shops/{job_id}", response_model=JobStatus)
+def shops_job(job_id: str, jobs: JobStore = Depends(get_jobs)) -> JobStatus:
+    return _job(jobs, job_id)
+
+
+def _job(jobs: JobStore, job_id: str) -> JobStatus:
     job = jobs.get(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="unknown job_id (jobs are kept in memory and lost on restart)")

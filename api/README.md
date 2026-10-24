@@ -1,6 +1,6 @@
 # Dibs API
 
-Finds short-lived local deals, returns them as structured JSON, and checks each one with plain Python rules before anyone sees it. Two ways to fetch: Claude's own web search (`/extract/search`), or Bright Data public web data (`/extract/serp` for Google results, `/extract/instagram` for shops' public posts) with Claude doing extraction only. Users can also upload a photo of an in-store deal (`/extract/photo`).
+Finds short-lived local deals, returns them as structured JSON, and checks each one with plain Python rules before anyone sees it. Three ways to fetch: Claude's own web search (`/extract/search`); Bright Data public web data (`/extract/serp` for Google results, `/extract/instagram` for shops' public posts); or Apify (`/extract/shops`: find shops on Google Maps, then scrape each one's website, Instagram, TikTok and Facebook). With Bright Data and Apify, Claude only extracts. Users can also upload a photo of an in-store deal (`/extract/photo`).
 
 ## Run it
 
@@ -9,7 +9,7 @@ Needs [uv](https://docs.astral.sh/uv/). It installs Python 3.13 and the dependen
 ```bash
 cd api                                     # every command below runs from here
 uv sync
-cp .env.example .env                       # then add ANTHROPIC_API_KEY (+ BRIGHTDATA_API_KEY, see Bright Data setup)
+cp .env.example .env                       # then add ANTHROPIC_API_KEY (+ BRIGHTDATA_API_KEY, APIFY_TOKEN: see the setup sections)
 uv run --env-file .env uvicorn app.main:app --reload --port 8000
 ```
 
@@ -120,6 +120,60 @@ Both return the usual response plus `provider` (`claude_web_search`, `brightdata
 | Other Bright Data failure (every SERP query failed, job `failed`, ...) | 502 |
 | One of several SERP queries failed | 200, noted in `search_errors` |
 
+## Apify shop scraping
+
+### `POST /extract/shops` (background job, 1 to 5 min)
+
+Finds the shops in an area, then reads each shop's **own** channels, where deals actually get posted. Returns `202 {"job_id", "status_url"}`; poll `GET /extract/shops/{job_id}` the same way as the Instagram job.
+
+1. **Shops.** Apify Google Maps scraper (`compass/crawler-google-places`) searches the area for each search term, with `scrapeContacts` on, so every shop comes back with the Instagram, TikTok and Facebook links from its listing or website. The list is cached per area for 7 days in `api/.cache/shops.json` (gitignored), so repeat runs skip this step; `refresh_shops: true` searches again. `DIBS_SHOP_CACHE=off` turns the cache off, or set it to another file path.
+2. **Keyword sweep** (same time as step 1): one TikTok search (`{neighborhood} {term} deal`) and Instagram hashtags (`#{neighborhood}eats`, `#{neighborhood}food`). Posts by other accounts are kept as second-hand sources. Accounts they @mention that aren't already shops (up to 5) are scraped in step 3 too, as shops with `found_via: "mention"`.
+3. **Channels**, one Apify run each, all shops at once, in parallel:
+
+| Channel | Actor | What's read |
+| --- | --- | --- |
+| Instagram | `apify/instagram-scraper` | Newest posts and reels: caption + image alt text, post date, @mentions, collab coauthors |
+| TikTok | `clockworks/tiktok-scraper` | Newest videos: caption, post date, @mentions (no speech-to-text yet) |
+| Facebook | `apify/facebook-posts-scraper` | Newest page posts: text + **OCR of poster images** (`[image text] ...`), post date |
+| Website | `apify/website-content-crawler` (adaptive: plain HTTP, or a browser for JS-built sites) | Home page + linked pages whose URL contains deal/special/promo/offer/happy/menu/event/news, up to 4 per site |
+
+4. Claude extracts over all of it in one call; `verify_deals` checks it with the same rules as the Bright Data path.
+
+Body: `location`, `radius_miles`, `categories`, `search_terms` (Google Maps searches; default from `categories`: food → restaurant, drink → boba + coffee shop; none → all three), `shops` (names to look up instead of searching, e.g. `["Milksha Westwood"]`), `max_shops` (default 8, max 20), `days` (default 14), `posts_per_shop` (default 6), `channels` (default all four), `sweep` (default true), `hashtags`, `search_queries`, `refresh_shops`.
+
+**First-hand vs second-hand.** A post is the shop's own when its author is the shop's account (Instagram also: a collab coauthor; Facebook: the page we asked for; website: the shop's domain). These are marked `shop's own <channel>` for Claude and the deal gets the flag `shop_own_post`. Everything else (sweep posts, influencers) is rated low confidence, so it never shows as `live`.
+
+Also handled: a failed channel is retried once, then noted in `search_errors` while the other channels still return (only a failed Google Maps search or a bad token fails the job); pinned posts older than `days` are dropped; long web pages show Claude only the deal-looking lines (with a line of context), but the quote is checked against the whole page.
+
+The response adds `shops` (each with `name`, `address`, `website`, `instagram`, `tiktok`, `facebook`, `maps_url`, `found_via`) and `apify_runs`. `provider` is `apify_shops`.
+
+| Error | HTTP |
+| --- | --- |
+| `APIFY_TOKEN` missing or rejected | 500 `APIFY_TOKEN missing or invalid` (missing: before the job starts) |
+| Apify run over 4 min | 504 |
+| Google Maps search failed, out of credits (402), bad input | 502 |
+| One channel failed | 200, noted in `search_errors` |
+
+### Apify setup
+
+1. Sign up at https://console.apify.com (the free plan includes $5 of usage a month). Cal Hacks: Billing → Subscription → promo code `APIFY_CAL_HACKS` adds $200 of credits.
+2. Settings → API & Integrations: copy the personal API token into `.env` as `APIFY_TOKEN`.
+3. Nothing else: the Actors are public Store Actors, billed per result to your account.
+
+```bash
+JOB=$(curl -s -X POST localhost:8000/extract/shops -H 'content-type: application/json' \
+  -d '{"location":{"neighborhood":"Westwood"},"search_terms":["boba"],"max_shops":3}' | python -c 'import json,sys; print(json.load(sys.stdin)["status_url"])')
+curl -s localhost:8000$JOB | python -m json.tool   # repeat until "status": "done"
+```
+
+Live, 2026-10-24, `{"location":{"neighborhood":"Westwood"},"search_terms":["boba"],"max_shops":3}`:
+- Google Maps returned Target, Just Boba Tea House and CHICHA San Chen (Sawtelle). Only CHICHA had a social link (Instagram); none had Facebook or TikTok links, so most of the signal came from Instagram.
+- 3 deals came back: CHICHA's K/DA collab drink with a free photocard (`live`, high, `shop_own_post`), its League of Legends prize draw (`needs_check`), and a Molly Tea BOGO from a food influencer's TikTok found by the sweep (second-hand, `needs_check`).
+- About 2.5 min and $0.16 in Apify usage with the shop list cached ($0.18 the first time). The TikTok search was the biggest cost ($0.075) and 19 of its 20 results were older than 14 days, so they were dropped. Search results have no date filter, so only recent posts can add mentioned shops.
+- Website crawling: `cheerio` (plain HTTP) got no text from CHICHA's JS-built site, so the crawler now runs `playwright:adaptive`. Just Boba's site returns HTTP 502; retries are capped at 2 (the default 10 spent 100 s on it).
+
+Estimated cost for 8 shops (Store prices on the free plan; higher plans are cheaper): Google Maps + contacts about $0.03, Instagram/TikTok/Facebook at 6 posts per shop about $0.15, websites about $0.10, plus the Claude call. `apify_runs` shows how many Actor runs a job made; the Apify console shows the exact spend.
+
 ## Photo confirmation
 
 ### `POST /extract/photo` (blocking, 5 to 20 s)
@@ -170,7 +224,7 @@ curl -s localhost:8000$JOB | python -m json.tool   # repeat until "status": "don
 uv run pytest -q
 ```
 
-131 tests: every verification rule, the multi-turn tool loop (pause_turn, forced tool, give-up), malformed output, search errors, the Bright Data client (retries, polling, timeouts, error rows), both Bright Data pipelines, photo extraction (year inference, time windows, upload checks), the job flow, and the API. They use a fake Claude client returning real SDK `Message` objects and `httpx.MockTransport` for Bright Data, so no keys or credits are needed.
+182 tests: every verification rule, the multi-turn tool loop (pause_turn, forced tool, give-up), malformed output, search errors, the Bright Data client (retries, polling, timeouts, error rows), both Bright Data pipelines, the Apify client (request shape, errors, each Actor's output) and shop pipeline (attribution, sweep, cache, per-channel failures), photo extraction (year inference, time windows, upload checks), the job flow, and the API. They use a fake Claude client returning real SDK `Message` objects and `httpx.MockTransport` for Bright Data and Apify, so no keys or credits are needed.
 
 ## Cost and settings
 
@@ -178,10 +232,11 @@ uv run pytest -q
 - Model: `DIBS_MODEL` env var, default `claude-opus-5-5`. Any model that supports the web search tool works; a smaller model is cheaper for frequent runs.
 - Web search tool version: `web_search_20250305`, the basic version that works with direct calls.
 - Bright Data: billed per request on your account; `brightdata_requests` in each response shows how many were made. Check usage in the Bright Data dashboard.
+- Apify: billed per result by each Actor; `apify_runs` shows how many runs a job made. See the Apify section for estimates.
 
 ## Not in this MVP
 
-Storing photo submissions and rewards, Instagram story mentions, storage, scheduling, and auth. The mobile app is next, in `../mobile/`. CORS is wide open for the hackathon; tighten it before launch.
+Storing photo submissions and rewards, Instagram stories, speech-to-text for TikTok/reels, storage, scheduling, and auth. The mobile app is next, in `../mobile/`. CORS is wide open for the hackathon; tighten it before launch.
 
 ## Layout
 
@@ -189,10 +244,12 @@ Storing photo submissions and rewards, Instagram story mentions, storage, schedu
 app/schemas.py    Pydantic models: RawDeal (from Claude), Deal (verified), request/response
 app/extractor.py  Claude web search call, tool definitions, prompt, turn loop
 app/brightdata.py Bright Data client: SERP API, Instagram posts scraper
-app/sources.py    SourceDoc: one shape for everything Bright Data fetched
+app/apify.py      Apify client: Google Maps, Instagram, TikTok, Facebook, website Actors
+app/sources.py    SourceDoc: one shape for everything Bright Data or Apify fetched
 app/bd_pipeline.py Bright Data fetch -> Claude extraction -> verification
+app/shop_pipeline.py Google Maps shops -> each shop's channels (Apify) -> extraction -> verification
 app/photo.py      User photo -> Claude transcript + deals -> verification
-app/jobs.py       In-memory background jobs (Instagram)
+app/jobs.py       In-memory background jobs (Instagram, shops)
 app/errors.py     Upstream error -> HTTP status mapping
 app/verify.py     Deterministic verification rules
 app/main.py       FastAPI app

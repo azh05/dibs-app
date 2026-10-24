@@ -5,6 +5,7 @@ from typing import Optional
 
 import anthropic
 
+from .apify import ApifyAuthError, ApifyError, ApifyTimeout
 from .brightdata import BrightDataAuthError, BrightDataError, BrightDataTimeout
 
 
@@ -22,6 +23,12 @@ def http_error(exc: Exception) -> Optional[tuple[int, str]]:
         return 504, f"Bright Data timed out: {exc}"
     if isinstance(exc, BrightDataError):
         return 502, f"Bright Data error: {exc}"
+    if isinstance(exc, ApifyAuthError):
+        return 500, "APIFY_TOKEN missing or invalid"
+    if isinstance(exc, ApifyTimeout):
+        return 504, f"Apify timed out: {exc}"
+    if isinstance(exc, ApifyError):
+        return 502, f"Apify error: {exc}"
     if isinstance(exc, anthropic.AuthenticationError):
         return 500, "ANTHROPIC_API_KEY is missing or invalid"
     if isinstance(exc, anthropic.RateLimitError):

@@ -96,7 +96,23 @@ class Usage(BaseModel):
     web_search_requests: int = 0
 
 
-Provider = Literal["claude_web_search", "brightdata_serp", "brightdata_instagram", "user_photo"]
+Provider = Literal["claude_web_search", "brightdata_serp", "brightdata_instagram", "user_photo", "apify_shops"]
+
+Channel = Literal["instagram", "tiktok", "facebook", "website"]
+
+
+class Shop(BaseModel):
+    """A shop found on Google Maps, with the social accounts its listing or website links to."""
+
+    name: str
+    address: Optional[str] = None
+    category: Optional[str] = None
+    maps_url: Optional[str] = None
+    website: Optional[str] = None
+    instagram: Optional[str] = Field(None, description="Handle without @")
+    tiktok: Optional[str] = Field(None, description="Handle without @")
+    facebook: Optional[str] = Field(None, description="Page URL")
+    found_via: Literal["google_maps", "named", "mention"] = "google_maps"
 
 
 class SearchResponse(BaseModel):
@@ -109,6 +125,8 @@ class SearchResponse(BaseModel):
     usage: Usage
     provider: Provider = "claude_web_search"
     brightdata_requests: int = 0
+    apify_runs: int = 0
+    shops: list[Shop] = Field(default_factory=list, description="apify_shops only: the shops that were scraped")
     transcript: Optional[str] = Field(None, description="user_photo only: all text Claude read in the image")
 
 
@@ -150,6 +168,29 @@ class InstagramRequest(BaseModel):
             if h.lower() not in {c.lower() for c in cleaned}:
                 cleaned.append(h)
         return cleaned
+
+
+class ShopsRequest(BaseModel):
+    location: Location = Field(default_factory=Location)
+    radius_miles: float = Field(1.0, gt=0, le=25)
+    categories: list[Category] = Field(default_factory=list)
+    search_terms: list[str] = Field(
+        default_factory=list,
+        max_length=6,
+        description="Google Maps searches, e.g. ['boba', 'coffee shop']. Default: from categories",
+        examples=[["boba"]],
+    )
+    shops: list[str] = Field(
+        default_factory=list, max_length=20, description="Scrape these shops instead of searching, e.g. ['Milksha Westwood']"
+    )
+    max_shops: int = Field(8, ge=1, le=20)
+    days: int = Field(14, ge=1, le=60, description="Only posts from the last N days")
+    posts_per_shop: int = Field(6, ge=1, le=20, description="Newest posts per shop per platform")
+    channels: list[Channel] = Field(default_factory=lambda: ["instagram", "tiktok", "facebook", "website"])
+    sweep: bool = Field(True, description="Also search TikTok and Instagram hashtags for the area (second-hand posts)")
+    hashtags: list[str] = Field(default_factory=list, max_length=5, description="Sweep hashtags. Default: <neighborhood>eats, <neighborhood>food")
+    search_queries: list[str] = Field(default_factory=list, max_length=3, description="Sweep TikTok searches. Default: '<area> deals'")
+    refresh_shops: bool = Field(False, description="Ignore the cached shop list for this area and search Google Maps again")
 
 
 class JobError(BaseModel):
