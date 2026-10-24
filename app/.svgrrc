@@ -1,0 +1,22 @@
+{
+  "replaceAttrValues": {
+    "#16161A": "currentColor"
+  },
+  "svgoConfig": {
+    "plugins": [
+      {
+        "name": "preset-default",
+        "params": {
+          "overrides": {
+            "removeViewBox": false,
+            "convertColors": false
+          }
+        }
+      },
+      {
+        "name": "removeAttrs",
+        "params": { "attrs": "svg:(style|overflow)" }
+      }
+    ]
+  }
+}

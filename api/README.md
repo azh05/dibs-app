@@ -158,7 +158,7 @@ uv run pytest -q
 
 ## Not in this MVP
 
-Image upload (story screenshots, window signs), Instagram story mentions, storage, scheduling, and auth. The mobile app is next, in `../mobile/`. CORS is wide open for the hackathon; tighten it before launch.
+Image upload (story screenshots, window signs), Instagram story mentions, storage, scheduling, and auth. The mobile app is in `../app/`. CORS is wide open for the hackathon; tighten it before launch.
 
 ## Layout
 
