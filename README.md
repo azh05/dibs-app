@@ -5,7 +5,7 @@ Short-lived local deals (grand-opening specials, BOGO offers, promo codes) found
 | Folder | What | Docs |
 | --- | --- | --- |
 | [`api/`](api/) | FastAPI backend: Claude web search and Bright Data (Google + public Instagram posts) pipelines, deterministic verification | [api/README.md](api/README.md) |
-| `mobile/` | Mobile app (coming next) | |
+| [`app/`](app/) | Expo (React Native) app built from the Figma design: Deals, Map, Earn $5, Alerts, deal and event detail | [app/README.md](app/README.md) |
 
 ## Quick start (API)
 
@@ -17,5 +17,15 @@ uv run --env-file .env uvicorn app.main:app --reload --port 8000
 ```
 
 Then open http://localhost:8000/docs. Tests: `cd api && uv run pytest -q`.
+
+## Quick start (app)
+
+```bash
+cd app
+npm install
+npx expo start --ios          # opens in Expo Go on the iOS simulator
+```
+
+The app uses mock data unless `EXPO_PUBLIC_API_URL` is set (e.g. `EXPO_PUBLIC_API_URL=http://localhost:8000 npx expo start`).
 
 API keys live only in `api/.env` (gitignored). The app should only ever call this API, never Anthropic or Bright Data directly.

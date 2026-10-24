@@ -1,0 +1,19 @@
+<svg width="840" height="840" viewBox="0 0 840 840" fill="none" xmlns="http://www.w3.org/2000/svg">
+<!-- Figma's blurred circle (r=260, blur 80) as a radial gradient: react-native-svg doesn't render feGaussianBlur. -->
+<defs>
+<radialGradient id="glow" cx="420.0" cy="420.0" r="420.0" gradientUnits="userSpaceOnUse">
+<stop offset="0.0" stop-color="#FF5A1F" stop-opacity="0.550"/>
+<stop offset="0.1" stop-color="#FF5A1F" stop-opacity="0.548"/>
+<stop offset="0.2" stop-color="#FF5A1F" stop-opacity="0.542"/>
+<stop offset="0.3" stop-color="#FF5A1F" stop-opacity="0.524"/>
+<stop offset="0.4" stop-color="#FF5A1F" stop-opacity="0.481"/>
+<stop offset="0.5" stop-color="#FF5A1F" stop-opacity="0.404"/>
+<stop offset="0.6" stop-color="#FF5A1F" stop-opacity="0.297"/>
+<stop offset="0.7" stop-color="#FF5A1F" stop-opacity="0.184"/>
+<stop offset="0.8" stop-color="#FF5A1F" stop-opacity="0.094"/>
+<stop offset="0.9" stop-color="#FF5A1F" stop-opacity="0.039"/>
+<stop offset="1.0" stop-color="#FF5A1F" stop-opacity="0.013"/>
+</radialGradient>
+</defs>
+<circle cx="420.0" cy="420.0" r="420.0" fill="url(#glow)"/>
+</svg>

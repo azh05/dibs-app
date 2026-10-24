@@ -330,7 +330,7 @@ uv run pytest -q
 
 ## Not in this MVP
 
-Storing photo submissions and rewards, Instagram stories, speech-to-text for TikTok/reels, storage, scheduling, and auth. The mobile app is next, in `../mobile/`. CORS is wide open for the hackathon; tighten it before launch.
+Storing photo submissions and rewards, Instagram stories, speech-to-text for TikTok/reels, storage, scheduling, and auth. The mobile app is in `../app/`. CORS is wide open for the hackathon; tighten it before launch.
 
 ## Layout
 
