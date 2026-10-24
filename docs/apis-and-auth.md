@@ -19,7 +19,8 @@ The app never calls Anthropic, Bright Data or Apify itself and never holds their
 
 ### Bright Data
 
-- What for: Google results (SERP API) for `/extract/serp`, and public Instagram posts by URL (Web Scraper API, dataset `gd_lk5ns7kz21pck8jpis`) for `/extract/instagram`.
+- What for: Google results (SERP API) for `/extract/serp`, and public Instagram posts by URL (Web Scraper API, dataset `gd_lk5ns7kz21pck8jpis`) for `/extract/instagram`. In `/extract/shops` it finds shops' missing Instagram/TikTok/Facebook accounts and searches Google for recent deal posts (optional: skipped without a key).
+- Setup: the account must be active (payment method verified) for the Instagram scraper, and needs a SERP API zone (Web Access → SERP API → add zone) whose name goes in `BRIGHTDATA_SERP_ZONE`.
 - Auth: API key in `BRIGHTDATA_API_KEY`, sent as `Authorization: Bearer <key>` to api.brightdata.com. Google searches also need a zone name in `BRIGHTDATA_SERP_ZONE` (blank = the account's first SERP or Web Unlocker zone).
 - Get a key: account settings → API keys, then create a SERP API zone. Cal Hacks promo: brightdata.com/?promo=calhack2026 ($300 credits).
 - Cost: per request; every response reports `brightdata_requests`. Their prize track only allows data a logged-out visitor can see (no logins or cookies).

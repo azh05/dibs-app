@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from datetime import date
 from functools import lru_cache
 from pathlib import Path
@@ -14,6 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
 from .bd_pipeline import BrightDataPipeline
+from .brightdata import BrightDataClient
 from .errors import http_error
 from .extractor import DealExtractor, _today
 from .jobs import JobStore
@@ -62,7 +64,9 @@ def get_jobs() -> JobStore:
 
 @lru_cache
 def get_shop_pipeline() -> ShopPipeline:
-    return ShopPipeline()
+    # Bright Data is optional for /extract/shops: without a key the Google steps are skipped.
+    bd = BrightDataClient() if os.getenv("BRIGHTDATA_API_KEY") or os.getenv("BRIGHTDATA_API_TOKEN") else None
+    return ShopPipeline(bd=bd)
 
 
 @lru_cache

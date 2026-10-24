@@ -35,10 +35,12 @@ from .apify import (
     site_host,
 )
 from .bd_pipeline import extract_docs_batched, verify_docs
+from .brightdata import BrightDataClient, BrightDataError
 from .extractor import DEFAULT_MODEL, _today
+from .google_lookup import GoogleFindings, GoogleLookup
 from .linking import link_deals
 from .schemas import Category, SearchRequest, SearchResponse, Shop, ShopsRequest
-from .sources import combine, from_social, from_website
+from .sources import combine, from_serp, from_social, from_website
 from .verify import normalize_url
 
 log = logging.getLogger(__name__)
@@ -170,8 +172,11 @@ class ShopPipeline:
         anthropic_client: Optional[anthropic.Anthropic] = None,
         model: str = DEFAULT_MODEL,
         cache: Optional[ShopCache] = None,
+        bd: Optional[BrightDataClient] = None,
     ):
+        """bd: Bright Data for the Google steps (account lookup, deal search); None skips them."""
         self.apify = apify or ApifyClient()
+        self.bd = bd
         self._anthropic = anthropic_client
         self.model = model
         self.cache = cache if cache is not None else _cache_from_env()
@@ -239,6 +244,13 @@ class ShopPipeline:
             log.warning("retrying Apify run once: %s", exc)
             return fn()
 
+    def _google_deals(self, google: GoogleLookup, req: ShopsRequest, terms: list[str], since: date, errors: list[str]) -> GoogleFindings:
+        try:
+            return google.find_deals(req, terms, since, errors)
+        except BrightDataError as exc:  # incl. a rejected key: Apify still covers the run
+            errors.append(f"Bright Data Google deal search skipped: {exc}")
+            return GoogleFindings()
+
     def run(self, req: ShopsRequest, on_progress: Optional[Callable[[str], None]] = None, today: Optional[date] = None) -> SearchResponse:
         progress = on_progress or (lambda _msg: None)
         self.check_ready()
@@ -252,10 +264,23 @@ class ShopPipeline:
         # Profiles can return old pinned posts, and TikTok search has no date filter, so check dates here too.
         recent = lambda p: p.posted_at is None or p.posted_at.astimezone(timezone.utc).date() >= since - timedelta(days=1)
 
-        with ThreadPoolExecutor(max_workers=6) as pool:
-            # Step 1: shops and the keyword sweep at the same time.
+        google = GoogleLookup(self.bd) if self.bd is not None and req.google else None
+
+        with ThreadPoolExecutor(max_workers=7) as pool:
+            # Step 1: shops, the keyword sweep and the Google deal search at the same time.
             sweep_futures, sweep_labels = self._sweep(req, terms, since, errors, counter, pool) if req.sweep else ({}, [])
+            google_future = pool.submit(self._google_deals, google, req, terms, since, errors) if google else None
             shops = self._find_shops(req, terms, errors, counter, progress)
+            if google:
+                # Maps only knows the links a shop listed; Google usually shows the rest.
+                try:
+                    added = google.fill_accounts(shops, req, errors)
+                except BrightDataError as exc:
+                    added = []
+                    errors.append(f"Bright Data account lookup skipped: {exc}")
+                if added:
+                    progress(f"Google found {len(added)} missing account(s): " + "; ".join(added))
+                    self.cache.put(ShopCache.key(req, terms), shops)  # next run skips these lookups
             sweep_posts: list[SocialPost] = []
             for name, fut in sweep_futures.items():
                 sweep_posts += self._collect(name, fut, errors, progress)
@@ -288,8 +313,12 @@ class ShopPipeline:
             progress("scraping " + (", ".join(jobs) or "nothing") + f" for {len(all_shops)} shop(s)")
             futures = {name: pool.submit(self._channel, fn) for name, fn in jobs.items()}
             results = {name: self._collect(name, fut, errors, progress) for name, fut in futures.items()}
+            found = google_future.result() if google_future else GoogleFindings()
+            if google_future:
+                progress(f"google: {len(found.posts)} Instagram post(s) fetched in full, {len(found.snippets)} other result(s)")
 
         posts: list[SocialPost] = results.get("instagram", []) + results.get("tiktok", []) + results.get("facebook", [])
+        sweep_posts += found.posts  # Instagram posts Google surfaced: first-hand when a shop posted them
         pages: list[WebPage] = results.get("website", [])
         own, shop_of = self._attribute(all_shops, posts + sweep_posts)
         dropped = [p for p in posts + sweep_posts if not recent(p)]
@@ -300,7 +329,12 @@ class ShopPipeline:
         first_hand = [p for p in posts + sweep_posts if recent(p) and p.url in own]
         second_hand = [p for p in posts + sweep_posts if recent(p) and p.url not in own]
         host_of = {site_host(s.website): s.name for s in all_shops if s.website and site_host(s.website)}
-        docs = combine(from_social(first_hand, shop_of, tz), from_website(pages, host_of), from_social(second_hand, shop_of, tz))
+        docs = combine(
+            from_social(first_hand, shop_of, tz),
+            from_website(pages, host_of),
+            from_social(second_hand, shop_of, tz),
+            from_serp(found.snippets),  # Google snippets last: short and second-hand
+        )
 
         context = SearchRequest(
             location=req.location,
@@ -310,11 +344,17 @@ class ShopPipeline:
         )
         raw, usage = extract_docs_batched(self.anthropic, self.model, docs, context, today, errors, progress, provider_name="Apify")
         sources, deals, rejected = verify_docs(docs, raw, today)
-        own_keys = {normalize_url(d.url) for d in docs if d.shop}  # shop's own posts and website pages
-        for d in deals:
-            d.flags.append("shop_own_post" if normalize_url(d.source_url) in own_keys else "second_hand")
         all_shops = link_deals(deals, docs, all_shops)
-        queries = [f"maps: {t}" for t in (req.shops or terms)] + sweep_labels
+        # Own post: from a shop's own channel, or posted by the account of the shop the deal is linked to (a shop
+        # Google's deal search found, e.g. a cafe's own grand-opening post, isn't on the list until linking).
+        own_keys = {normalize_url(d.url) for d in docs if d.shop}
+        author = {normalize_url(d.url): (d.handle or "").lower() for d in docs}
+        handles = {s.id: {(s.instagram or "").lower(), (s.tiktok or "").lower()} - {""} for s in all_shops}
+        for d in deals:
+            key = normalize_url(d.source_url)
+            own = key in own_keys or author.get(key, "") in handles.get(d.shop_id, set())
+            d.flags.append("shop_own_post" if own else "second_hand")
+        queries = [f"maps: {t}" for t in (req.shops or terms)] + sweep_labels + found.labels
         return SearchResponse(
             as_of=today,
             deals=deals,
@@ -325,6 +365,7 @@ class ShopPipeline:
             usage=usage,
             provider="apify_shops",
             apify_runs=counter.count,
+            brightdata_requests=google.counter.count if google else 0,
             shops=all_shops,
         )
 

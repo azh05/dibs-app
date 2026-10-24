@@ -222,6 +222,11 @@ class ShopsRequest(BaseModel):
         default_factory=list, max_length=5, description="Sweep TikTok searches. Default: '<neighborhood> <term> deal' for the first 3 terms"
     )
     refresh_shops: bool = Field(False, description="Ignore the cached shop list for this area and search Google Maps again")
+    google: bool = Field(
+        True,
+        description="Bright Data Google search: find shops' missing Instagram/TikTok/Facebook accounts, and recent deal "
+        "posts in the area. Skipped when BRIGHTDATA_API_KEY isn't set",
+    )
 
 
 class JobError(BaseModel):

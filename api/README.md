@@ -128,7 +128,11 @@ Finds the shops in an area, then reads each shop's **own** channels, where deals
 
 1. **Shops.** Apify Google Maps scraper (`compass/crawler-google-places`) searches the area for each search term, with `scrapeContacts` on, so every shop comes back with the Instagram, TikTok and Facebook links from its listing or website. The list is cached per area for 7 days in `api/.cache/shops.json` (gitignored), so repeat runs skip this step; `refresh_shops: true` searches again. `DIBS_SHOP_CACHE=off` turns the cache off, or set it to another file path.
 2. **Keyword sweep** (same time as step 1): a TikTok search per search term (`{neighborhood} {term} deal`, first 3 terms) and Instagram hashtags (`#{neighborhood}eats`, `food`, `deals`, plus one per term, e.g. `#westwoodboba`). Posts by other accounts are kept as second-hand sources. Accounts they @mention in recent posts that aren't already shops (up to 15) are scraped in step 3 too, as shops with `found_via: "mention"`.
-3. **Channels**, one Apify run each, all shops at once, in parallel:
+3. **Google, through Bright Data** (when `BRIGHTDATA_API_KEY` is set; `google: false` turns it off). Two parts:
+   - *Missing accounts:* for each Maps shop missing an Instagram, TikTok or Facebook link, one Google search (`"<name>" <city> instagram tiktok`). A `facebook.com/<page>` or `tiktok.com/@<handle>` link, or an `@handle` in a snippet, is taken only when it matches the shop's name (`juicecrafters` = "Juice Crafters"; neighborhood and city words in the name are optional, so `milksha_ca` = "Milksha Westwood"). Found accounts are saved with the cached shop list.
+   - *Deal search* (alongside step 1): `site:instagram.com {area} {term} deal` and `{area} {term} deal`, past month, for the first 2 terms. Instagram posts in the results (up to 10) are fetched in full by Bright Data's Instagram scraper and treated like any post (the shop's own when its account posted them). Other results (Yelp, Reddit, Daily Bruin...) stay as Google snippets: second-hand, shown to Claude last.
+   - Any Bright Data failure, including a rejected key, is noted in `search_errors`; the Apify steps still run. `brightdata_requests` in the response counts the billable calls (about $0.0015 each).
+4. **Channels**, one Apify run each, all shops at once, in parallel:
 
 | Channel | Actor | What's read |
 | --- | --- | --- |
@@ -137,10 +141,10 @@ Finds the shops in an area, then reads each shop's **own** channels, where deals
 | Facebook | `apify/facebook-posts-scraper` | Newest page posts: text + **OCR of poster images** (`[image text] ...`), post date |
 | Website | `apify/website-content-crawler` (adaptive: plain HTTP, or a browser for JS-built sites) | Home page + linked pages whose URL contains deal/special/promo/offer/happy/menu/event/news/student/discount/sale/coupon, up to 2 per site |
 
-4. Claude extracts over all of it; sources are split into batches that each fit one call, run in parallel, so nothing is dropped. `verify_deals` checks the deals with the same rules as the Bright Data path.
-5. Every deal is linked to a shop (see "Shops, deals and ids" below).
+5. Claude extracts over all of it; sources are split into batches that each fit one call, run in parallel, so nothing is dropped. `verify_deals` checks the deals with the same rules as the Bright Data path.
+6. Every deal is linked to a shop (see "Shops, deals and ids" below).
 
-Body: `location`, `radius_miles`, `categories`, `search_terms` (Google Maps searches; default from `categories`, see below), `shops` (names to look up instead of searching, e.g. `["Milksha Westwood"]`), `max_shops` (default 20, max 60, split across the search terms), `days` (default 14), `posts_per_shop` (default 6), `channels` (default all four), `sweep` (default true), `hashtags`, `search_queries`, `refresh_shops`.
+Body: `location`, `radius_miles`, `categories`, `search_terms` (Google Maps searches; default from `categories`, see below), `shops` (names to look up instead of searching, e.g. `["Milksha Westwood"]`), `max_shops` (default 20, max 60, split across the search terms), `days` (default 14), `posts_per_shop` (default 6), `channels` (default all four), `sweep` (default true), `hashtags`, `search_queries`, `refresh_shops`, `google` (default true).
 
 | Category | Google Maps searches |
 | --- | --- |
@@ -310,6 +314,8 @@ Live, 2026-10-24, `{"location":{"neighborhood":"Westwood"},"categories":["food",
 
 Live, 2026-10-24, `{"categories":["beauty","fitness","retail","entertainment"],"max_shops":8,"sweep":false}` in Westwood: a hair salon, boxing gym, yoga studio, nail salon, thrift shop, clothing store, bookstore and lawn bowling club. 43 sources (18 Instagram, 5 TikTok, 14 Facebook, 6 web pages), website crawl within its limit, but only 1 deal: Nessa Beauty Nails' $90 first-visit gel manicure (own post, linked to its Maps listing). Non-food shops post far fewer time-limited deals. 5 Actor runs, about $0.29, 2.5 min.
 
+Live, 2026-10-24, Bright Data's Google steps on (`{"categories":["food","drink"],"max_shops":6,"sweep":false,"channels":["instagram"]}`, shop list cached): the account lookup found Juice Crafters' Instagram (and its Facebook page on the first run); the deal search found 10 Instagram posts, fetched in full, which added 5 deals at places not on the Maps list: 26 Viet Cafe's BOGO soft opening (its own post), Patty Boys' free smash burger for the first 50 guests, Sana'a Cafe's grand-opening 20% off, each linked to a new `found_via: "deal"` shop. 6 deals in all, 63 s, 11 Bright Data requests (about $0.02) and 1 Apify run. On the first try the post fetch wasn't ready after 90 s and the posts were lost; it now waits up to 240 s (in parallel with the channels) and keeps the snippets if it still fails.
+
 Estimated cost for 8 shops (Store prices on the free plan; higher plans are cheaper): Google Maps + contacts about $0.03, Instagram/TikTok/Facebook at 6 posts per shop about $0.15, websites about $0.10, plus the Claude call. `apify_runs` shows how many Actor runs a job made; the Apify console shows the exact spend.
 
 ## Photo confirmation
@@ -362,7 +368,7 @@ curl -s localhost:8000$JOB | python -m json.tool   # repeat until "status": "don
 uv run pytest -q
 ```
 
-196 tests: every verification rule, the multi-turn tool loop (pause_turn, forced tool, give-up), malformed output, search errors, the Bright Data client (retries, polling, timeouts, error rows), both Bright Data pipelines, the Apify client (request shape, errors, memory cap, each Actor's output), the shop pipeline (attribution, sweep, cache, batching, per-channel failures) and deal-to-shop linking, photo extraction (year inference, time windows, upload checks), the job flow, and the API. They use a fake Claude client returning real SDK `Message` objects and `httpx.MockTransport` for Bright Data and Apify, so no keys or credits are needed.
+215 tests: every verification rule, the multi-turn tool loop (pause_turn, forced tool, give-up), malformed output, search errors, the Bright Data client (retries, polling, timeouts, error rows), both Bright Data pipelines, the Apify client (request shape, errors, memory cap, each Actor's output), the shop pipeline (attribution, sweep, cache, batching, per-channel failures), the Bright Data Google steps (handle matching, account lookup, deal search) and deal-to-shop linking, photo extraction (year inference, time windows, upload checks), the job flow, and the API. They use a fake Claude client returning real SDK `Message` objects and `httpx.MockTransport` for Bright Data and Apify, so no keys or credits are needed.
 
 ## Cost and settings
 
@@ -387,6 +393,7 @@ app/sources.py    SourceDoc: one shape for everything Bright Data or Apify fetch
 app/bd_pipeline.py Bright Data fetch -> Claude extraction -> verification
 app/shop_pipeline.py Google Maps shops -> each shop's channels (Apify) -> extraction -> verification
 app/linking.py    Deal -> shop links, stable shop and deal ids
+app/google_lookup.py Bright Data Google search for /extract/shops: missing accounts, deal posts
 app/photo.py      User photo -> Claude transcript + deals -> verification
 app/jobs.py       In-memory background jobs (Instagram, shops)
 app/errors.py     Upstream error -> HTTP status mapping
