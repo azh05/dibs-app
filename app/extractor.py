@@ -22,7 +22,7 @@ from .verify import verify_deals
 
 log = logging.getLogger(__name__)
 
-DEFAULT_MODEL = os.getenv("DEALS_MODEL", "claude-opus-5-5")
+DEFAULT_MODEL = os.getenv("DIBS_MODEL", "claude-opus-5-5")
 WEB_SEARCH_TOOL_TYPE = "web_search_20250305"
 RECORD_TOOL_NAME = "record_deals"
 MAX_TURNS = 4

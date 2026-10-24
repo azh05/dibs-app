@@ -14,7 +14,7 @@ from .schemas import SearchRequest, SearchResponse
 logging.basicConfig(level=logging.INFO)
 
 app = FastAPI(
-    title="Deal Extractor",
+    title="Dibs",
     description="Claude web search + extraction of short-lived local deals, with deterministic verification.",
     version="0.1.0",
 )

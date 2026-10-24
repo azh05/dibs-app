@@ -1,4 +1,4 @@
-# Deal Extractor (Claude extraction MVP)
+# Dibs (Claude extraction MVP)
 
 Finds short-lived local deals with Claude's web search, returns them as structured JSON, and checks each one with plain Python rules before anyone sees it.
 
@@ -84,7 +84,7 @@ uv run pytest -q
 ## Cost and settings
 
 - Web search: $10 per 1,000 searches, plus tokens. `max_searches` defaults to 5 (max 10).
-- Model: `DEALS_MODEL` env var, default `claude-opus-5-5`. Any model that supports the web search tool works; a smaller model is cheaper for frequent runs.
+- Model: `DIBS_MODEL` env var, default `claude-opus-5-5`. Any model that supports the web search tool works; a smaller model is cheaper for frequent runs.
 - Web search tool version: `web_search_20250305`, the basic version that works with direct calls.
 
 ## Not in this MVP
