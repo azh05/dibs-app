@@ -6,6 +6,7 @@ Short-lived local deals (grand-opening specials, BOGO offers, promo codes) found
 | --- | --- | --- |
 | [`api/`](api/) | FastAPI backend: Claude web search and Bright Data (Google + public Instagram posts) pipelines, deterministic verification | [api/README.md](api/README.md) |
 | `mobile/` | Mobile app (coming next) | |
+| [`docs/`](docs/) | Team notes: [outside APIs, keys and user sign-in options](docs/apis-and-auth.md) | |
 
 ## Quick start (API)
 
