@@ -97,6 +97,21 @@ def test_code_not_in_quote_removed():
     assert "code_not_in_quote" in resp.deals[0].flags
 
 
+def test_code_stripped_keeps_year_inferred():
+    deal = {**CHIPOTLE, "code": "BOGO2026"}
+    resp, _ = run([msg([record([deal])], stop_reason="tool_use")])
+    assert resp.deals[0].code is None
+    assert {"code_not_in_quote", "year_inferred"} <= set(resp.deals[0].flags)
+
+
+def test_yearless_feb_29_survives_non_leap_photo_year():
+    deal = {**CHIPOTLE, "start_date": "2027-02-29", "end_date": "2027-02-29"}
+    resp, _ = run([msg([record([deal])], stop_reason="tool_use")], photo_date=date(2027, 12, 20), today=date(2027, 12, 20))
+    assert resp.deals[0].start_date == resp.deals[0].end_date == date(2028, 2, 29)
+    assert "year_inferred" in resp.deals[0].flags
+    assert not any("start_date" in e for e in resp.search_errors)
+
+
 def test_unparseable_time_cleared():
     deal = {**CHIPOTLE, "start_time": "3ish"}
     resp, _ = run([msg([record([deal])], stop_reason="tool_use")])
@@ -124,7 +139,7 @@ def test_no_tool_call_reports_error():
         (date(2026, 1, 3), date(2026, 12, 20), date(2027, 1, 3)),
         (date(2026, 12, 30), date(2027, 1, 2), date(2026, 12, 30)),
         (date(2024, 2, 29), date(2028, 3, 10), date(2028, 2, 29)),
-        (date(2024, 2, 29), date(2026, 3, 1), date(2024, 2, 29)),  # no leap year in reach: left as is
+        (date(2024, 2, 29), date(2026, 3, 1), date(2028, 2, 29)),  # 730 days ahead beats 731 back
     ],
 )
 def test_resolve_missing_year(d, ref, expected):

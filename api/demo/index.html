@@ -227,7 +227,8 @@ const API = "/extract/photo";
 const MAX_EDGE = 1568; // Claude's recommended long edge; smaller uploads, same accuracy
 const $ = id => document.getElementById(id);
 const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "America/Los_Angeles";
-let stream = null, photo = null, photoUrl = null;
+let stream = null, opening = false, photo = null, photoUrl = null;
+let photoVersion = 0; // bumped whenever the photo changes, so a late response for an old photo is ignored
 
 const ICON = {
   clock: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#16161A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>',
@@ -268,8 +269,11 @@ function fmtTime(t) {
   const [h, m] = t.split(":").map(Number);
   return new Date(2000, 0, 1, h, m).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
 }
+function cleanConditions(deal) { return (deal.conditions || []).map(c => String(c).trim()).filter(Boolean); }
+function cap(s) { return s[0].toUpperCase() + s.slice(1); }
 function when(deal) {
   const { start_date: s, end_date: e, start_time: st, end_time: et } = deal;
+  const untilClose = cleanConditions(deal).some(c => /until close/i.test(c));
   let days = "";
   if (s && e && s === e) days = fmtDate(s);
   else if (s && e) days = `${fmtDate(s)} – ${fmtDate(e)}`;
@@ -277,7 +281,7 @@ function when(deal) {
   else if (s) days = `From ${fmtDate(s)}`;
   let hours = "";
   if (st && et) hours = `${fmtTime(st)} – ${fmtTime(et)}`;
-  else if (st) hours = `${fmtTime(st)} – close`;
+  else if (st) hours = untilClose ? `${fmtTime(st)} – close` : `from ${fmtTime(st)}`;
   else if (et) hours = `until ${fmtTime(et)}`;
   return [days, hours].filter(Boolean).join(" · ") || "No dates on the poster";
 }
@@ -296,25 +300,32 @@ function setStep(n) {
   });
 }
 function showError(msg) { $("err").textContent = msg; $("err").classList.toggle("on", !!msg); }
-function stopCamera() { if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; } }
+function stopCamera() { if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; } $("video").srcObject = null; }
 
 async function openCamera() {
+  if (opening || stream) return; // already opening or live: don't start a second stream
   showError("");
+  opening = true; $("openCam").disabled = true;
+  const v = $("video");
   try {
     stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment", width: { ideal: 1920 }, height: { ideal: 1440 } }, audio: false });
+    v.srcObject = stream;
+    await v.play();
   } catch (e) {
+    stopCamera(); v.srcObject = null;
     showError("Couldn't open the camera (" + (e.name || e) + "). Allow camera access, or use Upload.");
     return;
+  } finally {
+    opening = false; $("openCam").disabled = false;
   }
-  const v = $("video");
-  v.srcObject = stream;
-  await v.play();
+  photoVersion++;
   $("camEmpty").classList.add("hidden"); $("preview").classList.add("hidden"); v.classList.remove("hidden");
   $("cam").classList.add("live"); $("cam").classList.remove("shot");
 }
 
 function capture() {
   const v = $("video");
+  if (!stream || !v.videoWidth) return;
   const scale = Math.min(1, MAX_EDGE / Math.max(v.videoWidth, v.videoHeight));
   const c = document.createElement("canvas");
   c.width = Math.round(v.videoWidth * scale); c.height = Math.round(v.videoHeight * scale);
@@ -340,7 +351,7 @@ async function shrink(file) {
 }
 
 function setPhoto(file) {
-  photo = file;
+  photo = file; photoVersion++;
   if (photoUrl) URL.revokeObjectURL(photoUrl);
   photoUrl = URL.createObjectURL(file);
   const img = $("preview");
@@ -348,13 +359,13 @@ function setPhoto(file) {
   img.classList.remove("hidden"); $("video").classList.add("hidden"); $("camEmpty").classList.add("hidden");
   $("cam").classList.remove("live"); $("cam").classList.add("shot");
   $("pickRow").classList.add("hidden"); $("shotRow").classList.remove("hidden");
-  $("check").disabled = false; $("check").textContent = "Check this deal";
+  readyToCheck();
   setStep(2); document.querySelector('.step[data-step="2"]').classList.remove("now");
   document.querySelector('.step[data-step="2"] i').textContent = "2";
 }
 
 function reset() {
-  stopCamera(); photo = null; showError("");
+  stopCamera(); photo = null; photoVersion++; showError("");
   $("cam").classList.remove("live", "shot");
   $("camEmpty").classList.remove("hidden"); $("video").classList.add("hidden"); $("preview").classList.add("hidden");
   $("pickRow").classList.remove("hidden"); $("shotRow").classList.add("hidden");
@@ -371,6 +382,7 @@ function showScreen(id) {
 // --- Verify ---
 async function check() {
   if (!photo) return;
+  const version = photoVersion, sentUrl = photoUrl;
   showError(""); setStep(2);
   $("check").disabled = true; $("check").textContent = "Checking…";
   const form = new FormData();
@@ -382,9 +394,11 @@ async function check() {
   try {
     const r = await fetch(API, { method: "POST", body: form });
     const body = await r.json().catch(() => ({}));
+    if (version !== photoVersion) return; // photo was retaken or replaced while we waited
     if (!r.ok) throw new Error(typeof body.detail === "string" ? body.detail : `Request failed (${r.status})`);
-    renderResult(body);
+    renderResult(body, sentUrl);
   } catch (e) {
+    if (version !== photoVersion) return;
     showError(e.message || String(e));
     $("check").disabled = false; $("check").textContent = "Try again";
     document.querySelector('.step[data-step="2"]').classList.remove("now");
@@ -419,28 +433,28 @@ function dealBlock(deal) {
   const [label, cls] = statusOf(deal);
   const notes = deal.flags.map(f => FLAG_TEXT[f]).filter(Boolean)
     .filter(t => t !== "Starts later" && t !== "No dates on the poster");
-  const conds = deal.conditions || [];
+  const conds = cleanConditions(deal);
   return `
     <div class="store">
       <div class="thumb">${ICON.food}</div>
-      <div><b>${esc(deal.shop_name)}</b><span>${esc(deal.category[0].toUpperCase() + deal.category.slice(1))} · read from your photo</span></div>
+      <div><b>${esc(deal.shop_name)}</b><span>${esc(cap(deal.category || "other"))} · read from your photo</span></div>
     </div>
     <div class="offer">${esc(deal.offer)}</div>
     <div class="pills"><span class="pill ${cls}">${label}</span>${notes.map(n => `<span class="pill p-note">${esc(n)}</span>`).join("")}</div>
     <div class="details">
       <div class="drow">${ICON.clock}<div><b>${esc(when(deal))}</b><span>${deal.status === "expired" ? "This date has passed" : deal.flags.includes("starts_later") ? "Hasn't started yet" : "As printed on the poster"}</span></div></div>
       ${deal.code ? `<div class="drow">${ICON.code}<div><b>Code <code>${esc(deal.code)}</code></b><span>Found in the poster's text</span></div></div>` : ""}
-      ${conds.length ? `<div class="drow">${ICON.tag}<div><b>${esc(conds[0][0].toUpperCase() + conds[0].slice(1))}</b>${conds.length > 1 ? `<span>${esc(conds.slice(1).join(" · "))}</span>` : ""}</div></div>` : ""}
+      ${conds.length ? `<div class="drow">${ICON.tag}<div><b>${esc(cap(conds[0]))}</b>${conds.length > 1 ? `<span>${esc(conds.slice(1).join(" · "))}</span>` : ""}</div></div>` : ""}
       <div class="drow">${ICON.quote}<div><b>Quote found on the poster</b><span>“${esc(deal.verbatim_quote)}”</span></div></div>
     </div>`;
 }
 
-function renderResult(resp) {
+function renderResult(resp, imageUrl) {
   setStep(3);
   const [main, ...others] = resp.deals;
   const [vcls, vicon, vtitle, vsub] = verdictFor(main, resp);
   const [rTitle, rSub] = rewardLine(main);
-  $("resultImg").src = photoUrl;
+  $("resultImg").src = imageUrl;
   $("resultBody").innerHTML = `
     <div class="verdict ${vcls}"><div class="ic">${vicon}</div><div><b>${vtitle}</b><span>${esc(vsub)}</span></div></div>
     ${main ? dealBlock(main) : ""}
@@ -459,7 +473,8 @@ $("uploadBtn").onclick = () => $("file").click();
 $("file").onchange = async e => { const f = e.target.files[0]; if (f) { stopCamera(); setPhoto(await shrink(f)); } };
 $("retake").onclick = reset;
 $("check").onclick = check;
-$("back").onclick = () => showScreen("capture");
+function readyToCheck() { $("check").disabled = false; $("check").textContent = "Check this deal"; }
+$("back").onclick = () => { readyToCheck(); showScreen("capture"); };
 $("again").onclick = reset;
 $("done").onclick = reset;
 (function tick() { const d = new Date(); $("clock").textContent = d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }).replace(/\s?[AP]M/i, ""); setTimeout(tick, 15000); })();

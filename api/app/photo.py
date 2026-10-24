@@ -9,6 +9,7 @@ import base64
 import hashlib
 import logging
 import os
+import re
 from datetime import date
 from typing import Any, Optional
 
@@ -18,13 +19,14 @@ from pydantic import Field
 from .errors import AnthropicKeyMissing
 from .extractor import DEAL_RULES, DEAL_TYPES, DEFAULT_MODEL, _inline_refs, _parse_raw_deals
 from .schemas import RawDeal, SearchResponse, SearchResultSource, Usage
-from .verify import _alnum, normalize_url, verify_deals
+from .verify import normalize_url, verify_deals
 
 log = logging.getLogger(__name__)
 
 PHOTO_TOOL_NAME = "record_photo_deals"
 MAX_IMAGE_BYTES = 5 * 1024 * 1024  # Claude's per-image limit
 PHOTO_URL_BASE = "https://dibs.local/photo/"
+_FEB_29 = re.compile(r"^\d{4}-02-29$")
 
 _MAGIC = (
     (b"\xff\xd8\xff", "image/jpeg"),
@@ -83,9 +85,9 @@ def photo_url(data: bytes) -> str:
 
 
 def resolve_missing_year(d: date, ref: date) -> date:
-    """Same month and day, in whichever of ref's year, the year before or the year after is nearest ref."""
+    """The occurrence of d's month and day nearest ref. Looks up to 4 years each way so Feb 29 finds a leap year."""
     candidates = []
-    for year in (ref.year - 1, ref.year, ref.year + 1):
+    for year in range(ref.year - 4, ref.year + 5):
         try:
             candidates.append(d.replace(year=year))
         except ValueError:  # Feb 29 in a non-leap year
@@ -109,8 +111,15 @@ def photo_tool_definition() -> dict[str, Any]:
     }
 
 
-def _deal_key(d: RawDeal) -> tuple[str, str, str]:
-    return (_alnum(d.shop_name), _alnum(d.offer), _alnum(d.code or ""))
+def _hold_feb_29(items: list[Any]) -> list[Any]:
+    """A yearless Feb 29 written with a non-leap photo year (2027-02-29) would fail validation and be
+    cleared. Park it in a leap year; resolve_missing_year replaces the year afterwards."""
+    out = []
+    for item in items:
+        if isinstance(item, dict) and item.get("year_stated") is False:
+            item = {**item, **{f: "2000-02-29" for f in ("start_date", "end_date") if _FEB_29.match(str(item.get(f) or ""))}}
+        out.append(item)
+    return out
 
 
 class PhotoExtractor:
@@ -181,10 +190,10 @@ class PhotoExtractor:
             recorded = {}
 
         transcript = recorded.get("transcript") or ""
-        raw = _parse_raw_deals(recorded.get("deals") or [], errors, model=PhotoRawDeal)
+        raw = _parse_raw_deals(_hold_feb_29(recorded.get("deals") or []), errors, model=PhotoRawDeal)
 
-        inferred: set[tuple[str, str, str]] = set()
         fixed: list[RawDeal] = []
+        preset_flags: list[list[str]] = []
         for deal in raw:
             updates: dict[str, Any] = {"source_post_date": photo_date}
             if not getattr(deal, "year_stated", True) and (deal.start_date or deal.end_date):
@@ -196,14 +205,15 @@ class PhotoExtractor:
                     except ValueError:
                         pass
                 updates.update(start_date=start, end_date=end)
-                inferred.add(_deal_key(deal))
+                preset_flags.append(["year_inferred"])
+            else:
+                preset_flags.append([])
             fixed.append(RawDeal.model_validate({**deal.model_dump(exclude={"year_stated"}), **updates}))
 
         source = SearchResultSource(url=url, title=filename)
-        deals, rejected = verify_deals(fixed, [source], today, source_texts={normalize_url(url): transcript})
-        for d in deals:
-            if _deal_key(d) in inferred:
-                d.flags.append("year_inferred")
+        deals, rejected = verify_deals(
+            fixed, [source], today, source_texts={normalize_url(url): transcript}, preset_flags=preset_flags
+        )
 
         return SearchResponse(
             as_of=today,

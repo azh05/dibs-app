@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import re
 from datetime import date, datetime, timedelta
-from typing import Iterable, Optional
+from typing import Iterable, Optional, Sequence
 from urllib.parse import urlsplit
 
 from .schemas import Confidence, Deal, DealStatus, RawDeal, RejectedDeal, SearchResultSource
@@ -73,14 +73,16 @@ def verify_deals(
     *,
     source_texts: Optional[dict[str, str]] = None,
     authoritative_post_dates: Optional[dict[str, date]] = None,
+    preset_flags: Optional[Sequence[list[str]]] = None,
 ) -> tuple[list[Deal], list[RejectedDeal]]:
     """`source_texts` and `authoritative_post_dates` are keyed by normalize_url(). Pass them when
-    we hold the full source text (Bright Data pipelines), so quotes and post dates can be checked."""
+    we hold the full source text (Bright Data pipelines), so quotes and post dates can be checked.
+    `preset_flags[i]` are flags the caller already knows for `raw_deals[i]` (e.g. year_inferred)."""
     by_url = {normalize_url(s.url): s for s in sources}
     kept: list[Deal] = []
     rejected: list[RejectedDeal] = []
 
-    for raw in raw_deals:
+    for i, raw in enumerate(raw_deals):
         # 1. Must quote the source.
         if not raw.verbatim_quote or not raw.verbatim_quote.strip():
             rejected.append(RejectedDeal(deal=raw, reason="missing_quote"))
@@ -99,7 +101,7 @@ def verify_deals(
             continue
 
         data = raw.model_dump()
-        flags: list[str] = []
+        flags: list[str] = list(preset_flags[i]) if preset_flags is not None else []
 
         # 2c. A scraper's post timestamp beats Claude's reading of the page.
         known_date = (authoritative_post_dates or {}).get(url_key)
