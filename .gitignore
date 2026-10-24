@@ -1,0 +1,40 @@
+# Secrets — keep .env.example tracked
+.env
+.env.*
+!.env.example
+
+# Python bytecode / build artifacts
+__pycache__/
+*.py[cod]
+*.egg-info/
+*.egg
+build/
+dist/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Testing / tooling caches
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# Logs
+*.log
+
+# Editors / OS
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Deployment
+.vercel/
+
+# Claude Code local settings
+.claude/settings.local.json
