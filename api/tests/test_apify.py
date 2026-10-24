@@ -142,6 +142,7 @@ def test_parse_places_takes_first_social_link_and_skips_closed():
             "instagrams": ["https://www.instagram.com/p/xyz/", "https://www.instagram.com/milksha_ca/"],
             "tiktoks": ["https://www.tiktok.com/@milksha.ca"],
             "facebooks": ["https://www.facebook.com/MilkshaUSA"],
+            "openingHours": [{"day": "Monday", "hours": "11 AM to 10 PM"}, {"day": "Tuesday"}, "junk"],
         },
         {"title": "Milksha Westwood", "placeId": "p1"},  # duplicate
         {"title": "Gone Cafe", "placeId": "p2", "permanentlyClosed": True},
@@ -153,7 +154,8 @@ def test_parse_places_takes_first_social_link_and_skips_closed():
     assert [s.name for s in shops] == ["Milksha Westwood", "Insta Only"]
     m = shops[0]
     assert (m.instagram, m.tiktok, m.facebook) == ("milksha_ca", "milksha.ca", "https://www.facebook.com/MilkshaUSA/")
-    assert shops[1].instagram == "instaonly"
+    assert [(h.day, h.hours) for h in m.hours] == [("Monday", "11 AM to 10 PM")]
+    assert shops[1].instagram == "instaonly" and shops[1].hours is None
     assert errors and "not_found" in errors[0]
 
 

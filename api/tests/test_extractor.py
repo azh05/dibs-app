@@ -169,3 +169,53 @@ def test_system_prompt_unchanged_by_refactor():
 
     # Hash of the prompt before DEAL_RULES was split out for the Bright Data pipeline.
     assert hashlib.sha256(SYSTEM_PROMPT.encode()).hexdigest() == "f51ec42e717cf7f93ed41c6bf27852bdd0194d65e7ea81c9d865a4eca53bc82e"
+
+
+def test_deals_get_stable_ids_and_shops():
+    out, _ = run([msg(SEARCH_BLOCKS + [record_block([GOOD_DEAL])], stop_reason="tool_use", searches=1)])
+    (deal,) = out.deals
+    assert deal.id and deal.id.startswith("deal:")
+    assert [s.id for s in out.shops] == [deal.shop_id] == ["name:milksha-westwood"]
+    again, _ = run([msg(SEARCH_BLOCKS + [record_block([{**GOOD_DEAL, "offer": "BOGO 50% off"}])], stop_reason="tool_use")])
+    assert again.deals[0].id == deal.id  # same post + quote + code, reworded offer
+
+
+def test_display_fields_kept():
+    extra = {
+        "headline": "BOGO 50%",
+        "title": "Second drink half off",
+        "deal_types": ["bogo", "percent_off"],
+        "kind": "deal",
+        "student_only": True,
+        "est_savings_cents": 325,
+        "recurring_window": {"days": ["mon", "tue"], "start_time": "14:00", "end_time": "17:00"},
+    }
+    out, _ = run([msg(SEARCH_BLOCKS + [record_block([{**GOOD_DEAL, **extra}])], stop_reason="tool_use")])
+    (deal,) = out.deals
+    assert (deal.headline, deal.title, deal.student_only, deal.age_21) == ("BOGO 50%", "Second drink half off", True, False)
+    assert [t.value for t in deal.deal_types] == ["bogo", "percent_off"]
+    assert deal.est_savings_cents == 325
+    assert deal.recurring_window.days == ["mon", "tue"]
+
+
+def test_bad_display_fields_cleared_not_fatal():
+    bad = {
+        "headline": "Buy one drink, get the second one half off",
+        "deal_types": ["bogo", "mystery"],
+        "kind": "party",
+        "student_only": "yes",
+        "est_savings_cents": -5,
+        "recurring_window": {"days": ["someday"]},
+    }
+    out, _ = run([msg(SEARCH_BLOCKS + [record_block([{**GOOD_DEAL, **bad}])], stop_reason="tool_use")])
+    (deal,) = out.deals
+    assert len(deal.headline) == 12 and deal.headline.endswith("…")
+    assert [t.value for t in deal.deal_types] == ["bogo"]
+    assert (deal.kind, deal.student_only, deal.est_savings_cents, deal.recurring_window) == ("deal", False, None, None)
+    assert out.search_errors == []
+
+
+def test_record_tool_lists_display_fields():
+    props = record_tool_definition()["input_schema"]["properties"]["deals"]["items"]["properties"]
+    assert {"headline", "title", "deal_types", "kind", "student_only", "age_21", "est_savings_cents", "recurring_window"} <= set(props)
+    assert "$ref" not in str(props)

@@ -18,6 +18,7 @@ from .schemas import (
     SearchResultSource,
     Usage,
 )
+from .linking import link_deals
 from .verify import verify_deals
 
 log = logging.getLogger(__name__)
@@ -212,6 +213,7 @@ class DealExtractor:
 
         raw = _parse_raw_deals(recorded, errors)
         deals, rejected = verify_deals(raw, list(sources.values()), today)
+        shops = link_deals(deals, [], [])
         return SearchResponse(
             as_of=today,
             deals=deals,
@@ -220,6 +222,7 @@ class DealExtractor:
             sources=list(sources.values()),
             search_errors=errors,
             usage=usage,
+            shops=shops,
         )
 
     @staticmethod

@@ -28,6 +28,27 @@ def client_with_stub():
     return TestClient(app), stub
 
 
+@pytest.fixture(autouse=True)
+def no_api_key(monkeypatch):
+    monkeypatch.delenv("DIBS_API_KEY", raising=False)
+
+
+def test_api_key_required_when_set(monkeypatch):
+    client, _ = client_with_stub()
+    monkeypatch.setenv("DIBS_API_KEY", "s3cret")
+    assert client.post("/extract/search", json={}).status_code == 401
+    assert client.post("/extract/search", json={}, headers={"X-Dibs-Key": "nope"}).status_code == 401
+    assert client.post("/extract/search", json={}, headers={"X-Dibs-Key": "s3cret"}).status_code == 200
+    assert client.get("/health").status_code == 200  # only /extract is gated
+    app.dependency_overrides.clear()
+
+
+def test_api_open_without_key():
+    client, _ = client_with_stub()
+    assert client.post("/extract/search", json={}).status_code == 200
+    app.dependency_overrides.clear()
+
+
 def test_health():
     assert TestClient(app).get("/health").json() == {"status": "ok"}
 

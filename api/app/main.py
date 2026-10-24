@@ -2,6 +2,7 @@
 /extract/instagram), Apify shop scraping (/extract/shops), or a user's photo of an in-store deal (/extract/photo)."""
 from __future__ import annotations
 
+import hmac
 import logging
 import os
 from datetime import date
@@ -10,9 +11,9 @@ from pathlib import Path
 from typing import Annotated, Callable, Optional, TypeVar
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 
 from .bd_pipeline import BrightDataPipeline
 from .brightdata import BrightDataClient
@@ -43,6 +44,20 @@ app = FastAPI(
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 T = TypeVar("T")
+
+API_KEY_HEADER = "X-Dibs-Key"
+
+
+@app.middleware("http")
+async def require_api_key(request: Request, call_next):
+    """When DIBS_API_KEY is set (any deployment Convex calls), every /extract endpoint needs it in X-Dibs-Key.
+    Unset (local dev) leaves the API open, so the /demo page keeps working."""
+    expected = os.getenv("DIBS_API_KEY")
+    if expected and request.url.path.startswith("/extract"):
+        given = request.headers.get(API_KEY_HEADER, "")
+        if not hmac.compare_digest(given.encode(), expected.encode()):
+            return JSONResponse(status_code=401, content={"detail": f"missing or wrong {API_KEY_HEADER} header"})
+    return await call_next(request)
 
 DEMO_PAGE = Path(__file__).resolve().parent.parent / "demo" / "index.html"
 

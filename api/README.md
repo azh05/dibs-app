@@ -28,6 +28,8 @@ curl -s -X POST localhost:8000/extract/search \
 
 Other request fields: `shop` ("Milksha Westwood"), `query` ("boba BOGO"), `allowed_domains` (["instagram.com"]).
 
+**Auth.** Set `DIBS_API_KEY` in `.env` and every `/extract/*` call needs the header `X-Dibs-Key: <key>` (401 otherwise); `/health`, `/docs` and `/demo` stay open. The Convex backend sends it on every call. Left blank, the API is open, which is fine only on 127.0.0.1 (the `/demo` page relies on that).
+
 ## How it works
 
 1. **One Claude call, two tools.** `web_search` (server-side, capped by `max_searches`, located to the request's city) and `record_deals`, a client tool whose input schema is the deal JSON. Claude searches, then calls `record_deals` once.
@@ -53,6 +55,18 @@ Other request fields: `shop` ("Milksha Westwood"), `query` ("boba BOGO"), `allow
 
 Deals come back sorted live → needs_check → stale → expired.
 
+**Display fields.** Claude also fills these for the app. They are never verified and never affect status; a malformed value is cleared (or a long one shortened), not fatal to the deal.
+
+| Field | Meaning |
+| --- | --- |
+| `headline` | Map-pin text, at most 12 characters: "BOGO", "30% off", "$9" |
+| `title` | Short name, at most 40 characters: "BOGO on all milk teas" |
+| `deal_types` | Any of `bogo`, `percent_off`, `free`, `student`, `happy_hour`, `late_night`, `new_opening`, `event` (the app's "Deal types" chips) |
+| `kind` | `deal`, or `event` for a dated pop-up, collab or opening party (the app's "Coming up") |
+| `student_only`, `age_21` | Student ID / .edu required; 21+ only |
+| `est_savings_cents` | What one person saves using it once, only when the source states prices; else null |
+| `recurring_window` | `{days, start_time, end_time}` for deals that repeat, e.g. weekday happy hour |
+
 ## Response
 
 ```json
@@ -65,8 +79,11 @@ Deals come back sorted live → needs_check → stale → expired.
     "start_time": null, "end_time": null,
     "source_url": "https://www.instagram.com/p/...", "source_post_date": "2026-10-01",
     "verbatim_quote": "Buy 1 drink and get the second 50% off...", "confidence": "high",
-    "status": "live", "flags": []
+    "headline": "BOGO 50%", "title": "2nd drink half off", "deal_types": ["bogo", "percent_off"],
+    "kind": "deal", "student_only": false, "age_21": false, "est_savings_cents": 325, "recurring_window": null,
+    "status": "live", "flags": [], "id": "deal:3f9c0a1b2c3d4e5f", "shop_id": "ig:milksha_ca"
   }],
+  "shops": [{"id": "ig:milksha_ca", "name": "Milksha Westwood", "instagram": "milksha_ca", "found_via": "deal", "...": "..."}],
   "rejected": [{"deal": {"...": "..."}, "reason": "source_not_in_search_results"}],
   "queries": ["Westwood boba deal October", "..."],
   "sources": [{"url": "...", "title": "...", "page_age": "October 1, 2026"}],
@@ -174,13 +191,14 @@ The response adds `shops` and `apify_runs`; `provider` is `apify_shops`.
 
 ### Shops, deals and ids
 
-Every deal in the response has a `shop_id` pointing at an entry in `shops`, and both have ids that stay the same across runs, so a database can upsert them without duplicates.
+Every endpoint links its deals: each deal has a `shop_id` pointing at an entry in `shops`, and both have ids that stay the same across runs, so a database can upsert them without duplicates. Only `/extract/shops` starts from a Google Maps shop list; the other endpoints start from none, so their shops are the `found_via: "deal"` ones the deals name (`ig:<handle>` when Claude read a handle, else `name:<slug>`).
 
 | Field | Meaning |
 | --- | --- |
 | `Shop.id` | `gmaps:<Google place id>`; for shops not from Maps, `ig:<handle>`, `tt:<handle>`, else `name:<slug>` |
 | `Shop.place_id`, `lat`, `lng`, `maps_url`, `address` | From Google Maps, for linking to the real store and putting it on a map |
 | `Shop.website`, `instagram`, `tiktok`, `facebook` | Links from the listing or the shop's site (handles without @) |
+| `Shop.hours` | Google Maps opening hours as written there: `[{"day": "Monday", "hours": "11 AM to 10 PM"}, ...]` |
 | `Shop.found_via` | `google_maps`, `named` (from `shops`), `mention` (tagged in a creator post), `deal` (only known because a deal named it) |
 | `Deal.shop_id` | The shop it's at. Linked by: the shop's own account posted it; else the handle Claude read; else a name match ("Milksha" = "Milksha Westwood"); else a new `found_via: "deal"` shop is added |
 | `Deal.id` | `deal:<hash of source URL + quote + code>`. The quote is copied from the source, so re-extracting the same post gives the same id even if Claude words `offer` differently |
@@ -346,7 +364,7 @@ Status is judged against today, so a poster for a date that has passed comes bac
 2. Create an API key in account settings and put it in `.env` as `BRIGHTDATA_API_KEY` (`BRIGHTDATA_API_TOKEN` also works).
 3. Create a SERP API zone in the dashboard and put its name in `.env` as `BRIGHTDATA_SERP_ZONE`. A Web Unlocker zone works too. Left blank, the app uses the account's first `serp` or `unblocker` zone.
 4. The Instagram scraper needs no zone, only the API key. The Web Scraper API needs an active account: if a job fails with `Customer is not active`, finish account activation (billing details / verification) in the Bright Data dashboard.
-5. Smoke tests (keep uvicorn on 127.0.0.1, its default: these endpoints spend your Bright Data credits and have no auth):
+5. Smoke tests (keep uvicorn on 127.0.0.1, its default: these endpoints spend your Bright Data credits and are open while `DIBS_API_KEY` is blank):
 
 ```bash
 set -a; source .env; set +a
@@ -368,7 +386,7 @@ curl -s localhost:8000$JOB | python -m json.tool   # repeat until "status": "don
 uv run pytest -q
 ```
 
-215 tests: every verification rule, the multi-turn tool loop (pause_turn, forced tool, give-up), malformed output, search errors, the Bright Data client (retries, polling, timeouts, error rows), both Bright Data pipelines, the Apify client (request shape, errors, memory cap, each Actor's output), the shop pipeline (attribution, sweep, cache, batching, per-channel failures), the Bright Data Google steps (handle matching, account lookup, deal search) and deal-to-shop linking, photo extraction (year inference, time windows, upload checks), the job flow, and the API. They use a fake Claude client returning real SDK `Message` objects and `httpx.MockTransport` for Bright Data and Apify, so no keys or credits are needed.
+223 tests: every verification rule, the display fields and the API key, the multi-turn tool loop (pause_turn, forced tool, give-up), malformed output, search errors, the Bright Data client (retries, polling, timeouts, error rows), both Bright Data pipelines, the Apify client (request shape, errors, memory cap, each Actor's output), the shop pipeline (attribution, sweep, cache, batching, per-channel failures), the Bright Data Google steps (handle matching, account lookup, deal search) and deal-to-shop linking, photo extraction (year inference, time windows, upload checks), the job flow, and the API. They use a fake Claude client returning real SDK `Message` objects and `httpx.MockTransport` for Bright Data and Apify, so no keys or credits are needed.
 
 ## Cost and settings
 
@@ -380,7 +398,7 @@ uv run pytest -q
 
 ## Not in this MVP
 
-Storing photo submissions and rewards, Instagram stories, speech-to-text for TikTok/reels, storage, scheduling, and auth. The mobile app is in `../app/`. CORS is wide open for the hackathon; tighten it before launch.
+Instagram stories, speech-to-text for TikTok/reels, and user auth (the API only checks the shared `DIBS_API_KEY`). Storage, scheduling, users, photo submissions and credits live in the Convex backend (`../app/convex/`). The mobile app is in `../app/`. CORS is wide open for the hackathon; tighten it before launch.
 
 ## Layout
 

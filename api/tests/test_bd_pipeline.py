@@ -371,3 +371,11 @@ def test_instagram_collab_post_counts_as_shop_own():
     prompt = calls[0]["messages"][0]["content"]
     assert "| @_losangelily | co-posted with @westwoodvillage, @milksha_ca |" in prompt
     assert "co-posted" in calls[0]["system"] and "second-hand" in calls[0]["system"]
+
+
+def test_instagram_deals_are_linked():
+    pipeline, _, claude = ig_pipeline([])
+    claude.messages.responses = [msg([record_block([deal()])], stop_reason="tool_use")]
+    out = pipeline.run_instagram(InstagramRequest(handles=["milksha_ca"]), today=TODAY)
+    (d,) = out.deals
+    assert d.id.startswith("deal:") and d.shop_id in {s.id for s in out.shops}

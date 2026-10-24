@@ -26,7 +26,7 @@ Add dependencies with `uv add <pkg>` (dev-only: `uv add --dev <pkg>`), never pip
 
 `pytest.ini` sets `pythonpath = .`, so tests import `app.*` directly. Tests need no API keys or credits. There is no linter/formatter configured.
 
-Env vars (see `api/.env.example`; keys live only in the gitignored `api/.env`): `ANTHROPIC_API_KEY`, `DIBS_MODEL` (default `claude-opus-5-5`), `BRIGHTDATA_API_KEY` (or `BRIGHTDATA_API_TOKEN`), `BRIGHTDATA_SERP_ZONE`, `APIFY_TOKEN`, `APIFY_MEMORY_MB` (account memory cap, default 16384), `DIBS_SHOP_CACHE` (shop-list cache path, `off` disables). `/extract/serp`, `/extract/instagram` and `/extract/shops` spend real Bright Data / Apify credits and have no auth — keep uvicorn bound to 127.0.0.1.
+Env vars (see `api/.env.example`; keys live only in the gitignored `api/.env`): `ANTHROPIC_API_KEY`, `DIBS_MODEL` (default `claude-opus-5-5`), `BRIGHTDATA_API_KEY` (or `BRIGHTDATA_API_TOKEN`), `BRIGHTDATA_SERP_ZONE`, `APIFY_TOKEN`, `APIFY_MEMORY_MB` (account memory cap, default 16384), `DIBS_SHOP_CACHE` (shop-list cache path, `off` disables), `DIBS_API_KEY` (shared secret with Convex: when set, every `/extract/*` call needs header `X-Dibs-Key`). `/extract/serp`, `/extract/instagram` and `/extract/shops` spend real Bright Data / Apify credits — without `DIBS_API_KEY` they are open, so keep uvicorn bound to 127.0.0.1.
 
 ## Architecture
 
