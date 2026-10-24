@@ -26,7 +26,7 @@ DEFAULT_MODEL = os.getenv("DIBS_MODEL", "claude-opus-5-5")
 WEB_SEARCH_TOOL_TYPE = "web_search_20250305"
 RECORD_TOOL_NAME = "record_deals"
 MAX_TURNS = 4
-DATE_FIELDS = ("start_date", "end_date", "source_post_date")
+DATE_FIELDS = ("start_date", "end_date", "source_post_date", "start_time", "end_time")
 
 DEAL_TYPES = """\
 You find current, short-lived deals at small local businesses: grand-opening specials, \
@@ -137,7 +137,7 @@ def _today(tz: str) -> date:
     return datetime.now(ZoneInfo(tz)).date()
 
 
-def _parse_raw_deals(items: list[Any], errors: list[str]) -> list[RawDeal]:
+def _parse_raw_deals(items: list[Any], errors: list[str], model: type[RawDeal] = RawDeal) -> list[RawDeal]:
     """Validate each deal on its own so one bad field doesn't drop the batch."""
     deals: list[RawDeal] = []
     for item in items:
@@ -145,15 +145,15 @@ def _parse_raw_deals(items: list[Any], errors: list[str]) -> list[RawDeal]:
             errors.append("dropped a deal that wasn't an object")
             continue
         try:
-            deals.append(RawDeal.model_validate(item))
+            deals.append(model.model_validate(item))
             continue
         except ValidationError as exc:
             bad = {str(e["loc"][0]) for e in exc.errors() if e.get("loc")}
-        # Unparseable dates become null (never guessed); anything else drops the deal.
+        # Unparseable dates and times become null (never guessed); anything else drops the deal.
         if bad and bad <= set(DATE_FIELDS):
             fixed = {**item, **{f: None for f in bad}}
             try:
-                deals.append(RawDeal.model_validate(fixed))
+                deals.append(model.model_validate(fixed))
                 errors.append(f"cleared unparseable {', '.join(sorted(bad))} for {item.get('shop_name', '?')}")
                 continue
             except ValidationError:
