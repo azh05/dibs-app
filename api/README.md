@@ -178,58 +178,102 @@ A deal with no address gets its shop's.
 
 ### Storing results (Convex)
 
-Nothing is stored yet: results live in the job until the server restarts. The response is already split the way a database wants it. A suggested Convex schema (`convex/schema.ts`):
+Nothing is stored yet: results live in the job until the server restarts. The response is already split the way a database wants it. The tables and field names follow the "Backend data model" tab of the Dibs App doc (snake_case, as the API returns them); this is the part of it the extract endpoints write, as a Convex schema (`convex/schema.ts`):
 
 ```ts
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 
+const provider = v.union(
+  v.literal("claude_web_search"), v.literal("brightdata_serp"), v.literal("brightdata_instagram"),
+  v.literal("user_photo"), v.literal("apify_shops"),
+);
+
 export default defineSchema({
-  shops: defineTable({
-    shopId: v.string(),              // Shop.id, e.g. "gmaps:ChIJ..."
+  agent_runs: defineTable({          // one job / one response
+    provider,
+    trigger: v.string(),             // schedule | user_search | photo
+    status: v.string(),              // queued | running | done | failed
+    error: v.optional(v.string()),
+    search_errors: v.array(v.string()),
+    input_tokens: v.number(),
+    output_tokens: v.number(),
+    web_search_requests: v.number(),
+    brightdata_requests: v.number(),
+    apify_runs: v.number(),
+    started_at: v.number(),
+    finished_at: v.optional(v.number()),
+  }),
+
+  stores: defineTable({              // Shop
+    external_id: v.string(),         // Shop.id, e.g. "gmaps:ChIJ...", "ig:milksha_ca"
     name: v.string(),
+    normalized_name: v.string(),
+    store_type: v.optional(v.string()),  // Shop.category
+    google_place_id: v.optional(v.string()),
+    maps_url: v.optional(v.string()),
     address: v.optional(v.string()),
-    category: v.optional(v.string()),
-    placeId: v.optional(v.string()),
     lat: v.optional(v.number()),
     lng: v.optional(v.number()),
-    mapsUrl: v.optional(v.string()),
     website: v.optional(v.string()),
-    instagram: v.optional(v.string()),
-    tiktok: v.optional(v.string()),
-    facebook: v.optional(v.string()),
-    foundVia: v.string(),
-    updatedAt: v.number(),
-  }).index("by_shopId", ["shopId"]),
+    instagram_handle: v.optional(v.string()),
+    tiktok_handle: v.optional(v.string()),
+    facebook_url: v.optional(v.string()),
+    found_via: v.string(),           // google_maps | named | mention | deal
+    last_scanned_at: v.number(),
+  })
+    .index("by_external_id", ["external_id"])
+    .index("by_instagram_handle", ["instagram_handle"]),
+
+  sources: defineTable({             // every page or post a run read
+    store_id: v.optional(v.id("stores")),
+    provider,
+    url: v.string(),                 // normalize_url()
+    title: v.optional(v.string()),
+    full_text: v.string(),
+    posted_at: v.optional(v.string()),   // YYYY-MM-DD
+    fetched_at: v.number(),
+    first_seen_run_id: v.id("agent_runs"),
+  }).index("by_url", ["url"]),
 
   deals: defineTable({
-    dealId: v.string(),              // Deal.id
-    shopId: v.string(),              // -> shops.shopId
+    dedupe_key: v.string(),          // store + offer + code, the same rule as verify.py
+    store_id: v.id("stores"),        // Deal.shop_id, resolved to the stores row
     offer: v.string(),
     category: v.string(),            // food | drink | retail | entertainment | beauty | fitness | other
     code: v.optional(v.string()),
     conditions: v.array(v.string()),
-    startDate: v.optional(v.string()),  // YYYY-MM-DD
-    endDate: v.optional(v.string()),
-    startTime: v.optional(v.string()),  // HH:MM
-    endTime: v.optional(v.string()),
+    start_date: v.optional(v.string()),  // YYYY-MM-DD
+    end_date: v.optional(v.string()),
+    start_time: v.optional(v.string()),  // HH:MM
+    end_time: v.optional(v.string()),
     status: v.string(),              // live | needs_check | stale | expired
     confidence: v.string(),          // high | medium | low
-    secondHand: v.boolean(),         // flags includes "second_hand"
     flags: v.array(v.string()),
-    sourceUrl: v.string(),
-    sourcePostDate: v.optional(v.string()),
-    quote: v.string(),               // verbatim_quote
-    firstSeen: v.number(),
-    lastSeen: v.number(),
+    second_hand: v.boolean(),        // true only if every piece of evidence is second-hand
+    primary_source_id: v.id("sources"),
+    first_seen_at: v.number(),
+    last_verified_at: v.number(),
   })
-    .index("by_dealId", ["dealId"])
-    .index("by_shop", ["shopId"])
-    .index("by_status_category", ["status", "category"]),
+    .index("by_dedupe_key", ["dedupe_key"])
+    .index("by_store", ["store_id"])
+    .index("by_status_end_date", ["status", "end_date"]),
+
+  deal_evidence: defineTable({       // deal <-> source; the same BOGO can be on Instagram and TikTok
+    evidence_key: v.string(),        // Deal.id: hash of source URL + quote + code
+    deal_id: v.id("deals"),
+    source_id: v.id("sources"),
+    verbatim_quote: v.string(),
+    source_post_date: v.optional(v.string()),
+    second_hand: v.boolean(),        // Deal.flags has "second_hand" (else "shop_own_post")
+    extracted_run_id: v.id("agent_runs"),
+  })
+    .index("by_evidence_key", ["evidence_key"])
+    .index("by_deal", ["deal_id"]),
 });
 ```
 
-To save a job result: for each shop, upsert by `shopId`; for each deal, upsert by `dealId` (keep `firstSeen`, bump `lastSeen`, overwrite `status`). The API itself stays storage-free for now; the shop-list cache (`ShopCache` in `app/shop_pipeline.py`) is the one piece that would move into the `shops` table.
+To save a job result: insert an `agent_runs` row; upsert each shop into `stores` by `external_id`; upsert each source by `url`; for each deal, upsert into `deals` by `dedupe_key` (keep `first_seen_at`, bump `last_verified_at`, overwrite `status`) and into `deal_evidence` by `evidence_key` (`Deal.id`). Two keys because `Deal.id` names one post's evidence, while `dedupe_key` merges the same offer seen in several posts. The API itself stays storage-free for now; the shop-list cache (`ShopCache` in `app/shop_pipeline.py`) is the one piece that would move into the `stores` table.
 
 | Error | HTTP |
 | --- | --- |
