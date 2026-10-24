@@ -4,10 +4,12 @@ Finds short-lived local deals with Claude's web search, returns them as structur
 
 ## Run it
 
+Needs [uv](https://docs.astral.sh/uv/). It installs Python 3.13 and the dependencies for you.
+
 ```bash
-pip install -r requirements.txt
-export ANTHROPIC_API_KEY=sk-ant-...        # optional: DEALS_MODEL=<model id>
-uvicorn app.main:app --reload --port 8000
+uv sync
+cp .env.example .env                       # then add your ANTHROPIC_API_KEY
+uv run --env-file .env uvicorn app.main:app --reload --port 8000
 ```
 
 Interactive docs: http://localhost:8000/docs
@@ -74,7 +76,7 @@ Deals come back sorted live → needs_check → stale → expired.
 ## Tests
 
 ```bash
-python -m pytest -q
+uv run pytest -q
 ```
 
 29 tests: every verification rule, the multi-turn tool loop (pause_turn, forced tool, give-up), malformed output, search errors, and the API. They use a fake client returning real SDK `Message` objects, so no key or credits are needed.

@@ -1,0 +1,16 @@
+[project]
+name = "dibs-app"
+version = "0.1.0"
+requires-python = ">=3.13"
+dependencies = [
+    "anthropic>=2.1,<3",
+    "fastapi>=0.115",
+    "pydantic>=2.7",
+    "uvicorn>=0.30",
+]
+
+[dependency-groups]
+dev = [
+    "httpx>=0.27",
+    "pytest>=8",
+]
