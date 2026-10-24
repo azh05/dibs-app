@@ -2,7 +2,9 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-Dibs finds short-lived local deals, has Claude extract them as structured JSON, and checks every deal with deterministic Python rules before returning it. This is a monorepo: the FastAPI backend lives in `api/` and the Expo mobile app lives in `app/` (see `app/README.md`). The app should only ever call the API, never Anthropic or Bright Data directly.
+Dibs finds short-lived local deals, has Claude extract them as structured JSON, and checks every deal with deterministic Python rules before returning it. This is a monorepo: the FastAPI backend lives in `api/` and the Expo mobile app (screens built from the Figma design) lives in `app/` (see `app/README.md` and `app/AGENTS.md`). A Convex backend comes next and is not in the repo yet: the app will read and write through Convex (Clerk sign-in, the tables in the "Backend data model" doc), and Convex actions will call this API and store what it returns. The API itself stays stateless. Neither the app nor Convex calls Anthropic, Bright Data or Apify directly; only `api/` holds those keys. Until Convex exists the app calls the API directly via `EXPO_PUBLIC_API_URL`.
+
+`docs/apis-and-auth.md` lists every outside API, how it is authenticated, and the sign-in options (mirrors the "APIs & auth" tab of the Dibs App doc).
 
 `api/README.md` documents the HTTP API, verification rules tables, and Bright Data setup in detail; keep it in sync when behavior changes. The root `README.md` only describes the folder layout.
 
@@ -36,8 +38,14 @@ Five extract endpoints, one shared verification layer:
 - Apify caps memory across all running Actors (16 GB free plan). `ApifyClient.run` passes per-Actor `memory` (`ACTOR_MEMORY_MB`), waits on a process-wide `MemoryGate`, and retries 402 "memory limit" responses; out-of-credit 402s fail at once.
 - **`/extract/photo`** → `app/photo.py` `PhotoExtractor`. Multipart upload; Claude gets the image and calls `record_photo_deals` with a full `transcript` plus deals (`PhotoRawDeal` adds `year_stated`). The transcript is passed to `verify_deals` as `source_texts`, so quotes are machine-checked like the Bright Data path. Dates without a year are fixed in Python (`resolve_missing_year`, nearest to `photo_date`) and flagged `year_inferred`; status is judged against today. `GET /demo` serves `demo/index.html`, a dependency-free phone-sized page that drives this endpoint from a webcam or upload.
 - **`app/verify.py` `verify_deals`** is the AI-free gate every path goes through: rejects deals lacking a quote or citing a URL not in the fetched sources, strips promo codes not in the quote, assigns `live`/`needs_check`/`stale`/`expired`, dedupes, and sorts. The Bright Data path additionally passes `source_texts` and `authoritative_post_dates` (keyed by `normalize_url()`) so quotes must appear in the source text and Bright Data post dates override Claude's.
-- **`app/schemas.py`**: `RawDeal` (what Claude emits) vs `Deal` (verified, adds `status`/`flags`); request/response models. Every endpoint returns `SearchResponse` with a `provider` field.
+- **`app/schemas.py`**: `RawDeal` (what Claude emits) vs `Deal` (verified, adds `status`/`flags`); request/response models. Every endpoint returns `SearchResponse` with a `provider` field. `../app/src/lib/types.ts` in the Expo app mirrors `Deal` (`ApiDeal`), so a new enum value (e.g. a `Category`) also needs an entry in `../app/src/lib/api.ts` `CATEGORY`.
 - **`app/errors.py` `http_error`** maps upstream exceptions (Anthropic, Bright Data and Apify auth/timeout/other errors) to HTTP status codes; `main._call` and `JobStore` both use it.
+
+### Convex integration (planned)
+
+- Convex owns storage and auth; the API writes nothing. The README "Storing results (Convex)" section is the contract: `agent_runs`, `stores` (upsert by `Shop.id` as `external_id`), `sources` (by normalized URL), `deals` (by `dedupe_key`, same rule as `verify.py`) and `deal_evidence` (by `Deal.id`). Field names stay snake_case as the API returns them; keep that section in sync with `schemas.py` and the "Backend data model" doc.
+- Convex actions call the slow endpoints as jobs (`POST /extract/shops` or `/extract/instagram`, then poll the `status_url`); `JobStore` is in-memory and is what `agent_runs` replaces. `ShopCache` (`.cache/shops.json`) is the piece that moves into `stores`.
+- The API has no auth yet. Before Convex calls it from the cloud, add a shared-secret check (planned `DIBS_API_KEY`); the unmerged `auth` branch holds an OIDC token check (SpacetimeAuth, works with Clerk's issuer) if the app ever needs to call the API directly.
 
 ### Non-obvious constraints
 

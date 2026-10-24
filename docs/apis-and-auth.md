@@ -26,7 +26,7 @@ The app never calls Anthropic, Bright Data or Apify itself and never holds their
 
 ### Apify
 
-- What for: `/extract/shops` ([azh05/dibs-app#3](https://github.com/azh05/dibs-app/pull/3)). Public Store Actors: Google Maps (compass/crawler-google-places) finds shops and their social links; apify/instagram-scraper, apify/instagram-hashtag-scraper, clockworks/tiktok-scraper, apify/facebook-posts-scraper and apify/website-content-crawler read their posts and pages.
+- What for: `/extract/shops`. Public Store Actors: Google Maps (compass/crawler-google-places) finds shops and their social links; apify/instagram-scraper, apify/instagram-hashtag-scraper, clockworks/tiktok-scraper, apify/facebook-posts-scraper and apify/website-content-crawler read their posts and pages.
 - Auth: personal API token in `APIFY_TOKEN`, sent as `Authorization: Bearer <token>` to api.apify.com.
 - Get a token: console.apify.com → Settings → API & Integrations. Promo: Billing → Subscription → code `APIFY_CAL_HACKS` ($200 credits).
 - Cost: per result, priced by each Actor. Live: about $1.20 for 10 food and drink shops with the creator sweep, about $0.29 for 8 non-food shops. Facebook costs the most (about $8 per 1,000 posts). About $3.24 used so far.
@@ -40,7 +40,7 @@ The app never calls Anthropic, Bright Data or Apify itself and never holds their
 ## Dibs API (our FastAPI server)
 
 - Today it has no auth. Anyone who can reach it can spend our Anthropic, Bright Data and Apify credits, so it stays on 127.0.0.1 (localhost only). CORS allows any origin.
-- Endpoints: `/extract/search`, `/extract/serp`, `/extract/instagram` (+ job status), `/extract/shops` (+ job status, [azh05/dibs-app#3](https://github.com/azh05/dibs-app/pull/3)), `/extract/photo`, `/health`, `/demo`, `/docs`.
+- Endpoints: `/extract/search`, `/extract/serp`, `/extract/instagram` (+ job status), `/extract/shops` (+ job status), `/extract/photo`, `/health`, `/demo`, `/docs`.
 
 ## User sign-in: the two options
 

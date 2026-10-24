@@ -160,6 +160,14 @@ Also handled: a failed channel is retried once, then noted in `search_errors` wh
 
 The response adds `shops` and `apify_runs`; `provider` is `apify_shops`.
 
+| Error | HTTP |
+| --- | --- |
+| `APIFY_TOKEN` missing or rejected | 500 `APIFY_TOKEN missing or invalid` (missing: before the job starts) |
+| Apify run over 4 min (408, or 400 `TIMED-OUT`) | 504 for Google Maps; for a channel, noted in `search_errors` (not retried) |
+| Google Maps search failed, out of credits (402), bad input | 502 |
+| Account memory full (402 "memory limit") | retried after 20 s, up to 3 times, then 502 |
+| One channel failed | 200, noted in `search_errors` |
+
 ### Shops, deals and ids
 
 Every deal in the response has a `shop_id` pointing at an entry in `shops`, and both have ids that stay the same across runs, so a database can upsert them without duplicates.
@@ -178,7 +186,7 @@ A deal with no address gets its shop's.
 
 ### Storing results (Convex)
 
-Nothing is stored yet: results live in the job until the server restarts. The response is already split the way a database wants it. The tables and field names follow the "Backend data model" tab of the Dibs App doc (snake_case, as the API returns them); this is the part of it the extract endpoints write, as a Convex schema (`convex/schema.ts`):
+The API stores nothing: results live in the job until the server restarts. Storage belongs to the Convex backend (not in the repo yet; see "How it fits together" in the root README), which calls the extract endpoints and writes what they return. The response is already split the way a database wants it. The tables and field names follow the "Backend data model" tab of the Dibs App doc (snake_case, as the API returns them); this is the part of it the extract endpoints write, as a Convex schema (`convex/schema.ts`):
 
 ```ts
 import { defineSchema, defineTable } from "convex/server";
@@ -274,14 +282,6 @@ export default defineSchema({
 ```
 
 To save a job result: insert an `agent_runs` row; upsert each shop into `stores` by `external_id`; upsert each source by `url`; for each deal, upsert into `deals` by `dedupe_key` (keep `first_seen_at`, bump `last_verified_at`, overwrite `status`) and into `deal_evidence` by `evidence_key` (`Deal.id`). Two keys because `Deal.id` names one post's evidence, while `dedupe_key` merges the same offer seen in several posts. The API itself stays storage-free for now; the shop-list cache (`ShopCache` in `app/shop_pipeline.py`) is the one piece that would move into the `stores` table.
-
-| Error | HTTP |
-| --- | --- |
-| `APIFY_TOKEN` missing or rejected | 500 `APIFY_TOKEN missing or invalid` (missing: before the job starts) |
-| Apify run over 4 min (408, or 400 `TIMED-OUT`) | 504 for Google Maps; for a channel, noted in `search_errors` (not retried) |
-| Google Maps search failed, out of credits (402), bad input | 502 |
-| Account memory full (402 "memory limit") | retried after 20 s, up to 3 times, then 502 |
-| One channel failed | 200, noted in `search_errors` |
 
 ### Apify setup
 
