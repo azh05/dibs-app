@@ -1,6 +1,6 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { Linking, ScrollView, StyleSheet, View } from 'react-native';
+import { ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import VerifiedSuccess from '@/assets/shapes/verified-success.svg';
@@ -13,6 +13,8 @@ import { Text } from '@/components/text';
 import { Thumb } from '@/components/thumb';
 import { findDeal, useDeals } from '@/lib/api';
 import { SOURCE_ICONS, endsIn, expiryText, shortAgo } from '@/lib/format';
+import { combinedLine, lineLabel } from '@/lib/line-check';
+import { openDirections } from '@/lib/notifications';
 import { useStore } from '@/lib/store';
 import type { Deal } from '@/lib/types';
 import { useNow } from '@/lib/use-now';
@@ -37,13 +39,13 @@ function sourceRow(deal: Deal): DetailRow {
   };
 }
 
-// 04 · Deal detail (Figma 5:341)
+// 09 · Deal detail (Figma 5:341)
 export default function DealDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const insets = useSafeAreaInsets();
   const now = useNow();
   const { deals } = useDeals();
-  const { saved, toggleSaved, followed, toggleFollowed } = useStore();
+  const { saved, toggleSaved, followed, toggleFollowed, lineReports } = useStore();
   const deal = findDeal(deals, id);
 
   if (!deal) {
@@ -67,6 +69,17 @@ export default function DealDetail() {
 
   const rows: DetailRow[] = [];
   if (deal.window) rows.push({ key: 'when', icon: <Icon name="clock" size={20} />, ...deal.window });
+  const line = combinedLine(deal, lineReports);
+  if (line) {
+    rows.push({
+      key: 'line',
+      icon: <Icon name="users" size={20} />,
+      title: 'Line now: ',
+      accent: lineLabel(line.minutes),
+      subtitle: `${line.reports} ${line.reports === 1 ? 'report' : 'reports'} in the last hour`,
+      trailing: <StatusPill label="Live" />,
+    });
+  }
   if (deal.address) {
     const subtitle = [deal.distanceMi != null && `${deal.distanceMi} mi`, deal.walk].filter(Boolean).join(' · ');
     rows.push({
@@ -92,12 +105,6 @@ export default function DealDetail() {
   }
 
   const following = followed.has(deal.store);
-  const directions = () => {
-    const q = deal.coords
-      ? `daddr=${deal.coords.latitude},${deal.coords.longitude}`
-      : `daddr=${encodeURIComponent(deal.address ?? deal.store)}`;
-    Linking.openURL(`https://maps.apple.com/?${q}&dirflg=w`);
-  };
 
   return (
     <View style={styles.screen}>
@@ -144,7 +151,7 @@ export default function DealDetail() {
           variant="outline"
           onPress={() => toggleFollowed(deal.store)}
         />
-        <Button label="Get directions" icon="navigation" onPress={directions} style={{ flex: 1 }} />
+        <Button label="Get directions" icon="navigation" onPress={() => openDirections(deal)} style={{ flex: 1 }} />
       </ActionBar>
     </View>
   );

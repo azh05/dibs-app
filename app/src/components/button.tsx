@@ -17,19 +17,23 @@ type Props = {
   icon?: IconName;
   variant?: keyof typeof VARIANTS;
   onPress?: () => void;
+  disabled?: boolean;
   style?: StyleProp<ViewStyle>;
 };
 
-export function Button({ label, icon, variant = 'primary', onPress, style }: Props) {
+export function Button({ label, icon, variant = 'primary', onPress, disabled = false, style }: Props) {
   const v = VARIANTS[variant];
   return (
     <Pressable
       onPress={onPress}
+      disabled={disabled}
       accessibilityRole="button"
+      accessibilityState={{ disabled }}
       style={({ pressed }) => [
         styles.button,
         { backgroundColor: v.bg, borderColor: v.border, borderWidth: v.borderWidth },
         pressed && { opacity: 0.8 },
+        disabled && { opacity: 0.4 },
         style,
       ]}>
       {icon && <Icon name={icon} size={18} color={v.fg} />}

@@ -3,22 +3,38 @@ import { useEffect, useState } from 'react';
 
 import type { IconName } from '@/components/icon';
 import { HOME, MOCK_DEALS, MOCK_EVENTS } from '@/lib/mock';
-import type { ApiDeal, ApiSearchResponse, Deal, DealEvent, StoreType } from '@/lib/types';
+import type { ApiDeal, ApiSearchResponse, Deal, DealEvent, DealTag } from '@/lib/types';
 import { colors } from '@/theme';
 
 export const API_URL = process.env.EXPO_PUBLIC_API_URL?.replace(/\/$/, '');
 
 export const usingLiveApi = Boolean(API_URL);
 
-export const CATEGORY: Record<ApiDeal['category'], { storeType: StoreType; label: string; icon: IconName }> = {
-  food: { storeType: 'food', label: 'Food', icon: 'food' },
-  drink: { storeType: 'boba', label: 'Drinks', icon: 'boba' },
-  retail: { storeType: 'grocery', label: 'Retail', icon: 'cart' },
-  entertainment: { storeType: 'food', label: 'Entertainment', icon: 'zap' },
-  beauty: { storeType: 'barber', label: 'Beauty', icon: 'hair' },
-  fitness: { storeType: 'gym', label: 'Fitness', icon: 'dumbbell' },
-  other: { storeType: 'food', label: 'Local', icon: 'tag' },
+/** The API's coarse categories, placed on the closest store type in the interest catalog. */
+export const CATEGORY: Record<ApiDeal['category'], { storeType: string; label: string; icon: IconName }> = {
+  food: { storeType: 'Restaurants', label: 'Food', icon: 'food' },
+  drink: { storeType: 'Boba & tea', label: 'Drinks', icon: 'boba' },
+  retail: { storeType: 'Convenience stores', label: 'Retail', icon: 'cart' },
+  entertainment: { storeType: 'Movies', label: 'Entertainment', icon: 'zap' },
+  beauty: { storeType: 'Hair & barbers', label: 'Beauty', icon: 'scissors' },
+  fitness: { storeType: 'Gyms', label: 'Fitness', icon: 'dumbbell' },
+  other: { storeType: 'Restaurants', label: 'Local', icon: 'tag' },
 };
+
+const TAG_PATTERNS: [DealTag, RegExp][] = [
+  ['BOGO', /\bbogo\b|buy one,? get one/i],
+  ['% off', /\d+\s*%\s*off/i],
+  ['Free stuff', /\bfree\b/i],
+  ['Student deals', /\bstudents?\b|\.edu\b/i],
+  ['Happy hour', /happy hour/i],
+  ['Late night', /late[- ]night|after (9|10|11) ?pm/i],
+  ['New openings', /grand opening|now open|new location/i],
+];
+
+/** Deal types read off the offer text, since the API doesn't tag them. */
+function tagsFrom(text: string): DealTag[] {
+  return TAG_PATTERNS.filter(([, re]) => re.test(text)).map(([tag]) => tag);
+}
 
 function daysSince(isoDate: string | null) {
   if (!isoDate) return 24 * 30;
@@ -46,13 +62,17 @@ export function fromApiDeal(d: ApiDeal, index: number): Deal {
     storeType: cat.storeType,
     typeLabel: cat.label,
     icon: cat.icon,
+    logo: null,
     offer: d.offer,
+    shortOffer: d.offer,
+    tags: tagsFrom(`${d.offer} ${d.conditions.join(' ')}`),
     pinLabel: d.code ?? d.offer.split(' ').slice(0, 2).join(' '),
     distanceMi: null,
     coords: null,
     address: d.address,
     walk: null,
     openUntil: null,
+    hours: null,
     endsAt,
     expiryLabel: d.status === 'needs_check' ? 'Needs check' : d.status === 'stale' ? 'May be over' : null,
     window: d.conditions.length
@@ -62,6 +82,7 @@ export function fromApiDeal(d: ApiDeal, index: number): Deal {
     postedHoursAgo,
     confirmations: 0,
     lastCheckMinutes: null,
+    line: null,
     post: {
       author: d.shop_handle ?? d.shop_name,
       initials: initials(d.shop_name),

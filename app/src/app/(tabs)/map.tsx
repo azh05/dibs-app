@@ -1,37 +1,38 @@
 import { router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { useRef, useState } from 'react';
-import { Image, Pressable, ScrollView, StyleSheet, View } from 'react-native';
-import MapView, { Marker } from 'react-native-maps';
+import { useEffect, useRef, useState } from 'react';
+import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import MapView, { Circle, Marker } from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import Halo from '@/assets/shapes/halo.svg';
-import LegendDay from '@/assets/shapes/legend-day.svg';
-import LegendNew from '@/assets/shapes/legend-new.svg';
-import LegendWeek from '@/assets/shapes/legend-week.svg';
 import You from '@/assets/shapes/you.svg';
-import { Chip } from '@/components/chip';
 import { DealCard } from '@/components/deal-card';
 import { EventCard } from '@/components/event-card';
 import { Icon } from '@/components/icon';
+import { LineCheckCard } from '@/components/line-check-card';
 import { MapPin, pinAnchor, pinCenterOffset, type PinDetail } from '@/components/map-pin';
 import { SearchBar } from '@/components/search-bar';
 import { Overline } from '@/components/section-header';
 import { Text } from '@/components/text';
 import { useDeals } from '@/lib/api';
-import { FILTERS, filterDeals, filterEvents, type Filter } from '@/lib/filters';
-import { SOURCE_ICONS, eventWeekday, recency, shortAgo } from '@/lib/format';
+import { appliedFilters, applyEventFilters, applyFilters, SORTS } from '@/lib/filters';
+import { SOURCE_ICONS, eventWeekday, plural, recency, shortAgo } from '@/lib/format';
+import { combinedLine, GEOFENCE_METERS, useLineCheck, useUserLocation } from '@/lib/line-check';
 import { HOME } from '@/lib/mock';
 import { useStore } from '@/lib/store';
+import type { Deal, LatLng } from '@/lib/types';
 import { colors, gutter, radii, shadows } from '@/theme';
 
-/** About a mile of Westwood around "You", the zoom the Figma map is drawn at. */
-const NEIGHBORHOOD = {
-  latitude: HOME.latitude,
-  longitude: HOME.longitude,
-  latitudeDelta: 0.035,
-  longitudeDelta: 0.02,
-};
+/** About a mile of Westwood around a point, the zoom the Figma map is drawn at. */
+function regionAround(center: LatLng) {
+  return { ...center, latitudeDelta: 0.035, longitudeDelta: 0.02 };
+}
+
+/** Close enough to see a store's geofence while asking about its line. */
+function regionAtStore(center: LatLng) {
+  return { ...center, latitudeDelta: 0.006, longitudeDelta: 0.0035 };
+}
 
 /** Pins show less as the map zooms out (by visible latitude span) so they stop piling up. */
 function detailFor(latitudeDelta: number): PinDetail {
@@ -40,35 +41,48 @@ function detailFor(latitudeDelta: number): PinDetail {
   return 'icon';
 }
 
-const legendUpcoming = require('@/assets/shapes/legend-upcoming.png');
-
-const LEGEND = [
-  { label: 'New', Dot: LegendNew },
-  { label: '1d', Dot: LegendDay },
-  { label: '1w+', Dot: LegendWeek },
-] as const;
-
-// 03 · Map (Figma 4:298). The map fills the screen; "View list" swaps it for the same deals as a list.
+// 07 · Map (Figma 4:298) and 11 · Line check (52:1759). The map fills the screen with a sheet for
+// the nearest or tapped deal; "List" swaps the map for the same deals as a list.
 export default function MapScreen() {
   const insets = useSafeAreaInsets();
   const map = useRef<MapView>(null);
   const { deals, events } = useDeals();
-  const { saved, toggleSaved, radiusMi } = useStore();
-  const [filter, setFilter] = useState<Filter>('All');
+  const store = useStore();
+  const { saved, toggleSaved, filters, lineReports } = store;
   const [query, setQuery] = useState('');
   const [view, setView] = useState<'map' | 'list'>('map');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [topHeight, setTopHeight] = useState(0);
-  const [detail, setDetail] = useState<PinDetail>(detailFor(NEIGHBORHOOD.latitudeDelta));
+  const [bottomHeight, setBottomHeight] = useState(0);
+  const [detail, setDetail] = useState<PinDetail>(detailFor(regionAround(HOME).latitudeDelta));
+  const position = useUserLocation();
+  const you = position ?? HOME;
+  const lineCheck = useLineCheck(deals, position);
 
-  const shown = filterDeals(deals, filter, query).sort((a, b) => (a.distanceMi ?? 99) - (b.distanceMi ?? 99));
+  const shown = applyFilters(deals, filters, query);
   const placed = shown.filter((d) => d.coords);
-  const shownEvents = filterEvents(events, filter, query);
-  const nearby = shown.filter((d) => (d.distanceMi ?? 99) <= radiusMi);
-  const selected = placed.find((d) => d.id === selectedId);
+  const shownEvents = applyEventFilters(events, filters, query);
+  const featured = placed.find((d) => d.id === selectedId) ?? shown[0];
+  const applied = appliedFilters(filters);
+  const sortedBy = SORTS.find((s) => s.key === filters.sort)?.sortedBy ?? 'distance';
+  const prompted = lineCheck.store;
+
+  // Zoom in on the store while asking about its line, so its geofence shows (Figma 11 · Line check).
+  useEffect(() => {
+    if (prompted?.coords) map.current?.animateToRegion(regionAtStore(prompted.coords), 400);
+  }, [prompted]);
   const onMap = view === 'map';
 
-  const recenter = () => map.current?.animateToRegion(NEIGHBORHOOD, 400);
+  const card = (d: Deal) => (
+    <DealCard
+      key={d.id}
+      deal={d}
+      line={combinedLine(d, lineReports)}
+      saved={saved.has(d.id)}
+      onPress={() => router.push(`/deal/${d.id}`)}
+      onToggleSaved={() => toggleSaved(d.id)}
+    />
+  );
 
   return (
     <View style={styles.screen}>
@@ -80,17 +94,28 @@ export default function MapScreen() {
         userInterfaceStyle="light"
         showsPointsOfInterests={false}
         showsCompass={false}
-        zoomEnabled
-        scrollEnabled
         rotateEnabled={false}
         pitchEnabled={false}
-        initialRegion={NEIGHBORHOOD}
+        initialRegion={regionAround(HOME)}
+        // Keeps the visible middle of the map between the search bar and the bottom sheet.
+        mapPadding={{ top: topHeight, bottom: bottomHeight, left: 0, right: 0 }}
+        onMapReady={() => map.current?.animateToRegion(regionAround(you), 0)}
         onRegionChangeComplete={(region) => setDetail(detailFor(region.latitudeDelta))}
         onPress={(e) => {
           // Tapping empty map clears the selection; marker taps also reach here on iOS.
           if (e.nativeEvent.action !== 'marker-press') setSelectedId(null);
         }}>
-        <Marker coordinate={HOME} anchor={{ x: 0.5, y: 0.5 }} tracksViewChanges={false}>
+        {prompted?.coords && (
+          <Circle
+            center={prompted.coords}
+            radius={GEOFENCE_METERS}
+            strokeColor={colors.orange}
+            strokeWidth={1.5}
+            lineDashPattern={[6, 5]}
+            fillColor="rgba(255,90,31,0.08)"
+          />
+        )}
+        <Marker coordinate={you} anchor={{ x: 0.5, y: 0.5 }} tracksViewChanges={false}>
           <View style={styles.you} accessibilityLabel="You are here">
             <Halo width={70} height={70} />
             <View style={styles.youDot}>
@@ -100,7 +125,6 @@ export default function MapScreen() {
         </Marker>
         {placed.map((d) => {
           const isSelected = d.id === selectedId;
-          const pinDetail = isSelected ? 'full' : detail;
           return (
             <Marker
               key={d.id}
@@ -111,7 +135,7 @@ export default function MapScreen() {
               onPress={() => setSelectedId(d.id)}>
               <MapPin
                 state={isSelected ? 'selected' : recency(d.postedHoursAgo)}
-                detail={pinDetail}
+                detail={isSelected ? 'full' : detail}
                 label={d.pinLabel}
                 store={d.store}
                 icon={d.icon}
@@ -146,23 +170,14 @@ export default function MapScreen() {
           style={styles.list}
           contentContainerStyle={[styles.listContent, { paddingTop: topHeight + 8 }]}
           keyboardShouldPersistTaps="handled">
-          <View style={{ gap: 2 }}>
-            <Text weight="extrabold" size={17} tracking={-0.17}>
-              {nearby.length} deals within {radiusMi} mi
-            </Text>
-            <Text size={13} color={colors.inkTertiary}>
-              Sorted by distance
-            </Text>
-          </View>
-          {shown.map((d) => (
-            <DealCard
-              key={d.id}
-              deal={d}
-              saved={saved.has(d.id)}
-              onPress={() => router.push(`/deal/${d.id}`)}
-              onToggleSaved={() => toggleSaved(d.id)}
-            />
-          ))}
+          <SheetHeader
+            count={shown.length}
+            radiusMi={filters.radiusMi}
+            sortedBy={sortedBy}
+            toggleLabel="Map"
+            onToggle={() => setView('map')}
+          />
+          {shown.map(card)}
           {shownEvents.length > 0 && (
             <View style={{ gap: 12, paddingTop: 8 }}>
               <Overline>COMING UP</Overline>
@@ -173,7 +188,7 @@ export default function MapScreen() {
           )}
           {shown.length === 0 && shownEvents.length === 0 && (
             <Text size={14} color={colors.inkTertiary}>
-              Nothing here yet. Try another filter.
+              Nothing here yet. Try fewer filters.
             </Text>
           )}
         </ScrollView>
@@ -183,129 +198,153 @@ export default function MapScreen() {
         style={[styles.top, { paddingTop: insets.top + 4 }]}
         pointerEvents="box-none"
         onLayout={(e) => setTopHeight(e.nativeEvent.layout.height)}>
-        <View style={styles.pad}>
-          <SearchBar
-            value={query}
-            onChangeText={setQuery}
-            placeholder={onMap ? 'Search this area' : 'Search stores or deals'}
-            floating={onMap}
-          />
-        </View>
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.chips}
-          style={styles.chipsScroll}>
-          {FILTERS.map((f) => (
-            <Chip key={f} label={f} active={f === filter} onPress={() => setFilter(f)} floating={onMap} />
-          ))}
-        </ScrollView>
-        {onMap && (
-          <View style={[styles.pad, { alignItems: 'flex-start' }]} pointerEvents="none">
-            <View style={styles.legend}>
-              {LEGEND.map(({ label, Dot }) => (
-                <View key={label} style={styles.legendItem}>
-                  <Dot width={7} height={7} />
-                  <Text weight="semibold" size={11} color={colors.inkSecondary}>
-                    {label}
-                  </Text>
-                </View>
-              ))}
-              <View style={styles.legendItem}>
-                <Image source={legendUpcoming} style={{ width: 7, height: 7 }} />
-                <Text weight="semibold" size={11} color={colors.inkSecondary}>
-                  Upcoming
-                </Text>
-              </View>
-            </View>
-          </View>
-        )}
+        <SearchBar
+          value={query}
+          onChangeText={setQuery}
+          placeholder={onMap ? 'Search this area' : 'Search stores or deals'}
+          onFilters={() => router.push('/filters')}
+          floating={onMap}
+        />
       </View>
 
-      <View style={styles.bottom} pointerEvents="box-none">
-        {onMap && (
+      {onMap && (
+        <View
+          style={styles.bottom}
+          pointerEvents="box-none"
+          onLayout={(e) => setBottomHeight(e.nativeEvent.layout.height)}>
           <Pressable
-            onPress={recenter}
+            onPress={() => map.current?.animateToRegion(regionAround(you), 400)}
             style={[styles.recenter, shadows.floating]}
             accessibilityRole="button"
             accessibilityLabel="Recenter map">
             <Icon name="navigation" size={20} color={colors.orange} />
           </Pressable>
-        )}
-        <Pressable
-          onPress={() => {
-            setSelectedId(null);
-            setView(onMap ? 'list' : 'map');
-          }}
-          style={({ pressed }) => [styles.toggle, shadows.floating, pressed && { opacity: 0.85 }]}
-          accessibilityRole="button">
-          <Icon name={onMap ? 'tag' : 'map'} size={18} color={colors.surface} />
-          <Text weight="bold" size={15} color={colors.surface}>
-            {onMap ? 'View list' : 'View map'}
-          </Text>
-        </Pressable>
-        {onMap && selected && (
-          <View style={styles.selected}>
-            <DealCard
-              deal={selected}
-              saved={saved.has(selected.id)}
-              onPress={() => router.push(`/deal/${selected.id}`)}
-              onToggleSaved={() => toggleSaved(selected.id)}
-            />
-          </View>
-        )}
+          {prompted ? (
+            <View style={styles.lineCheck}>
+              <LineCheckCard
+                store={prompted.store}
+                onReport={(minutes) => store.reportLine(prompted.id, minutes)}
+                onUndo={store.undoLineReport}
+                onClose={lineCheck.dismiss}
+              />
+            </View>
+          ) : (
+            <View style={styles.sheet}>
+              <View style={styles.handle} />
+              <SheetHeader
+                count={shown.length}
+                radiusMi={filters.radiusMi}
+                sortedBy={sortedBy}
+                toggleLabel="List"
+                onToggle={() => {
+                  setSelectedId(null);
+                  setView('list');
+                }}
+              />
+              {applied.length > 0 && (
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.applied}>
+                  {applied.map((f) => (
+                    <Pressable
+                      key={f.key}
+                      onPress={() => store.setFilters(f.remove(filters))}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Remove ${f.label}`}
+                      style={styles.appliedChip}>
+                      <Text weight="bold" size={12}>
+                        {f.label}
+                      </Text>
+                      <Icon name="close" size={12} color={colors.orange} />
+                    </Pressable>
+                  ))}
+                </ScrollView>
+              )}
+              {featured && card(featured)}
+            </View>
+          )}
+        </View>
+      )}
+    </View>
+  );
+}
+
+function SheetHeader({
+  count,
+  radiusMi,
+  sortedBy,
+  toggleLabel,
+  onToggle,
+}: {
+  count: number;
+  radiusMi: number;
+  sortedBy: string;
+  toggleLabel: string;
+  onToggle: () => void;
+}) {
+  return (
+    <View style={styles.sheetHeader}>
+      <View style={{ gap: 2 }}>
+        <Text weight="extrabold" size={17} tracking={-0.17}>
+          {plural(count, 'deal')} within {radiusMi} mi
+        </Text>
+        <Text size={13} color={colors.inkTertiary}>
+          Sorted by {sortedBy}
+        </Text>
       </View>
+      <Pressable onPress={onToggle} accessibilityRole="button" style={styles.toggle}>
+        <Text weight="bold" size={13}>
+          {toggleLabel}
+        </Text>
+      </Pressable>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: '#F2F0EB' },
-  pad: { paddingHorizontal: gutter },
-  top: { position: 'absolute', left: 0, right: 0, top: 0, gap: 12 },
-  chipsScroll: { flexGrow: 0, overflow: 'visible' },
-  chips: { gap: 8, paddingHorizontal: gutter, paddingVertical: 2 },
-  legend: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: radii.pill,
-    backgroundColor: 'rgba(255,255,255,0.88)',
-  },
-  legendItem: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  top: { position: 'absolute', left: 0, right: 0, top: 0, paddingHorizontal: gutter },
   you: { width: 70, height: 70 },
   youDot: { position: 'absolute', left: 20, top: 22 },
   list: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, backgroundColor: colors.surface },
-  // Bottom padding leaves room to scroll the last card above the floating toggle.
-  listContent: { paddingHorizontal: gutter, paddingBottom: 96, gap: 12 },
-  bottom: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
-    alignItems: 'flex-end',
-    paddingHorizontal: gutter,
-    paddingBottom: 16,
-    gap: 12,
-  },
+  listContent: { paddingHorizontal: gutter, paddingBottom: 24, gap: 12 },
+  bottom: { position: 'absolute', left: 0, right: 0, bottom: 0, alignItems: 'flex-end', gap: 12 },
   recenter: {
     width: 48,
     height: 48,
     borderRadius: 24,
+    marginRight: gutter,
     backgroundColor: colors.surface,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  toggle: {
+  lineCheck: { alignSelf: 'stretch', paddingHorizontal: gutter, paddingBottom: 16 },
+  sheet: {
+    alignSelf: 'stretch',
+    gap: 14,
+    paddingTop: 10,
+    paddingHorizontal: gutter,
+    paddingBottom: 16,
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    backgroundColor: colors.surface,
+    shadowColor: '#17171A',
+    shadowOpacity: 0.12,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: -6 },
+  },
+  handle: { alignSelf: 'center', width: 40, height: 5, borderRadius: 3, backgroundColor: colors.border },
+  sheetHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  toggle: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: radii.pill, backgroundColor: colors.muted },
+  applied: { gap: 6 },
+  appliedChip: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    paddingHorizontal: 18,
-    paddingVertical: 13,
+    gap: 5,
+    paddingLeft: 10,
+    paddingRight: 8,
+    paddingVertical: 8,
     borderRadius: radii.pill,
-    backgroundColor: colors.ink,
+    borderWidth: 1,
+    borderColor: colors.orange,
+    backgroundColor: colors.orangeSoft,
   },
-  selected: { alignSelf: 'stretch', borderRadius: radii.card, ...shadows.floating },
 });

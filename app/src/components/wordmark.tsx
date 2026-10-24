@@ -8,7 +8,7 @@ import { colors } from '@/theme';
 // Figma "Logo / Wordmark" (3:52): "dıbs" (dotless i) in ExtraBold with the tittle drawn as a dot.
 // Sizes and the dot position are proportions of the 204 × 126 master.
 const BASE = { width: 204, height: 126, fontSize: 100, tracking: -2 };
-const DOT = { left: 0.3585, top: 0.1778, right: 0.539, bottom: 0.6635 };
+const DOT = { left: 0.3271, top: 0.1778, right: 0.5704, bottom: 0.6635 };
 
 type Props = {
   /** Rendered height in px; width follows the master's aspect ratio. */

@@ -6,6 +6,8 @@ export const colors = {
   inkTertiary: '#9A9CA3',
   orange: '#FF5A1F',
   orangeSoft: '#FFF1EA',
+  /** Second segment of the Profile "deal DNA" bar. */
+  orangeDeep: '#E8440A',
   surface: '#FFFFFF',
   muted: '#F5F5F7',
   border: '#ECECEF',
