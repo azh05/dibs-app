@@ -253,7 +253,7 @@ def test_shops_missing_token_fails_fast(shops_client):
 
 def test_shops_validates_input(shops_client):
     client, _ = shops_client()
-    assert client.post("/extract/shops", json={"max_shops": 21}).status_code == 422
+    assert client.post("/extract/shops", json={"max_shops": 61}).status_code == 422
     assert client.post("/extract/shops", json={"channels": ["myspace"]}).status_code == 422
     assert client.post("/extract/shops", json={"days": 0}).status_code == 422
     assert client.get("/extract/shops/nope").status_code == 404

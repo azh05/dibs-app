@@ -102,7 +102,7 @@ def run(deals=ALL_DEALS, req=None, apify=None, cache=None):
 
 def test_every_channel_scraped_and_verified():
     out, apify, calls, progress = run()
-    assert apify.calls["maps"][0][:3] == (["boba", "coffee shop"], "Westwood, Los Angeles, California", 4)
+    assert apify.calls["maps"][0][:3] == (["boba", "coffee shop", "juice bar"], "Westwood, Los Angeles, California", 7)
     assert apify.calls["instagram"] == [["milksha_ca"]]
     assert apify.calls["tiktok"] == [["milksha.ca", "newbobaspot"]]  # + an account the sweep post mentions
     assert apify.calls["facebook"] == [["https://www.facebook.com/MilkshaUSA/"]]
@@ -111,6 +111,30 @@ def test_every_channel_scraped_and_verified():
     assert all("shop_own_post" in d.flags for d in out.deals)
     assert out.provider == "apify_shops" and out.shops[0].name == "Milksha Westwood"
     assert "found 1 shop(s) on Google Maps" in progress
+
+
+def test_search_terms_reach_claude():
+    _, _, calls, _ = run(req=ShopsRequest(search_terms=["barbershop"], sweep=False))
+    assert "Shops were found by searching Google Maps for: barbershop" in calls[0]["messages"][0]["content"]
+
+
+def test_many_sources_split_across_parallel_claude_calls():
+    class Busy(FakeApify):
+        def instagram_posts(self, *a, **kw):
+            return [SocialPost("instagram", f"https://www.instagram.com/p/x{i}/", "milksha_ca", f"post {i} " + "y" * 1400, SINCE_POST) for i in range(150)]
+
+    apify = Busy()
+    batches = [msg([record_block([])], stop_reason="tool_use") for _ in range(4)]
+    batches[0] = msg([record_block([deal("https://www.instagram.com/p/x3/", "post 3")])], stop_reason="tool_use")
+    claude = FakeClient(batches)
+    pipeline = ShopPipeline(apify=apify, anthropic_client=claude, model="test-model", cache=ShopCache(None))
+    out = pipeline.run(ShopsRequest(channels=["instagram"], sweep=False), today=TODAY)
+    calls = claude.messages.calls
+    assert len(calls) >= 2  # 150 long posts don't fit one call
+    shown = sum(c["messages"][0]["content"].count("instagram.com/p/x") for c in calls)
+    assert shown == 150  # every source reached Claude exactly once
+    assert not any("fit in one Claude call" in e for e in out.search_errors)
+    assert out.usage.input_tokens == 100 * len(calls)
 
 
 def test_prompt_marks_shop_own_channels_and_trims_website():
@@ -243,11 +267,15 @@ def test_shop_cache_expires(tmp_path):
 
 
 def test_search_terms_and_sweep_defaults():
-    assert search_terms(ShopsRequest()) == ["restaurant", "boba", "coffee shop"]
-    assert search_terms(ShopsRequest(categories=["food", "drink"])) == ["restaurant", "boba", "coffee shop"]
+    food_and_drink = ["restaurant", "fast food", "pizza", "dessert", "boba", "coffee shop", "juice bar"]
+    assert search_terms(ShopsRequest()) == food_and_drink
+    assert search_terms(ShopsRequest(categories=["food", "drink"])) == food_and_drink
+    assert search_terms(ShopsRequest(categories=["beauty"])) == ["barbershop", "hair salon", "nail salon"]
     assert search_terms(ShopsRequest(search_terms=["ramen", " ramen "])) == ["ramen"]
     req = ShopsRequest(location=Location(neighborhood="Downtown Berkeley"))
-    assert sweep_targets(req, ["boba"]) == (["Downtown Berkeley boba deal"], ["downtownberkeleyeats", "downtownberkeleyfood"])
+    queries, tags = sweep_targets(req, ["boba", "coffee shop"])
+    assert queries == ["Downtown Berkeley boba deal", "Downtown Berkeley coffee shop deal"]
+    assert tags == ["downtownberkeleyeats", "downtownberkeleyfood", "downtownberkeleydeals", "downtownberkeleyboba", "downtownberkeleycoffeeshop"]
     req = ShopsRequest(hashtags=["#UCLAEats"], search_queries=["westwood bogo"])
     assert sweep_targets(req, ["boba"]) == (["westwood bogo"], ["uclaeats"])
 

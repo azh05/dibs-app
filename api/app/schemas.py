@@ -14,6 +14,8 @@ class Category(str, Enum):
     drink = "drink"
     retail = "retail"
     entertainment = "entertainment"
+    beauty = "beauty"    # barbershops, hair and nail salons
+    fitness = "fitness"  # gyms, boxing, yoga
     other = "other"
 
 
@@ -176,20 +178,24 @@ class ShopsRequest(BaseModel):
     categories: list[Category] = Field(default_factory=list)
     search_terms: list[str] = Field(
         default_factory=list,
-        max_length=6,
+        max_length=12,
         description="Google Maps searches, e.g. ['boba', 'coffee shop']. Default: from categories",
         examples=[["boba"]],
     )
     shops: list[str] = Field(
-        default_factory=list, max_length=20, description="Scrape these shops instead of searching, e.g. ['Milksha Westwood']"
+        default_factory=list, max_length=60, description="Scrape these shops instead of searching, e.g. ['Milksha Westwood']"
     )
-    max_shops: int = Field(8, ge=1, le=20)
+    max_shops: int = Field(20, ge=1, le=60, description="Shops from Google Maps, split across the search terms")
     days: int = Field(14, ge=1, le=60, description="Only posts from the last N days")
     posts_per_shop: int = Field(6, ge=1, le=20, description="Newest posts per shop per platform")
     channels: list[Channel] = Field(default_factory=lambda: ["instagram", "tiktok", "facebook", "website"])
     sweep: bool = Field(True, description="Also search TikTok and Instagram hashtags for the area (second-hand posts)")
-    hashtags: list[str] = Field(default_factory=list, max_length=5, description="Sweep hashtags. Default: <neighborhood>eats, <neighborhood>food")
-    search_queries: list[str] = Field(default_factory=list, max_length=3, description="Sweep TikTok searches. Default: '<area> deals'")
+    hashtags: list[str] = Field(
+        default_factory=list, max_length=8, description="Sweep hashtags. Default: <neighborhood>eats, food, deals + one per search term"
+    )
+    search_queries: list[str] = Field(
+        default_factory=list, max_length=5, description="Sweep TikTok searches. Default: '<neighborhood> <term> deal' for the first 3 terms"
+    )
     refresh_shops: bool = Field(False, description="Ignore the cached shop list for this area and search Google Maps again")
 
 

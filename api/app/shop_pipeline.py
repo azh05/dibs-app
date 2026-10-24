@@ -34,7 +34,7 @@ from .apify import (
     facebook_page,
     site_host,
 )
-from .bd_pipeline import extract_docs, verify_docs
+from .bd_pipeline import extract_docs_batched, verify_docs
 from .extractor import DEFAULT_MODEL, _today
 from .schemas import Category, SearchRequest, SearchResponse, Shop, ShopsRequest
 from .sources import combine, from_social, from_website
@@ -42,18 +42,22 @@ from .verify import normalize_url
 
 log = logging.getLogger(__name__)
 
+# Google Maps searches per section. More terms = more distinct shops (each term's results are capped).
 CATEGORY_TERMS: dict[Category, list[str]] = {
-    Category.food: ["restaurant"],
-    Category.drink: ["boba", "coffee shop"],
-    Category.retail: ["store"],
-    Category.entertainment: ["entertainment"],
+    Category.food: ["restaurant", "fast food", "pizza", "dessert"],
+    Category.drink: ["boba", "coffee shop", "juice bar"],
+    Category.retail: ["clothing store", "thrift store", "bookstore"],
+    Category.entertainment: ["bowling alley", "karaoke", "movie theater"],
+    Category.beauty: ["barbershop", "hair salon", "nail salon"],
+    Category.fitness: ["gym", "boxing gym", "yoga studio"],
     Category.other: [],
 }
-DEFAULT_TERMS = ["restaurant", "boba", "coffee shop"]
+DEFAULT_TERMS = CATEGORY_TERMS[Category.food] + CATEGORY_TERMS[Category.drink]
 PAGES_PER_SITE = 4
-SWEEP_TIKTOK_RESULTS = 20
-SWEEP_HASHTAG_RESULTS = 15
-MAX_MENTIONED_SHOPS = 5
+SWEEP_QUERY_TERMS = 3  # TikTok searches for the first N terms
+SWEEP_TIKTOK_RESULTS = 30
+SWEEP_HASHTAG_RESULTS = 25
+MAX_MENTIONED_SHOPS = 15
 CACHE_TTL = timedelta(days=7)
 DEFAULT_CACHE = Path(__file__).resolve().parent.parent / ".cache" / "shops.json"
 _SOCIAL_HOSTS = ("instagram.com", "facebook.com", "tiktok.com", "fb.com")
@@ -74,9 +78,11 @@ def area(req: ShopsRequest) -> str:
 def sweep_targets(req: ShopsRequest, terms: list[str]) -> tuple[list[str], list[str]]:
     """(TikTok searches, Instagram hashtags) for the keyword sweep."""
     place = req.location.neighborhood or req.location.city
-    queries = req.search_queries or [f"{place} {terms[0]} deal" if terms else f"{place} deals"]
-    tag = re.sub(r"[^a-z0-9]", "", place.lower())
-    hashtags = [h.lstrip("#").lower() for h in req.hashtags] or [f"{tag}eats", f"{tag}food"]
+    queries = req.search_queries or [f"{place} {t} deal" for t in terms[:SWEEP_QUERY_TERMS]] or [f"{place} deals"]
+    squash = lambda text: re.sub(r"[^a-z0-9]", "", text.lower())
+    tag = squash(place)
+    default_tags = [f"{tag}eats", f"{tag}food", f"{tag}deals"] + [f"{tag}{squash(t)}" for t in terms[:SWEEP_QUERY_TERMS]]
+    hashtags = [h.lstrip("#").lower() for h in req.hashtags] or list(dict.fromkeys(default_tags))[:8]
     return queries, hashtags
 
 
@@ -295,8 +301,13 @@ class ShopPipeline:
         host_of = {site_host(s.website): s.name for s in all_shops if s.website and site_host(s.website)}
         docs = combine(from_social(first_hand, shop_of, tz), from_website(pages, host_of), from_social(second_hand, shop_of, tz))
 
-        context = SearchRequest(location=req.location, radius_miles=req.radius_miles, categories=req.categories)
-        raw, usage = extract_docs(self.anthropic, self.model, docs, context, today, errors, progress, provider_name="Apify")
+        context = SearchRequest(
+            location=req.location,
+            radius_miles=req.radius_miles,
+            categories=req.categories,
+            query="Shops were found by searching Google Maps for: " + ", ".join(req.shops or terms),
+        )
+        raw, usage = extract_docs_batched(self.anthropic, self.model, docs, context, today, errors, progress, provider_name="Apify")
         sources, deals, rejected = verify_docs(docs, raw, today)
         own_keys = {normalize_url(d.url) for d in docs if d.shop}  # shop's own posts and website pages
         for d in deals:

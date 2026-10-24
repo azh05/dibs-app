@@ -201,6 +201,54 @@ def extract_docs(
     return extract_from_docs(client, model, docs, build_user_prompt(context, today), errors)
 
 
+def batch_docs(docs: list[SourceDoc], budget: int = PROMPT_CHAR_BUDGET, max_docs: int = 60) -> list[list[SourceDoc]]:
+    """Split docs into groups that each fit one Claude call (same size estimate as render_sources)."""
+    batches: list[list[SourceDoc]] = [[]]
+    used = 0
+    for d in docs:
+        size = 120 + min(len(d.prompt_text or d.text), DOC_CHAR_LIMIT + 12)
+        if batches[-1] and (used + size > budget or len(batches[-1]) >= max_docs):
+            batches.append([])
+            used = 0
+        batches[-1].append(d)
+        used += size
+    return [b for b in batches if b]
+
+
+def extract_docs_batched(
+    client: Any,
+    model: str,
+    docs: list[SourceDoc],
+    context: SearchRequest,
+    today: date,
+    errors: list[str],
+    on_progress: Optional[Callable[[str], None]] = None,
+    provider_name: str = "Bright Data",
+    workers: int = 4,
+) -> tuple[list[RawDeal], Usage]:
+    """Like extract_docs, but any number of sources: one Claude call per batch, run in parallel."""
+    batches = batch_docs(docs)
+    if len(batches) <= 1:
+        return extract_docs(client, model, docs, context, today, errors, on_progress, provider_name)
+    if on_progress:
+        on_progress(f"extracting deals from {len(docs)} source(s) with Claude, {len(batches)} calls in parallel")
+    prompt = build_user_prompt(context, today)
+    raw: list[RawDeal] = []
+    usage = Usage()
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futures = [pool.submit(extract_from_docs, client, model, b, prompt, errors) for b in batches]
+        for fut in futures:
+            try:
+                part, part_usage = fut.result()
+            except anthropic.APIError as exc:
+                errors.append(f"one extraction call failed ({exc.__class__.__name__}); its sources were skipped")
+                continue
+            raw += part
+            usage.input_tokens += part_usage.input_tokens
+            usage.output_tokens += part_usage.output_tokens
+    return raw, usage
+
+
 def verify_docs(docs: list[SourceDoc], raw: list[RawDeal], today: date):
     """verify_deals with the full fetched text and the scrapers' post dates. Returns (sources, deals, rejected)."""
     sources = to_search_sources(docs)

@@ -31,7 +31,7 @@ WEBSITE_ACTOR = "apify~website-content-crawler"
 RUN_TIMEOUT_S = 240  # Actor run limit; the sync endpoint itself gives up at 300 s
 HTTP_TIMEOUT_S = 310
 # Pages worth reading on a shop's site, besides its home page.
-WEBSITE_KEYWORDS = ("deal", "special", "promo", "offer", "happy", "menu", "event", "news")
+WEBSITE_KEYWORDS = ("deal", "special", "promo", "offer", "happy", "menu", "event", "news", "student", "discount", "sale", "coupon")
 
 
 class ApifyError(Exception):
