@@ -8,8 +8,14 @@ import anthropic
 from .brightdata import BrightDataAuthError, BrightDataError, BrightDataTimeout
 
 
+class AnthropicKeyMissing(RuntimeError):
+    """No ANTHROPIC_API_KEY. The SDK only notices at request time, with a bare TypeError."""
+
+
 def http_error(exc: Exception) -> Optional[tuple[int, str]]:
     """(status_code, detail) for errors we expect, None for bugs."""
+    if isinstance(exc, AnthropicKeyMissing):
+        return 500, "ANTHROPIC_API_KEY is missing or invalid"
     if isinstance(exc, BrightDataAuthError):
         return 500, "BRIGHTDATA_API_KEY missing or invalid"
     if isinstance(exc, BrightDataTimeout):
