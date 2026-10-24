@@ -1,12 +1,13 @@
-# Dibs (Claude extraction MVP)
+# Dibs API
 
 Finds short-lived local deals, returns them as structured JSON, and checks each one with plain Python rules before anyone sees it. Two ways to fetch: Claude's own web search (`/extract/search`), or Bright Data public web data (`/extract/serp` for Google results, `/extract/instagram` for shops' public posts) with Claude doing extraction only.
 
 ## Run it
 
-Needs [uv](https://docs.astral.sh/uv/). It installs Python 3.13 and the dependencies for you.
+Needs [uv](https://docs.astral.sh/uv/). It installs Python 3.13 and the dependencies for you. Run every command below from this `api/` folder.
 
 ```bash
+cd api
 uv sync
 cp .env.example .env                       # then add your ANTHROPIC_API_KEY
 uv run --env-file .env uvicorn app.main:app --reload --port 8000
