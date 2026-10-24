@@ -259,3 +259,9 @@ def test_memory_gate_blocks_until_room():
     assert got.wait(1)
     t.join()
     assert gate.used_mb == 2048
+
+
+def test_run_that_timed_out_is_a_timeout_not_retried_as_error():
+    body = {"error": {"type": "run-failed", "message": "Actor run did not succeed (run ID: x, status: TIMED-OUT)."}}
+    with pytest.raises(ApifyTimeout):
+        client(lambda r: httpx.Response(400, json=body)).run("apify~website-content-crawler", {}, 1)

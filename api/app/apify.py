@@ -360,7 +360,10 @@ class ApifyClient:
         if resp.status_code == 408:
             raise ApifyTimeout(f"{actor} didn't finish within {self.run_timeout_s} s")
         if resp.status_code >= 400:
-            raise ApifyError(f"{actor}: HTTP {resp.status_code}: {_error_message(resp)}")
+            message = _error_message(resp)
+            if "TIMED-OUT" in message:  # the run hit its own timeout: the sync endpoint answers 400, not 408
+                raise ApifyTimeout(f"{actor} didn't finish within {self.run_timeout_s} s")
+            raise ApifyError(f"{actor}: HTTP {resp.status_code}: {message}")
         try:
             data = resp.json()
         except ValueError as exc:

@@ -54,9 +54,9 @@ CATEGORY_TERMS: dict[Category, list[str]] = {
     Category.other: [],
 }
 DEFAULT_TERMS = CATEGORY_TERMS[Category.food] + CATEGORY_TERMS[Category.drink]
-PAGES_PER_SITE = 4
+PAGES_PER_SITE = 2  # live, 12 sites x 4 pages ran past the 4 min limit
 SWEEP_QUERY_TERMS = 3  # TikTok searches for the first N terms
-SWEEP_TIKTOK_RESULTS = 30
+SWEEP_TIKTOK_RESULTS = 15  # search has no date filter: live, 82 of 90 results were too old
 SWEEP_HASHTAG_RESULTS = 25
 MAX_MENTIONED_SHOPS = 15
 CACHE_TTL = timedelta(days=7)
