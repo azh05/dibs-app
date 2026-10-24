@@ -108,7 +108,7 @@ def test_every_channel_scraped_and_verified():
     assert apify.calls["facebook"] == [["https://www.facebook.com/MilkshaUSA/"]]
     assert apify.calls["website"] == [["https://milksha.com/"]]
     assert {d.source_url for d in out.deals} == {IG_URL, TT_URL, FB_URL, WEB_URL}
-    assert all("shop_own_post" in d.flags for d in out.deals if d.source_url != WEB_URL)
+    assert all("shop_own_post" in d.flags for d in out.deals)
     assert out.provider == "apify_shops" and out.shops[0].name == "Milksha Westwood"
     assert "found 1 shop(s) on Google Maps" in progress
 
@@ -192,9 +192,16 @@ def test_sweep_mentions_become_extra_shops():
     assert "tiktok: Westwood boba deal" in out.queries and "#westwoodeats" in out.queries
 
 
-def test_second_hand_post_is_not_flagged_as_own():
-    out, *_ = run([deal(FAN_URL, "Milksha is doing $3 drinks today")])
-    assert out.deals and "shop_own_post" not in out.deals[0].flags
+def test_second_hand_post_is_kept_and_flagged():
+    out, *_ = run([deal(FAN_URL, "Milksha is doing $3 drinks today", confidence="medium")])
+    [d] = out.deals
+    assert "second_hand" in d.flags and "shop_own_post" not in d.flags
+    assert d.status == DealStatus.live  # a concrete creator post can be live; the flag marks it less verified
+
+
+def test_prompt_lets_creator_posts_through_at_medium():
+    _, _, calls, _ = run()
+    assert 'Use confidence "medium" at most when it names the shop' in calls[0]["system"]
 
 
 def test_old_pinned_posts_dropped():

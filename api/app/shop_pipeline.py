@@ -5,7 +5,8 @@ then extract and verify deals exactly like the Bright Data path.
    listing or website. In parallel, a keyword sweep (TikTok search + Instagram hashtags) finds posts by other
    accounts; shops they @mention are scraped too.
 2. One Apify run per channel covering every shop, all channels in parallel.
-3. Posts from a shop's own account are first-hand; everything else is second-hand (confidence low, never live).
+3. Posts from a shop's own account are first-hand. Everything else (creators, food blogs) is second-hand: still
+   recorded, at most medium confidence, and flagged `second_hand` so the app can show it as less verified.
 """
 from __future__ import annotations
 
@@ -297,10 +298,9 @@ class ShopPipeline:
         context = SearchRequest(location=req.location, radius_miles=req.radius_miles, categories=req.categories)
         raw, usage = extract_docs(self.anthropic, self.model, docs, context, today, errors, progress, provider_name="Apify")
         sources, deals, rejected = verify_docs(docs, raw, today)
-        own_keys = {normalize_url(u) for u in own}
+        own_keys = {normalize_url(d.url) for d in docs if d.shop}  # shop's own posts and website pages
         for d in deals:
-            if normalize_url(d.source_url) in own_keys:
-                d.flags.append("shop_own_post")
+            d.flags.append("shop_own_post" if normalize_url(d.source_url) in own_keys else "second_hand")
         queries = [f"maps: {t}" for t in (req.shops or terms)] + sweep_labels
         return SearchResponse(
             as_of=today,

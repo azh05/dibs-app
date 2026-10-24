@@ -71,11 +71,11 @@ Rules for every deal you record:
 - Google results are short snippets. If a snippet doesn't show the whole offer, use confidence "low".
 - When a source's posted date is given, use it as source_post_date.
 - An Instagram post is first-hand only if the shop posted it or co-posted it ("co-posted with @shop" in the \
-header); then set shop_handle to the shop's account. A post by another account that only mentions the shop \
-is second-hand: use confidence "low".
-- A source marked "shop's own" (the shop's website, Instagram, TikTok or Facebook) is first-hand for that shop. \
-A TikTok, Instagram or Facebook post by any other account (an influencer, a food blog) is second-hand: use \
-confidence "low".
+header); then set shop_handle to the shop's account. A post by another account (an influencer, a food blog) \
+is second-hand: record its deals too, with shop_name set to the shop the post is about. Use confidence \
+"medium" at most when it names the shop and states a concrete offer, "low" when it's vague.
+- A source marked "shop's own" (the shop's website, Instagram, TikTok or Facebook) is first-hand for that \
+shop. A post by any other account is second-hand, as above.
 - Website text shows only the lines that look like offers. A menu price alone is not a deal.
 """
     + DEAL_RULES
