@@ -5,7 +5,7 @@ export type ApiDeal = {
   shop_name: string;
   shop_handle: string | null;
   address: string | null;
-  category: 'food' | 'drink' | 'retail' | 'entertainment' | 'other';
+  category: 'food' | 'drink' | 'retail' | 'entertainment' | 'beauty' | 'fitness' | 'other';
   offer: string;
   code: string | null;
   conditions: string[];
@@ -20,6 +20,9 @@ export type ApiDeal = {
   confidence: 'high' | 'medium' | 'low';
   status: 'live' | 'needs_check' | 'stale' | 'expired';
   flags: string[];
+  /** /extract/shops only: stable deal id, and the id of its shop in the response's `shops`. */
+  id?: string | null;
+  shop_id?: string | null;
 };
 
 export type ApiSearchResponse = {
