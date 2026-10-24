@@ -38,6 +38,27 @@ export const pinAnchor = { x: 0.5, y: 1 };
  */
 export const pinCenterOffset = { x: 0, y: -9 };
 
+/** Rough text widths for Plus Jakarta Sans: 12px extrabold labels, 11px bold store names and badges. */
+const CHAR_W = { label: 7.3, small: 6.3 };
+const BADGE_GAP = 4;
+
+/**
+ * The area a pin covers at a given detail, in points relative to its tail tip (x right, y down):
+ * the body and tail above the tip, plus, at full detail, the store name below and the badge to the right.
+ */
+export function pinFootprint(detail: PinDetail, label: string, store: string, time: string) {
+  const bodyW = detail === 'icon' ? 34 : 46 + label.length * CHAR_W.label;
+  if (detail !== 'full') return { left: -bodyW / 2, right: bodyW / 2, top: -TIP_Y, bottom: 0 };
+  const storeW = store.length * CHAR_W.small;
+  const badgeW = 26 + time.length * CHAR_W.small;
+  return {
+    left: -Math.max(bodyW, storeW) / 2,
+    right: Math.max(bodyW / 2 + BADGE_GAP + badgeW, storeW / 2),
+    top: -TIP_Y,
+    bottom: 18,
+  };
+}
+
 type Props = {
   state: PinState;
   detail?: PinDetail;
@@ -47,10 +68,12 @@ type Props = {
   sourceIcon: IconName;
   /** Badge text: post age ("2h") or event day ("Sat"). */
   time: string;
+  /** Nearby pins folded into this one; shown as "+N" on the body. */
+  folded?: number;
 };
 
 // Figma "Map Pin" (7:618). Colour encodes recency: Fresh → 1 day → 1 week+ gets lighter.
-export function MapPin({ state, detail = 'full', label, store, icon, sourceIcon, time }: Props) {
+export function MapPin({ state, detail = 'full', label, store, icon, sourceIcon, time, folded = 0 }: Props) {
   const upcoming = state === 'upcoming';
   const week = state === 'week';
   const full = detail === 'full';
@@ -90,6 +113,13 @@ export function MapPin({ state, detail = 'full', label, store, icon, sourceIcon,
                 <Text weight="extrabold" size={12} color={fg} numberOfLines={1}>
                   {label}
                 </Text>
+              )}
+              {folded > 0 && (
+                <View style={styles.count}>
+                  <Text weight="extrabold" size={10} color={colors.surface}>
+                    +{folded}
+                  </Text>
+                </View>
               )}
             </View>
             <View style={[styles.tail, full && { marginBottom: -3 }]}>
@@ -142,6 +172,20 @@ const styles = StyleSheet.create({
   bodyIcon: { paddingLeft: 8, paddingRight: 8 },
   bodyFilled: { borderWidth: 2, borderColor: colors.surface },
   bodyUpcoming: { borderWidth: 1.5, borderColor: colors.orange, borderStyle: 'dashed' },
+  count: {
+    position: 'absolute',
+    top: -8,
+    right: -10,
+    minWidth: 20,
+    height: 20,
+    paddingHorizontal: 4,
+    borderRadius: 10,
+    borderWidth: 1.5,
+    borderColor: colors.surface,
+    backgroundColor: colors.ink,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   tail: { marginTop: -3 },
   small: { lineHeight: 14 },
   badge: {

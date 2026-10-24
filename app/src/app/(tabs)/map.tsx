@@ -19,9 +19,10 @@ import { useDeals } from '@/lib/api';
 import { appliedFilters, applyEventFilters, applyFilters, SORTS } from '@/lib/filters';
 import { SOURCE_ICONS, eventWeekday, plural, recency, shortAgo } from '@/lib/format';
 import { combinedLine, GEOFENCE_METERS, useLineCheck, useUserLocation } from '@/lib/line-check';
+import { layoutPins } from '@/lib/pin-layout';
 import { HOME } from '@/lib/mock';
 import { useStore } from '@/lib/store';
-import type { Deal, LatLng } from '@/lib/types';
+import type { Deal, DealEvent, LatLng } from '@/lib/types';
 import { colors, gutter, radii, shadows } from '@/theme';
 
 /** About a mile of Westwood around a point, the zoom the Figma map is drawn at. */
@@ -54,7 +55,8 @@ export default function MapScreen() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [topHeight, setTopHeight] = useState(0);
   const [bottomHeight, setBottomHeight] = useState(0);
-  const [detail, setDetail] = useState<PinDetail>(detailFor(regionAround(HOME).latitudeDelta));
+  const [region, setRegion] = useState(regionAround(HOME));
+  const [mapWidth, setMapWidth] = useState(0);
   const position = useUserLocation();
   const you = position ?? HOME;
   const lineCheck = useLineCheck(deals, position);
@@ -63,6 +65,30 @@ export default function MapScreen() {
   const placed = shown.filter((d) => d.coords);
   const shownEvents = applyEventFilters(events, filters, query);
   const featured = placed.find((d) => d.id === selectedId) ?? shown[0];
+  const eventTime = (e: DealEvent) => eventWeekday(e).charAt(0) + eventWeekday(e).slice(1).toLowerCase();
+
+  // Each pin gets the most detail that fits without overlapping; the tapped deal is laid out first.
+  const pinSpecs = [
+    ...placed.map((d) => ({
+      id: d.id,
+      coords: d.coords!,
+      label: d.pinLabel,
+      store: d.store,
+      time: shortAgo(d.postedHoursAgo),
+    })),
+    ...shownEvents.map((e) => ({ id: e.id, coords: e.coords, label: e.pinLabel, store: e.store, time: eventTime(e) })),
+  ].sort((a, b) => Number(b.id === selectedId) - Number(a.id === selectedId));
+  const placements = layoutPins(pinSpecs, region, { width: mapWidth }, detailFor(region.latitudeDelta));
+
+  /** Taps on a pin with others folded under it zoom in until they separate. */
+  const expandCluster = (id: string) => {
+    const ids = [id, ...(placements.get(id)?.folded ?? [])];
+    const coords = pinSpecs.filter((p) => ids.includes(p.id)).map((p) => p.coords);
+    map.current?.fitToCoordinates(coords, {
+      edgePadding: { top: topHeight + 80, bottom: bottomHeight + 60, left: 80, right: 80 },
+      animated: true,
+    });
+  };
   const applied = appliedFilters(filters);
   const sortedBy = SORTS.find((s) => s.key === filters.sort)?.sortedBy ?? 'distance';
   const prompted = lineCheck.store;
@@ -90,6 +116,7 @@ export default function MapScreen() {
       <MapView
         ref={map}
         style={StyleSheet.absoluteFill}
+        onLayout={(e) => setMapWidth(e.nativeEvent.layout.width)}
         mapType="mutedStandard"
         userInterfaceStyle="light"
         showsPointsOfInterests={false}
@@ -100,7 +127,7 @@ export default function MapScreen() {
         // Keeps the visible middle of the map between the search bar and the bottom sheet.
         mapPadding={{ top: topHeight, bottom: bottomHeight, left: 0, right: 0 }}
         onMapReady={() => map.current?.animateToRegion(regionAround(you), 0)}
-        onRegionChangeComplete={(region) => setDetail(detailFor(region.latitudeDelta))}
+        onRegionChangeComplete={setRegion}
         onPress={(e) => {
           // Tapping empty map clears the selection; marker taps also reach here on iOS.
           if (e.nativeEvent.action !== 'marker-press') setSelectedId(null);
@@ -124,7 +151,10 @@ export default function MapScreen() {
           </View>
         </Marker>
         {placed.map((d) => {
+          const placement = placements.get(d.id);
+          if (!placement) return null;
           const isSelected = d.id === selectedId;
+          const folded = placement.folded.length;
           return (
             <Marker
               key={d.id}
@@ -132,37 +162,44 @@ export default function MapScreen() {
               anchor={pinAnchor}
               centerOffset={pinCenterOffset}
               zIndex={isSelected ? 10 : 1}
-              onPress={() => setSelectedId(d.id)}>
+              onPress={() => (folded > 0 && !isSelected ? expandCluster(d.id) : setSelectedId(d.id))}>
               <MapPin
                 state={isSelected ? 'selected' : recency(d.postedHoursAgo)}
-                detail={isSelected ? 'full' : detail}
+                detail={isSelected ? 'full' : placement.detail}
                 label={d.pinLabel}
                 store={d.store}
                 icon={d.icon}
                 sourceIcon={SOURCE_ICONS[d.source.kind]}
                 time={shortAgo(d.postedHoursAgo)}
+                folded={folded}
               />
             </Marker>
           );
         })}
-        {shownEvents.map((e) => (
-          <Marker
-            key={e.id}
-            coordinate={e.coords}
-            anchor={pinAnchor}
-            centerOffset={pinCenterOffset}
-            onPress={() => router.push(`/event/${e.id}`)}>
-            <MapPin
-              state="upcoming"
-              detail={detail}
-              label={e.pinLabel}
-              store={e.store}
-              icon={e.icon}
-              sourceIcon="instagram"
-              time={eventWeekday(e).charAt(0) + eventWeekday(e).slice(1).toLowerCase()}
-            />
-          </Marker>
-        ))}
+        {shownEvents.map((e) => {
+          const placement = placements.get(e.id);
+          if (!placement) return null;
+          const folded = placement.folded.length;
+          return (
+            <Marker
+              key={e.id}
+              coordinate={e.coords}
+              anchor={pinAnchor}
+              centerOffset={pinCenterOffset}
+              onPress={() => (folded > 0 ? expandCluster(e.id) : router.push(`/event/${e.id}`))}>
+              <MapPin
+                state="upcoming"
+                detail={placement.detail}
+                folded={folded}
+                label={e.pinLabel}
+                store={e.store}
+                icon={e.icon}
+                sourceIcon="instagram"
+                time={eventTime(e)}
+              />
+            </Marker>
+          );
+        })}
       </MapView>
 
       {!onMap && (
