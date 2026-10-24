@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import threading
 import time
 from dataclasses import dataclass, field
@@ -27,10 +28,10 @@ log = logging.getLogger(__name__)
 
 API_BASE = "https://api.brightdata.com"
 IG_POSTS_DATASET = "gd_lk5ns7kz21pck8jpis"
-SERP_ATTEMPTS = 3
-# Good Google answers took 10 to 13 s live (2026-10-23); blocked ones hung about 60 s, then came back
-# empty with x-brd-error-code: expect_element. Cut slow attempts short and retry instead.
-SERP_ATTEMPT_TIMEOUT_S = 30
+# Good Google answers took 8 to 15 s live (2026-10-23); blocked ones hung about 60 s, then came back
+# empty with x-brd-error-code: expect_element. Cut slow attempts short and retry once: worst case ~42 s.
+SERP_ATTEMPTS = 2
+SERP_ATTEMPT_TIMEOUT_S = 20
 IG_POLL_INTERVAL_S = 5
 IG_MAX_WAIT_S = 300
 IG_MIN_RETRY_S = 90  # only retry zero-row profiles if this much of the wait budget is left
@@ -65,6 +66,7 @@ class IgPost:
     content_type: Optional[str] = None
     shortcode: Optional[str] = None
     profile_url: Optional[str] = None
+    coauthors: list[str] = field(default_factory=list)  # collab posts: other accounts that co-published it
 
 
 @dataclass
@@ -210,7 +212,7 @@ class BrightDataClient:
             if data is None:
                 problem = f"empty or non-JSON response{_brd_error(resp)}"
                 continue
-            return [
+            results = [
                 SerpResult(
                     rank=int(item.get("rank") or item.get("global_rank") or i + 1),
                     title=str(item.get("title") or ""),
@@ -220,6 +222,12 @@ class BrightDataClient:
                 for i, item in enumerate(data.get("organic") or [])
                 if isinstance(item, dict) and item.get("link")
             ]
+            # Live 2026-10-24: the same query returned 8 of 8 undecodable "/goto?url=CAES..." links,
+            # then 8 real links a few minutes later. A page of only redirects is a failed attempt.
+            if results and not any(r.link.startswith(("http://", "https://")) for r in results):
+                problem = "only Google redirect links (/goto?url=...)"
+                continue
+            return results
 
         message = f"Google search for {query!r} failed after {SERP_ATTEMPTS} attempts: {problem}"
         raise BrightDataTimeout(message) if timed_out else BrightDataError(message)
@@ -265,6 +273,45 @@ class BrightDataClient:
             progress(f"dropped {len(posts) - len(recent)} post(s) older than {since.isoformat()} (pinned)")
         return InstagramResult(posts=recent, errors=errors)
 
+    def instagram_posts(
+        self,
+        post_urls: list[str],
+        max_wait_s: float = IG_MAX_WAIT_S,
+        on_progress: Optional[Callable[[str], None]] = None,
+        counter: Optional[RequestCounter] = None,
+    ) -> InstagramResult:
+        """Fetch specific public posts by URL (sync /scrape). Live, one post took 10 s.
+
+        Unlike discovery by profile, this works when Google has already found the post URLs.
+        If the scrape runs past about a minute, Bright Data answers 202 with a snapshot_id; then poll.
+        """
+        progress = on_progress or (lambda _msg: None)
+        deadline = self.clock() + max_wait_s
+        started = self.clock()
+        params = {"dataset_id": IG_POSTS_DATASET, "format": "json", "include_errors": "true"}
+        try:
+            resp = self._send(
+                "POST", "/datasets/v3/scrape", counter, params=params,
+                json={"input": [{"url": u} for u in post_urls]}, timeout=max(max_wait_s, 1),
+            )
+        except httpx.TimeoutException:
+            raise BrightDataTimeout(f"Instagram post fetch timed out after {int(self.clock() - started)}s")
+        if resp.status_code >= 400:
+            raise BrightDataError(f"Instagram post fetch failed: HTTP {resp.status_code}: {resp.text[:200]}")
+        data = resp.json()
+        note = None
+        if resp.status_code == 202 or (isinstance(data, dict) and set(data) <= {"snapshot_id", "message"} and data.get("snapshot_id")):
+            snapshot_id = data["snapshot_id"]
+            progress(f"post fetch still running; polling Bright Data snapshot {snapshot_id}")
+            rows, note = self._wait_and_download(snapshot_id, started, deadline, progress)
+        else:
+            rows = data if isinstance(data, list) else [data]
+        posts, errors, _ = _parse_rows(rows)
+        if not posts and note:
+            errors.append(f"Bright Data: {note}")
+        progress(f"fetched {len(posts)} of {len(post_urls)} post(s) in {int(self.clock() - started)}s")
+        return InstagramResult(posts=posts, errors=errors)
+
     def _posts_job(
         self,
         profile_urls: list[str],
@@ -287,13 +334,21 @@ class BrightDataClient:
             raise BrightDataError("Instagram job trigger returned no snapshot_id")
         started = self.clock()
         progress(f"started Bright Data job {snapshot_id} for {len(profile_urls)} profile(s)")
+        rows, note = self._wait_and_download(snapshot_id, started, deadline, progress)
+        posts, errors, errored = _parse_rows(rows)
+        if not posts and note:
+            errors.append(f"Bright Data job {snapshot_id}: {note}")
+        progress(f"downloaded {len(posts)} post(s) in {int(self.clock() - started)}s")
+        return posts, errors, errored
 
-        def elapsed() -> int:
-            return int(self.clock() - started)
+    def _wait_and_download(
+        self, snapshot_id: str, started: float, deadline: float, progress: Callable[[str], None]
+    ) -> tuple[list[Any], Optional[str]]:
+        """Poll /progress until ready, then download the snapshot. Returns (rows, Bright Data's message, if any)."""
 
         def wait_or_timeout(what: str) -> None:
             if self.clock() + self.poll_interval > deadline:
-                raise BrightDataTimeout(f"Instagram job {snapshot_id} {what} after {elapsed()}s")
+                raise BrightDataTimeout(f"Instagram job {snapshot_id} {what} after {int(self.clock() - started)}s")
             self.sleep(self.poll_interval)
 
         last_status = None
@@ -309,7 +364,7 @@ class BrightDataClient:
             if status in ("failed", "canceled"):
                 raise BrightDataError(f"Instagram job {status}: {info.get('error_message') or 'no reason given'}")
             if status and status != last_status:
-                progress(f"job {status} ({elapsed()}s)")
+                progress(f"job {status} ({int(self.clock() - started)}s)")
                 last_status = status
             wait_or_timeout("was not ready")
 
@@ -325,30 +380,56 @@ class BrightDataClient:
 
         if not isinstance(rows, list):
             raise BrightDataError("Instagram snapshot was not a list of records")
+        # Live 2026-10-23: an empty snapshot came with "No records found. The data may not be available..."
+        return rows, info.get("error_message")
 
-        posts: list[IgPost] = []
-        errors: list[str] = []
-        errored: set[str] = set()
-        for row in rows:
-            if not isinstance(row, dict):
-                continue
-            if row.get("error") or row.get("error_code"):
-                url = (row.get("input") or {}).get("url") or "?"
-                errored.add(profile_key(url))
-                errors.append(f"@{profile_key(url)}: {row.get('error_code') or 'error'}: {row.get('error') or ''}".rstrip(": "))
-                continue
-            if not row.get("url"):
-                continue
-            posts.append(
-                IgPost(
-                    url=row["url"],
-                    handle=row.get("user_posted"),
-                    caption=row.get("description") or "",
-                    posted_at=_parse_posted(row.get("date_posted")),
-                    content_type=row.get("content_type"),
-                    shortcode=row.get("shortcode"),
-                    profile_url=(row.get("discovery_input") or {}).get("url"),
-                )
+
+_POST_PATH = re.compile(r"^/(?:[^/]+/)?(?:p|reel|tv)/([^/]+)")
+
+
+def ig_shortcode(url: str) -> Optional[str]:
+    """'https://www.instagram.com/reel/DeFYcA0gU6G/?igsh=x' -> 'DeFYcA0gU6G'; None for profiles and other pages.
+
+    Posts are matched by shortcode because the scraper may answer /p/X for a requested /reel/X.
+    """
+    parts = urlsplit(url)
+    host = (parts.hostname or "").lower().removeprefix("www.")
+    if host != "instagram.com":
+        return None
+    m = _POST_PATH.match(parts.path)
+    return m.group(1) if m else None
+
+
+def _is_post_url(url: str) -> bool:
+    return ig_shortcode(url) is not None
+
+
+def _parse_rows(rows: list[Any]) -> tuple[list[IgPost], list[str], set[str]]:
+    """Posts, error messages, and the profile keys of inputs that errored. Errors arrive inside a 200."""
+    posts: list[IgPost] = []
+    errors: list[str] = []
+    errored: set[str] = set()
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        if row.get("error") or row.get("error_code"):
+            url = (row.get("input") or {}).get("url") or "?"
+            label = url if _is_post_url(url) else f"@{profile_key(url)}"
+            errored.add(profile_key(url))
+            errors.append(f"{label}: {row.get('error_code') or 'error'}: {row.get('error') or ''}".rstrip(": "))
+            continue
+        if not row.get("url"):
+            continue
+        posts.append(
+            IgPost(
+                url=row["url"],
+                handle=row.get("user_posted"),
+                caption=row.get("description") or "",
+                posted_at=_parse_posted(row.get("date_posted")),
+                content_type=row.get("content_type"),
+                shortcode=row.get("shortcode"),
+                profile_url=(row.get("discovery_input") or {}).get("url"),
+                coauthors=[c for c in (row.get("coauthor_producers") or []) if isinstance(c, str)],
             )
-        progress(f"downloaded {len(posts)} post(s) in {elapsed()}s")
-        return posts, errors, errored
+        )
+    return posts, errors, errored

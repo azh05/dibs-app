@@ -22,6 +22,7 @@ class SourceDoc(BaseModel):
     page_age: Optional[str] = None  # SERP: the date Google prints before a snippet ('Oct 7, 2026', '3 days ago')
     origin: Literal["serp", "instagram"]
     handle: Optional[str]
+    coauthors: list[str] = []  # Instagram collab posts: accounts that co-published it
 
 
 # Google starts many snippets with a date: "Oct 7, 2026 — SEO for Westwood cafés...".
@@ -76,6 +77,7 @@ def from_instagram(posts: Iterable[IgPost], tz: str = "America/Los_Angeles") -> 
             post_date=p.posted_at.astimezone(zone).date() if p.posted_at else None,
             origin="instagram",
             handle=p.handle,
+            coauthors=p.coauthors,
         )
         for p in posts
     )

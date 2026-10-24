@@ -101,13 +101,26 @@ def test_serp_empty_organic():
 def test_serp_retries_empty_captcha_body():
     replies = [
         httpx.Response(200, text="", headers={"x-brd-error-code": "captcha"}),
-        httpx.Response(200, text="Please try again"),
         httpx.Response(200, json=ORGANIC),
     ]
-    bd, clock = client(lambda r: replies.pop(0))
+    seen = []
+
+    def handler(request):
+        seen.append(request)
+        return replies.pop(0)
+
+    bd, clock = client(handler)
     counter = RequestCounter()
     assert len(bd.serp_search("q", counter=counter)) == 2
-    assert counter.count == 3 and clock.now > 0
+    assert counter.count == 2 and clock.now > 0
+    assert seen[0].extensions["timeout"]["read"] == 20  # blocked calls hang ~60 s; give up at 20 s
+
+
+def test_serp_gives_up_after_two_attempts():
+    replies = [httpx.Response(200, text="Please try again"), httpx.Response(200, text=""), httpx.Response(200, json=ORGANIC)]
+    bd, _ = client(lambda r: replies.pop(0))
+    with pytest.raises(BrightDataError, match="after 2 attempts"):
+        bd.serp_search("q")
 
 
 def test_serp_gives_up_after_three_bad_bodies():
@@ -304,3 +317,101 @@ def test_ig_survives_flaky_progress_poll():
 
     bd, _ = client(handler)
     assert len(bd.instagram_recent_posts([MILKSHA], 6, SINCE).posts) == 1
+
+
+def test_ig_empty_snapshot_reports_bright_data_message():
+    msg = "No records found. The data may not be available or has changed."
+    server = IgServer(([{"status": "ready", "records": 0, "error_message": msg}], [httpx.Response(200, json=[])]),
+                      ([{"status": "ready", "records": 0, "error_message": msg}], [httpx.Response(200, json=[])]))
+    bd, _ = client(server)
+    out = bd.instagram_recent_posts([MILKSHA], 6, SINCE)
+    assert f"Bright Data job s_1: {msg}" in out.errors
+    assert out.errors[-1] == "@milksha_ca: no public posts returned since 2026-09-23"
+
+
+# --- Instagram posts by URL (sync /scrape) ---------------------------------------
+
+POST_URL = "https://www.instagram.com/p/DeFYcA0gU6G/"
+
+
+def test_posts_by_url_sync_list():
+    seen = []
+
+    def handler(request):
+        seen.append(request)
+        return httpx.Response(200, json=[post("DeFYcA0gU6G", user="26vietcafe.usa")])
+
+    bd, _ = client(handler)
+    counter = RequestCounter()
+    out = bd.instagram_posts([POST_URL], counter=counter)
+    assert [p.handle for p in out.posts] == ["26vietcafe.usa"] and out.errors == []
+    req = seen[0]
+    assert req.url.path == "/datasets/v3/scrape"
+    assert parse_qs(req.url.query.decode()) == {"dataset_id": [IG_POSTS_DATASET], "format": ["json"], "include_errors": ["true"]}
+    assert json.loads(req.content) == {"input": [{"url": POST_URL}]}
+    assert counter.count == 1
+
+
+def test_posts_by_url_single_object_body():
+    bd, _ = client(lambda r: httpx.Response(200, json=post("abc")))
+    assert len(bd.instagram_posts([POST_URL]).posts) == 1
+
+
+def test_posts_by_url_202_falls_back_to_polling():
+    def handler(request):
+        if request.url.path == "/datasets/v3/scrape":
+            return httpx.Response(202, json={"snapshot_id": "s_9", "message": "still running"})
+        if request.url.path == "/datasets/v3/progress/s_9":
+            return httpx.Response(200, json={"status": "ready"})
+        return httpx.Response(200, json=[post("abc")])
+
+    bd, _ = client(handler)
+    progress = []
+    out = bd.instagram_posts([POST_URL], on_progress=progress.append)
+    assert len(out.posts) == 1 and any("polling" in m for m in progress)
+
+
+def test_posts_by_url_error_row_names_the_post():
+    bad = {"error": "Post not found", "error_code": "dead_page", "input": {"url": POST_URL}}
+    bd, _ = client(lambda r: httpx.Response(200, json=[bad]))
+    out = bd.instagram_posts([POST_URL])
+    assert out.posts == [] and out.errors == [f"{POST_URL}: dead_page: Post not found"]
+
+
+def test_posts_by_url_timeout():
+    def handler(request):
+        raise httpx.ReadTimeout("slow", request=request)
+
+    bd, _ = client(handler)
+    with pytest.raises(BrightDataTimeout):
+        bd.instagram_posts([POST_URL], max_wait_s=30)
+
+
+def test_ig_shortcode():
+    from app.brightdata import ig_shortcode
+
+    assert ig_shortcode("https://www.instagram.com/reel/DeFYcA0gU6G/?igsh=x") == "DeFYcA0gU6G"
+    assert ig_shortcode("https://instagram.com/p/abc") == "abc"
+    assert ig_shortcode("https://www.instagram.com/26vietcafe.usa/p/abc/") == "abc"
+    assert ig_shortcode("https://www.instagram.com/westwoodvillage/reels/") is None
+    assert ig_shortcode("https://www.instagram.com/milksha_ca/") is None
+    assert ig_shortcode("https://example.com/p/abc") is None
+
+
+def test_serp_retries_page_of_only_redirect_links():
+    goto = {"organic": [{"global_rank": 1, "title": "x", "link": "/goto?url=CAESYwHrOzAV", "description": "d"}]}
+    replies = [httpx.Response(200, json=goto), httpx.Response(200, json=ORGANIC)]
+    bd, _ = client(lambda r: replies.pop(0))
+    assert len(bd.serp_search("q")) == 2
+
+
+def test_serp_keeps_page_with_some_redirect_links():
+    mixed = {"organic": [{"link": "/goto?url=CAES"}, {"link": "https://www.instagram.com/p/abc/"}]}
+    bd, _ = client(lambda r: httpx.Response(200, json=mixed))
+    assert [r.link for r in bd.serp_search("q")] == ["/goto?url=CAES", "https://www.instagram.com/p/abc/"]  # pipeline filters
+
+
+def test_posts_by_url_reads_coauthors():
+    row = {**post("abc", user="_losangelily"), "coauthor_producers": ["westwoodvillage", "26vietcafe.usa"]}
+    bd, _ = client(lambda r: httpx.Response(200, json=[row]))
+    assert bd.instagram_posts([POST_URL]).posts[0].coauthors == ["westwoodvillage", "26vietcafe.usa"]

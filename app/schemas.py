@@ -118,6 +118,11 @@ class SerpSearchRequest(BaseModel):
     queries: list[str] = Field(default_factory=list, description="Google queries to run instead of the automatic ones")
     max_queries: int = Field(4, ge=1, le=8)
     past_month: bool = Field(True, description="Limit Google to the past month (tbs=qdr:m)")
+    enrich_instagram: bool = Field(
+        True,
+        description="When a deal cites an Instagram post, fetch the full post (caption + real post date) and "
+        "re-check the deal against it. Adds about 10 to 30 s.",
+    )
 
 
 _HANDLE = re.compile(r"^[A-Za-z0-9._]{1,30}$")

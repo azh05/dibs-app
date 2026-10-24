@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import logging
 import re
+import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, timedelta
 from typing import Any, Callable, Optional
@@ -14,7 +15,18 @@ from urllib.parse import urlsplit
 
 import anthropic
 
-from .brightdata import IG_MAX_WAIT_S, BrightDataAuthError, BrightDataClient, BrightDataError, RequestCounter, SerpResult
+from .brightdata import (
+    IG_MAX_WAIT_S,
+    IG_MIN_RETRY_S,
+    BrightDataAuthError,
+    BrightDataClient,
+    BrightDataError,
+    BrightDataTimeout,
+    IgPost,
+    RequestCounter,
+    SerpResult,
+    ig_shortcode,
+)
 from .extractor import (
     DEAL_RULES,
     DEAL_TYPES,
@@ -41,6 +53,8 @@ from .verify import verify_deals
 log = logging.getLogger(__name__)
 
 SERP_WORKERS = 4
+ENRICH_MAX_POSTS = 5  # Instagram posts to fetch in full per /extract/serp call
+ENRICH_WAIT_S = 60
 _SITE = re.compile(r"\bsite:(\S+)", re.I)
 DOC_CHAR_LIMIT = 1500  # per source shown to Claude; verification still uses the full text
 PROMPT_CHAR_BUDGET = 120_000  # roughly 30k tokens of sources per call
@@ -55,7 +69,10 @@ Rules for every deal you record:
 - Use ONLY the numbered sources. source_url must be exactly one of their URLs.
 - verbatim_quote must be copied exactly from that source's text, word for word. It is checked by machine.
 - Google results are short snippets. If a snippet doesn't show the whole offer, use confidence "low".
-- For Instagram sources, the posted date is given; use it as source_post_date and set shop_handle to the account.
+- For Instagram sources, the posted date is given; use it as source_post_date.
+- An Instagram post is first-hand only if the shop posted it or co-posted it ("co-posted with @shop" in the \
+header); then set shop_handle to the shop's account. A post by another account that only mentions the shop \
+is second-hand: use confidence "low".
 """
     + DEAL_RULES
     + """
@@ -105,6 +122,8 @@ def render_sources(docs: list[SourceDoc], errors: list[str]) -> str:
         header = f"[{d.id}] {d.url} | {d.origin}"
         if d.handle:
             header += f" | @{d.handle}"
+        if d.coauthors:
+            header += " | co-posted with " + ", ".join(f"@{c}" for c in d.coauthors)
         if d.post_date:
             header += f" | posted: {d.post_date.isoformat()}"
         elif d.page_age:
@@ -177,17 +196,16 @@ class BrightDataPipeline:
         """Fail fast (before queueing a slow job) if the Bright Data key is missing."""
         self.bd.require_key()
 
-    def run_serp(self, req: SerpSearchRequest, today: Optional[date] = None) -> SearchResponse:
-        today = today or _today(req.location.timezone)
-        queries = build_serp_queries(req)
-        counter = RequestCounter()
-        errors: list[str] = []
+    def _search(
+        self, queries: list[str], past_month: bool, counter: RequestCounter, errors: list[str]
+    ) -> tuple[dict[str, list[SerpResult]], list[BrightDataError]]:
+        """Run Google queries in parallel (total time = slowest query). Failures are noted, not raised,
+        except a bad key."""
         self.bd.zone()  # resolve the zone once, before the parallel calls
-
-        results = []
+        by_query: dict[str, list[SerpResult]] = {}
         failures: list[BrightDataError] = []
         with ThreadPoolExecutor(max_workers=min(SERP_WORKERS, len(queries))) as pool:
-            futures = [pool.submit(self.bd.serp_search, q, req.past_month, counter) for q in queries]
+            futures = [pool.submit(self.bd.serp_search, q, past_month, counter) for q in queries]
             for q, fut in zip(queries, futures):
                 try:
                     found = fut.result()
@@ -202,14 +220,70 @@ class BrightDataPipeline:
                     errors.append(f"dropped {len(found) - len(usable)} of {len(found)} Google results for {q!r} (redirect links or off-site)")
                 if not usable:
                     errors.append(f"no Google results for {q!r}")
-                results += usable
+                by_query[q] = usable
+        return by_query, failures
+
+    def run_serp(self, req: SerpSearchRequest, today: Optional[date] = None) -> SearchResponse:
+        today = today or _today(req.location.timezone)
+        queries = build_serp_queries(req)
+        counter = RequestCounter()
+        errors: list[str] = []
+        by_query, failures = self._search(queries, req.past_month, counter, errors)
         if failures and len(failures) == len(queries):
             raise failures[0]
 
+        docs = from_serp(r for q in queries for r in by_query.get(q, []))
         context = SearchRequest(
             location=req.location, radius_miles=req.radius_miles, categories=req.categories, shop=req.shop, query=req.query
         )
-        return self._finish(from_serp(results), context, today, errors, counter, queries, "brightdata_serp")
+        raw, usage = self._extract(docs, context, today, errors)
+        fetched_codes: set[str] = set()
+        if req.enrich_instagram and raw:
+            docs, raw, fetched_codes = self._enrich_instagram(docs, raw, context, today, req.location.timezone, errors, counter, usage)
+        return self._respond(docs, raw, usage, today, errors, counter, queries, "brightdata_serp", fetched_codes)
+
+    def _enrich_instagram(
+        self,
+        docs: list[SourceDoc],
+        raw: list[RawDeal],
+        context: SearchRequest,
+        today: date,
+        tz: str,
+        errors: list[str],
+        counter: RequestCounter,
+        usage: Usage,
+    ) -> tuple[list[SourceDoc], list[RawDeal], set[str]]:
+        """Google snippets are cut off and undated. For deals that cite an Instagram post, fetch the whole
+        post (full caption, real post date), then re-extract those deals from it."""
+        doc_codes = {ig_shortcode(d.url) for d in docs} - {None}
+        targets: dict[str, str] = {}
+        for deal in raw:
+            code = ig_shortcode(deal.source_url)
+            if code in doc_codes and code not in targets and len(targets) < ENRICH_MAX_POSTS:
+                targets[code] = f"https://www.instagram.com/p/{code}/"
+        if not targets:
+            return docs, raw, set()
+        try:
+            fetched = self.bd.instagram_posts(list(targets.values()), max_wait_s=ENRICH_WAIT_S, counter=counter)
+        except BrightDataAuthError:
+            raise
+        except BrightDataError as exc:
+            errors.append(f"kept Google snippets; could not fetch the full Instagram posts: {exc}")
+            return docs, raw, set()
+        errors += fetched.errors
+        ig_docs = from_instagram(fetched.posts, tz)
+        codes = {ig_shortcode(d.url) for d in ig_docs} & set(targets)
+        ig_docs = [d for d in ig_docs if ig_shortcode(d.url) in codes]
+        if not ig_docs:
+            return docs, raw, set()
+
+        # The full post replaces its snippet: re-extract from it, and drop what the snippet said.
+        more, more_usage = extract_from_docs(self.anthropic, self.model, ig_docs, build_user_prompt(context, today), errors)
+        usage.input_tokens += more_usage.input_tokens
+        usage.output_tokens += more_usage.output_tokens
+        kept_docs = [d for d in docs if ig_shortcode(d.url) not in codes]
+        kept_raw = [r for r in raw if ig_shortcode(r.source_url) not in codes]
+        return kept_docs + ig_docs, kept_raw + more, codes
 
     def run_instagram(
         self,
@@ -218,42 +292,114 @@ class BrightDataPipeline:
         today: Optional[date] = None,
         max_wait_s: float = IG_MAX_WAIT_S,
     ) -> SearchResponse:
+        """Google finds each shop's recent post URLs, Bright Data fetches those posts by URL (seconds).
+        Profile discovery (minutes; returned 0 records for every account on 2026-10-23) is only a
+        fallback for shops Google finds nothing for."""
+        progress = on_progress or (lambda _msg: None)
+        deadline = time.monotonic() + max_wait_s
         today = today or _today(req.location.timezone)
+        since = today - timedelta(days=req.since_days)
         counter = RequestCounter()
-        urls = [f"https://www.instagram.com/{h}/" for h in req.handles]
-        fetched = self.bd.instagram_recent_posts(
-            urls, req.num_of_posts, today - timedelta(days=req.since_days), max_wait_s, on_progress, counter
-        )
-        docs = from_instagram(fetched.posts, req.location.timezone)
-        context = SearchRequest(location=req.location, radius_miles=req.radius_miles)
-        return self._finish(
-            docs, context, today, fetched.errors, counter, [f"@{h}" for h in req.handles], "brightdata_instagram", on_progress
-        )
+        errors: list[str] = []
+        wanted = {h.lower(): h for h in req.handles}
 
-    def _finish(
+        # 1. Google: recent posts that mention each handle (post snippets read "<handle> on October 4, 2026: ...").
+        queries = {h: f'site:instagram.com "{h}"' for h in req.handles}
+        progress(f"searching Google for recent posts from {len(req.handles)} profile(s)")
+        by_query, _ = self._search(list(queries.values()), req.since_days <= 31, counter, errors)
+        post_urls: dict[str, str] = {}
+        for h, q in queries.items():
+            codes = [c for c in dict.fromkeys(ig_shortcode(r.link) for r in by_query.get(q, [])) if c]
+            for code in codes[: req.num_of_posts]:
+                post_urls.setdefault(code, f"https://www.instagram.com/p/{code}/")
+
+        # 2. Bright Data: fetch those posts. Prefer each shop's own posts. A shop's captions rarely contain
+        #    its own handle, so the query mostly finds other accounts tagging it (live 2026-10-24: 5 of 5 were
+        #    influencer posts). Those are still about the shop: use them when the shop has none of its own.
+        #    Claude rates second-hand sources "low", so they come back needs_check, never live.
+        posts: list[IgPost] = []
+        covered: set[str] = set()
+        if post_urls:
+            progress(f"fetching {len(post_urls)} post(s) found on Google")
+            try:
+                fetched = self.bd.instagram_posts(list(post_urls.values()), max(deadline - time.monotonic(), 1), progress, counter)
+                errors += fetched.errors
+                # A collab post the shop co-published counts as its own (live 2026-10-24: the BOGO post was
+                # by an influencer with @26vietcafe.usa as a coauthor).
+                authors = lambda p: {(p.handle or "").lower()} | {c.lower() for c in p.coauthors}
+                own = [p for p in fetched.posts if authors(p) & set(wanted)]
+                own_handles = {h for p in own for h in authors(p) & set(wanted)}
+                tagged = [
+                    p for p in fetched.posts
+                    if p not in own and any(f"@{h}" in p.caption.lower() and h not in own_handles for h in wanted)
+                ]
+                if tagged:
+                    progress(f"using {len(tagged)} post(s) by other accounts that tag the shop (second-hand)")
+                posts += own + tagged
+                covered = own_handles | {h for h in wanted for p in tagged if f"@{h}" in p.caption.lower()}
+            except BrightDataAuthError:
+                raise
+            except BrightDataError as exc:
+                errors.append(f"could not fetch posts found on Google: {exc}")
+
+        # 3. Fallback: profile discovery for shops with nothing yet, if there's time left.
+        missing = [h for h in req.handles if h.lower() not in covered]
+        if missing and deadline - time.monotonic() >= IG_MIN_RETRY_S:
+            progress(f"no posts by or about {', '.join('@' + h for h in missing)} on Google; trying Bright Data profile discovery")
+            try:
+                found = self.bd.instagram_recent_posts(
+                    [f"https://www.instagram.com/{h}/" for h in missing], req.num_of_posts, since,
+                    deadline - time.monotonic(), progress, counter,
+                )
+                posts += found.posts
+                errors += found.errors
+            except BrightDataTimeout as exc:
+                errors.append(f"profile discovery ran out of time: {exc}")
+        elif missing:
+            errors += [f"@{h}: no recent posts found" for h in missing]
+
+        recent = [p for p in posts if p.posted_at is None or p.posted_at.date() >= since]
+        if len(recent) < len(posts):
+            progress(f"dropped {len(posts) - len(recent)} post(s) older than {since.isoformat()}")
+        docs = from_instagram(recent, req.location.timezone)
+        context = SearchRequest(location=req.location, radius_miles=req.radius_miles)
+        raw, usage = self._extract(docs, context, today, errors, progress)
+        return self._respond(docs, raw, usage, today, errors, counter, [f"@{h}" for h in req.handles], "brightdata_instagram")
+
+    def _extract(
         self,
         docs: list[SourceDoc],
         context: SearchRequest,
         today: date,
         errors: list[str],
+        on_progress: Optional[Callable[[str], None]] = None,
+    ) -> tuple[list[RawDeal], Usage]:
+        if not docs:
+            errors.append("Bright Data returned no usable sources, so there was nothing to extract")
+            return [], Usage()
+        if on_progress:
+            on_progress(f"extracting deals from {len(docs)} source(s) with Claude")
+        return extract_from_docs(self.anthropic, self.model, docs, build_user_prompt(context, today), errors)
+
+    def _respond(
+        self,
+        docs: list[SourceDoc],
+        raw: list[RawDeal],
+        usage: Usage,
+        today: date,
+        errors: list[str],
         counter: RequestCounter,
         queries: list[str],
         provider: Provider,
-        on_progress: Optional[Callable[[str], None]] = None,
+        fetched_codes: Optional[set[str]] = None,
     ) -> SearchResponse:
-        raw: list[RawDeal] = []
-        usage = Usage()
-        if not docs:
-            errors.append("Bright Data returned no usable sources, so there was nothing to extract")
-        else:
-            if on_progress:
-                on_progress(f"extracting deals from {len(docs)} source(s) with Claude")
-            raw, usage = extract_from_docs(self.anthropic, self.model, docs, build_user_prompt(context, today), errors)
-
         sources = to_search_sources(docs)
         deals, rejected = verify_deals(
             raw, sources, today, source_texts=source_texts(docs), authoritative_post_dates=post_dates(docs)
         )
+        for d in deals:
+            if fetched_codes and ig_shortcode(d.source_url) in fetched_codes:
+                d.flags.append("full_post_fetched")
         return SearchResponse(
             as_of=today,
             deals=deals,

@@ -82,26 +82,32 @@ Bright Data fetches the pages; Claude only extracts from them (no web search too
 | Quote isn't in the source text (case, spacing and curly quotes ignored) | rejected: `quote_not_in_source` |
 | Instagram post date differs from what Claude read | Bright Data's `date_posted` wins, flag `post_date_from_source` |
 
-All the rules in the table above still apply. Google snippets carry no dates, so SERP deals without a stated end date come back `needs_check`.
+All the rules in the table above still apply. Instagram posts are first-hand only if the shop posted or co-posted them (collab posts list the shop in `coauthor_producers`); posts by other accounts that only mention the shop are rated low confidence, so they never show as `live`.
 
-### `POST /extract/serp` (blocking, 5 to 30 s)
+### `POST /extract/serp` (blocking, 10 to 60 s)
 
-Bright Data SERP API, queries run in parallel. Body: `location`, `radius_miles`, `categories`, `shop`, `query`, `queries` (your own Google queries), `max_queries` (default 4, max 8), `past_month` (default true, adds `tbs=qdr:m`). Automatic queries, where `{area}` is "neighborhood city" (plain "Westwood" also matches Westwood NJ, MA and KS): `{shop} promo code` (if `shop`), `site:instagram.com {area} deal`, `{area} grand opening special`, `{area} {category} BOGO`.
+Bright Data SERP API, queries run in parallel. Body: `location`, `radius_miles`, `categories`, `shop`, `query`, `queries` (your own Google queries), `max_queries` (default 4, max 8), `past_month` (default true, adds `tbs=qdr:m`), `enrich_instagram` (default true). Automatic queries, where `{area}` is "neighborhood city" (plain "Westwood" also matches Westwood NJ, MA and KS): `{shop} promo code` (if `shop`), `site:instagram.com {area} deal`, `{area} grand opening special`, `{area} {category} BOGO`.
 
 Checked live on 2026-10-23:
 - Bright Data returns the parsed Google page as a JSON object (`organic[]` items have `title, link, description, global_rank`).
 - `tbs=qdr:m` passes through: with it, every snippet was from Sep to Oct 2026; without it, results went back to May 2025.
-- Good answers take 8 to 15 s. Blocked ones hang about 60 s and come back empty (`x-brd-error-code: expect_element`), so each attempt is cut off at 30 s and retried, up to 3 times.
-- Some results are undecodable Google redirects (`/goto?url=...`), and `site:` is sometimes ignored. Both are dropped and counted in `search_errors`.
+- Good answers take 2 to 15 s. Blocked ones hang about 60 s and come back empty (`x-brd-error-code: expect_element`), or fail with `failed_query_rejected` or a 502. Each attempt is cut off at 20 s and retried once, so a dead query costs about 42 s, and queries run in parallel.
+- Some results are undecodable Google redirects (`/goto?url=...`), and `site:` is sometimes ignored. Both are dropped and counted in `search_errors`. A page of only redirects counts as a failed attempt and is retried: the same query returned 8 of 8 redirects, then 8 real links minutes later.
 - Many snippets start with a date ("Oct 15, 2026 — ...", "6 days ago — ..."). It is used as a fallback post date, the same as `page_age` on `/extract/search`. Instagram snippets carry none.
 
-### `POST /extract/instagram` (background job, 2 to 5 min)
+**Enrich (`enrich_instagram`).** Google snippets are cut off and undated. When a deal cites an Instagram post, the full post is fetched by URL (Instagram posts scraper, sync `/scrape`, 5 to 15 s live) and the deal is re-extracted from the full caption with the real post date. The snippet version is replaced, and the deal gets the flag `full_post_fetched`. Up to 5 posts per call. If the fetch fails, the snippet deals are kept and the failure is noted.
 
-Bright Data Instagram posts scraper (`gd_lk5ns7kz21pck8jpis`, discover by profile URL). Public, logged-out posts only; no comments or follower data. Body: `handles` (1 to 20, `@name`, `name` or profile URL), `num_of_posts` (default 6, max 20), `since_days` (default 30), `location`. Returns `202 {"job_id", "status_url"}`; poll `GET /extract/instagram/{job_id}` until `status` is `done` (with `result`) or `failed` (with `error.status_code`). Jobs live in memory and are lost on restart.
+### `POST /extract/instagram` (background job, usually 20 to 60 s)
 
-Handled for you: profiles that come back with zero posts and no error are retried once (a known Bright Data quirk), error rows inside a 200 are reported in `search_errors`, pinned posts older than `since_days` are dropped, and UTC timestamps are converted to the shop's local date.
+Google finds recent posts that mention each shop (`site:instagram.com "{handle}"`), then the Bright Data Instagram posts scraper (`gd_lk5ns7kz21pck8jpis`) fetches those posts by URL. Public, logged-out posts only; no comments or follower data. Body: `handles` (1 to 20, `@name`, `name` or profile URL), `num_of_posts` (default 6, max 20), `since_days` (default 30), `location`. Returns `202 {"job_id", "status_url"}`; poll `GET /extract/instagram/{job_id}` until `status` is `done` (with `result`) or `failed` (with `error.status_code`). Jobs live in memory and are lost on restart.
 
-Both return the usual response plus `provider` (`claude_web_search`, `brightdata_serp`, `brightdata_instagram`) and `brightdata_requests` (billable calls: SERP attempts including retries, Instagram job triggers). No results is a 200 with `deals: []` and a note in `search_errors`.
+Each shop's own posts (including collab posts it co-authored) are used first. A shop's captions rarely contain its own handle, so Google mostly finds other accounts tagging it; if a shop has no posts of its own in the results, those tagging posts are used as second-hand sources. Shops with nothing at all fall back to Bright Data profile discovery (`discover_new`, 1 to 5 min). On 2026-10-23 and 10-24 discovery returned "No records found" on 6 of 6 jobs, for every account including `natgeo`, so it is a last resort; its message is passed through to `search_errors`.
+
+Also handled: error rows inside a 200 are reported in `search_errors`, posts older than `since_days` are dropped, and UTC timestamps are converted to the shop's local date.
+
+Live, 2026-10-24: `{"handles": ["26vietcafe.usa"]}` found 5 posts on Google, fetched all 5 in 15 s, and returned the soft-opening BOGO (Oct 17 to 25) as `live`, high confidence, from a collab post the cafe co-authored. 2 Bright Data requests.
+
+Both return the usual response plus `provider` (`claude_web_search`, `brightdata_serp`, `brightdata_instagram`) and `brightdata_requests` (billable calls: SERP attempts including retries, post fetches, Instagram job triggers). No results is a 200 with `deals: []` and a note in `search_errors`.
 
 | Error | HTTP |
 | --- | --- |
@@ -128,7 +134,7 @@ curl -s -X POST localhost:8000/extract/serp -H 'content-type: application/json' 
   -d '{"location":{"neighborhood":"Westwood"},"categories":["drink"],"max_queries":2}' | python -m json.tool
 
 JOB=$(curl -s -X POST localhost:8000/extract/instagram -H 'content-type: application/json' \
-  -d '{"handles":["milksha_ca"],"num_of_posts":5}' | python -c 'import json,sys; print(json.load(sys.stdin)["status_url"])')
+  -d '{"handles":["26vietcafe.usa"],"num_of_posts":5}' | python -c 'import json,sys; print(json.load(sys.stdin)["status_url"])')
 curl -s localhost:8000$JOB | python -m json.tool   # repeat until "status": "done"
 ```
 
@@ -138,7 +144,7 @@ curl -s localhost:8000$JOB | python -m json.tool   # repeat until "status": "don
 uv run pytest -q
 ```
 
-88 tests: every verification rule, the multi-turn tool loop (pause_turn, forced tool, give-up), malformed output, search errors, the Bright Data client (retries, polling, timeouts, error rows), both Bright Data pipelines, the job flow, and the API. They use a fake Claude client returning real SDK `Message` objects and `httpx.MockTransport` for Bright Data, so no keys or credits are needed.
+110 tests: every verification rule, the multi-turn tool loop (pause_turn, forced tool, give-up), malformed output, search errors, the Bright Data client (retries, polling, timeouts, error rows), both Bright Data pipelines, the job flow, and the API. They use a fake Claude client returning real SDK `Message` objects and `httpx.MockTransport` for Bright Data, so no keys or credits are needed.
 
 ## Cost and settings
 
