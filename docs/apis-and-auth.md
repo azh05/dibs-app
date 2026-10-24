@@ -41,7 +41,51 @@ The app never calls Anthropic, Bright Data or Apify itself and never holds their
 ## Dibs API (our FastAPI server)
 
 - Today it has no auth. Anyone who can reach it can spend our Anthropic, Bright Data and Apify credits, so it stays on 127.0.0.1 (localhost only). CORS allows any origin.
-- Endpoints: `/extract/search`, `/extract/serp`, `/extract/instagram` (+ job status), `/extract/shops` (+ job status), `/extract/photo`, `/health`, `/demo`, `/docs`.
+- Endpoints: each one, with the outside services it uses, is in "Endpoints Convex can call" below.
+
+## Endpoints Convex can call
+
+Every endpoint takes JSON (except `/extract/photo`, a file upload) and returns the same shape: deals (each with status, flags, `source_url` and `verbatim_quote`), rejected deals, sources, `search_errors` and usage counts. The slow ones run as background jobs: the POST returns 202 with a `status_url`, and Convex polls that URL until status is "done" or "failed". Jobs live in the API's memory and are lost if it restarts.
+
+### `POST /extract/shops` (background job, 1 to 5 min): the main one, for 24/7 scans
+
+- What it does: finds the shops in an area, reads each shop's own posts and pages plus creator posts, and returns verified deals linked to shops.
+- Apify: Google Maps scraper (shops, addresses, place ids, coordinates, social links); Instagram scraper (each shop's posts and reels); Instagram hashtag scraper (creator posts, e.g. `#westwoodeats`); TikTok scraper (each shop's videos, plus a TikTok search for the area); Facebook posts scraper (page posts, plus text read off poster images); website crawler (home page and deal, menu and student pages).
+- Bright Data (optional): Google search for shops' missing Instagram, TikTok and Facebook accounts, and for recent deal posts in the area; its Instagram scraper fetches the posts Google found.
+- Claude: extracts the deals from everything fetched.
+- Returns shops (stable ids) and deals linked to them by `shop_id`: what Convex upserts into its tables.
+- Cost per run: about $0.30 to $1.20 of Apify (6 to 10 shops), about $0.02 of Bright Data, plus Claude tokens.
+
+### `POST /extract/photo` (5 to 20 s)
+
+- What it does: checks a user's photo of an in-store deal (poster, sign, menu board) for the Earn credits flow. Upload: image, plus optional shop name, photo date and timezone.
+- Claude only (reads the image): transcribes every word on it, then records the deal. The transcript comes back too.
+
+### `POST /extract/search` (10 to 60 s)
+
+- What it does: finds deals for an area (or one shop) with Claude's own web search. The app's Deals list uses it today.
+- Claude only: Claude's web search tool finds and reads the pages. Cost: tokens plus $10 per 1,000 searches.
+
+### `POST /extract/serp` (10 to 60 s)
+
+- What it does: deals from Google results for the area.
+- Bright Data: Google search (SERP API, past month); its Instagram scraper re-fetches in full any Instagram post a deal cites.
+- Claude: extracts from the Google snippets and posts.
+
+### `POST /extract/instagram` (background job, 20 to 60 s)
+
+- What it does: recent posts from Instagram accounts you name (handles).
+- Bright Data: Google finds each account's recent post links, then its Instagram scraper fetches those posts.
+- Claude: extracts.
+
+### Not for Convex
+
+- `GET /health` (is it up), `GET /docs` (interactive API docs), `GET /demo` (the photo demo page).
+
+### Before Convex can call it
+
+- Convex runs in the cloud, so the API has to be reachable from the internet (deployed, or a tunnel during the hackathon). Today it only listens on `127.0.0.1`.
+- Add the shared key (`DIBS_API_KEY`) first: without it, anyone who finds the URL can spend our Apify, Bright Data and Claude credits.
 
 ## User sign-in: the two options
 
