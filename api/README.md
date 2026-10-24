@@ -1,6 +1,6 @@
 # Dibs API
 
-Finds short-lived local deals, returns them as structured JSON, and checks each one with plain Python rules before anyone sees it. Two ways to fetch: Claude's own web search (`/extract/search`), or Bright Data public web data (`/extract/serp` for Google results, `/extract/instagram` for shops' public posts) with Claude doing extraction only. Users can also upload a photo of an in-store deal (`/extract/photo`).
+Finds short-lived local deals, returns them as structured JSON, and checks each one with plain Python rules before anyone sees it. Three ways to fetch: Claude's own web search (`/extract/search`); Bright Data public web data (`/extract/serp` for Google results, `/extract/instagram` for shops' public posts); or Apify (`/extract/shops`: find shops on Google Maps, then scrape each one's website, Instagram, TikTok and Facebook). With Bright Data and Apify, Claude only extracts. Users can also upload a photo of an in-store deal (`/extract/photo`).
 
 ## Run it
 
@@ -9,7 +9,7 @@ Needs [uv](https://docs.astral.sh/uv/). It installs Python 3.13 and the dependen
 ```bash
 cd api                                     # every command below runs from here
 uv sync
-cp .env.example .env                       # then add ANTHROPIC_API_KEY (+ BRIGHTDATA_API_KEY, see Bright Data setup)
+cp .env.example .env                       # then add ANTHROPIC_API_KEY (+ BRIGHTDATA_API_KEY, APIFY_TOKEN: see the setup sections)
 uv run --env-file .env uvicorn app.main:app --reload --port 8000
 ```
 
@@ -120,6 +120,204 @@ Both return the usual response plus `provider` (`claude_web_search`, `brightdata
 | Other Bright Data failure (every SERP query failed, job `failed`, ...) | 502 |
 | One of several SERP queries failed | 200, noted in `search_errors` |
 
+## Apify shop scraping
+
+### `POST /extract/shops` (background job, 1 to 5 min)
+
+Finds the shops in an area, then reads each shop's **own** channels, where deals actually get posted. Returns `202 {"job_id", "status_url"}`; poll `GET /extract/shops/{job_id}` the same way as the Instagram job.
+
+1. **Shops.** Apify Google Maps scraper (`compass/crawler-google-places`) searches the area for each search term, with `scrapeContacts` on, so every shop comes back with the Instagram, TikTok and Facebook links from its listing or website. The list is cached per area for 7 days in `api/.cache/shops.json` (gitignored), so repeat runs skip this step; `refresh_shops: true` searches again. `DIBS_SHOP_CACHE=off` turns the cache off, or set it to another file path.
+2. **Keyword sweep** (same time as step 1): a TikTok search per search term (`{neighborhood} {term} deal`, first 3 terms) and Instagram hashtags (`#{neighborhood}eats`, `food`, `deals`, plus one per term, e.g. `#westwoodboba`). Posts by other accounts are kept as second-hand sources. Accounts they @mention in recent posts that aren't already shops (up to 15) are scraped in step 3 too, as shops with `found_via: "mention"`.
+3. **Google, through Bright Data** (when `BRIGHTDATA_API_KEY` is set; `google: false` turns it off). Two parts:
+   - *Missing accounts:* for each Maps shop missing an Instagram, TikTok or Facebook link, one Google search (`"<name>" <city> instagram tiktok`). A `facebook.com/<page>` or `tiktok.com/@<handle>` link, or an `@handle` in a snippet, is taken only when it matches the shop's name (`juicecrafters` = "Juice Crafters"; neighborhood and city words in the name are optional, so `milksha_ca` = "Milksha Westwood"). Found accounts are saved with the cached shop list.
+   - *Deal search* (alongside step 1): `site:instagram.com {area} {term} deal` and `{area} {term} deal`, past month, for the first 2 terms. Instagram posts in the results (up to 10) are fetched in full by Bright Data's Instagram scraper and treated like any post (the shop's own when its account posted them). Other results (Yelp, Reddit, Daily Bruin...) stay as Google snippets: second-hand, shown to Claude last.
+   - Any Bright Data failure, including a rejected key, is noted in `search_errors`; the Apify steps still run. `brightdata_requests` in the response counts the billable calls (about $0.0015 each).
+4. **Channels**, one Apify run each, all shops at once, in parallel:
+
+| Channel | Actor | What's read |
+| --- | --- | --- |
+| Instagram | `apify/instagram-scraper` | Newest posts and reels: caption + image alt text, post date, @mentions, collab coauthors |
+| TikTok | `clockworks/tiktok-scraper` | Newest videos: caption, post date, @mentions (no speech-to-text yet) |
+| Facebook | `apify/facebook-posts-scraper` | Newest page posts: text + **OCR of poster images** (`[image text] ...`), post date |
+| Website | `apify/website-content-crawler` (adaptive: plain HTTP, or a browser for JS-built sites) | Home page + linked pages whose URL contains deal/special/promo/offer/happy/menu/event/news/student/discount/sale/coupon, up to 2 per site |
+
+5. Claude extracts over all of it; sources are split into batches that each fit one call, run in parallel, so nothing is dropped. `verify_deals` checks the deals with the same rules as the Bright Data path.
+6. Every deal is linked to a shop (see "Shops, deals and ids" below).
+
+Body: `location`, `radius_miles`, `categories`, `search_terms` (Google Maps searches; default from `categories`, see below), `shops` (names to look up instead of searching, e.g. `["Milksha Westwood"]`), `max_shops` (default 20, max 60, split across the search terms), `days` (default 14), `posts_per_shop` (default 6), `channels` (default all four), `sweep` (default true), `hashtags`, `search_queries`, `refresh_shops`, `google` (default true).
+
+| Category | Google Maps searches |
+| --- | --- |
+| `food` | restaurant, fast food, pizza, dessert |
+| `drink` | boba, coffee shop, juice bar |
+| `retail` | clothing store, thrift store, bookstore |
+| `entertainment` | bowling alley, karaoke, movie theater |
+| `beauty` | barbershop, hair salon, nail salon |
+| `fitness` | gym, boxing gym, yoga studio |
+| none given | food + drink |
+
+Any other kind of shop works through `search_terms` (e.g. `["tattoo shop"]`); Claude is told which searches found the shops.
+
+**First-hand vs second-hand.** A post is the shop's own when its author is the shop's account (Instagram also: a collab coauthor; Facebook: the page we asked for; website: the shop's domain). These are marked `shop's own <channel>` for Claude and the deal gets the flag `shop_own_post`. Everything else (sweep posts, influencers, food blogs) is still recorded, at most `medium` confidence when it names the shop and states a concrete offer (`low` when vague), and flagged `second_hand`, so the app can show it as less verified. A medium second-hand deal can be `live`.
+
+Also handled: a failed channel is retried once, then noted in `search_errors` while the other channels still return (only a failed Google Maps search or a bad token fails the job); pinned posts older than `days` are dropped; long web pages show Claude only the deal-looking lines (with a line of context), but the quote is checked against the whole page.
+
+The response adds `shops` and `apify_runs`; `provider` is `apify_shops`.
+
+| Error | HTTP |
+| --- | --- |
+| `APIFY_TOKEN` missing or rejected | 500 `APIFY_TOKEN missing or invalid` (missing: before the job starts) |
+| Apify run over 4 min (408, or 400 `TIMED-OUT`) | 504 for Google Maps; for a channel, noted in `search_errors` (not retried) |
+| Google Maps search failed, out of credits (402), bad input | 502 |
+| Account memory full (402 "memory limit") | retried after 20 s, up to 3 times, then 502 |
+| One channel failed | 200, noted in `search_errors` |
+
+### Shops, deals and ids
+
+Every deal in the response has a `shop_id` pointing at an entry in `shops`, and both have ids that stay the same across runs, so a database can upsert them without duplicates.
+
+| Field | Meaning |
+| --- | --- |
+| `Shop.id` | `gmaps:<Google place id>`; for shops not from Maps, `ig:<handle>`, `tt:<handle>`, else `name:<slug>` |
+| `Shop.place_id`, `lat`, `lng`, `maps_url`, `address` | From Google Maps, for linking to the real store and putting it on a map |
+| `Shop.website`, `instagram`, `tiktok`, `facebook` | Links from the listing or the shop's site (handles without @) |
+| `Shop.found_via` | `google_maps`, `named` (from `shops`), `mention` (tagged in a creator post), `deal` (only known because a deal named it) |
+| `Deal.shop_id` | The shop it's at. Linked by: the shop's own account posted it; else the handle Claude read; else a name match ("Milksha" = "Milksha Westwood"); else a new `found_via: "deal"` shop is added |
+| `Deal.id` | `deal:<hash of source URL + quote + code>`. The quote is copied from the source, so re-extracting the same post gives the same id even if Claude words `offer` differently |
+| `Deal.flags` | Includes `shop_own_post` or `second_hand` |
+
+A deal with no address gets its shop's.
+
+### Storing results (Convex)
+
+The API stores nothing: results live in the job until the server restarts. Storage belongs to the Convex backend (not in the repo yet; see "How it fits together" in the root README), which calls the extract endpoints and writes what they return. The response is already split the way a database wants it. The tables and field names follow the "Backend data model" tab of the Dibs App doc (snake_case, as the API returns them); this is the part of it the extract endpoints write, as a Convex schema (`convex/schema.ts`):
+
+```ts
+import { defineSchema, defineTable } from "convex/server";
+import { v } from "convex/values";
+
+const provider = v.union(
+  v.literal("claude_web_search"), v.literal("brightdata_serp"), v.literal("brightdata_instagram"),
+  v.literal("user_photo"), v.literal("apify_shops"),
+);
+
+export default defineSchema({
+  agent_runs: defineTable({          // one job / one response
+    provider,
+    trigger: v.string(),             // schedule | user_search | photo
+    status: v.string(),              // queued | running | done | failed
+    error: v.optional(v.string()),
+    search_errors: v.array(v.string()),
+    input_tokens: v.number(),
+    output_tokens: v.number(),
+    web_search_requests: v.number(),
+    brightdata_requests: v.number(),
+    apify_runs: v.number(),
+    started_at: v.number(),
+    finished_at: v.optional(v.number()),
+  }),
+
+  stores: defineTable({              // Shop
+    external_id: v.string(),         // Shop.id, e.g. "gmaps:ChIJ...", "ig:milksha_ca"
+    name: v.string(),
+    normalized_name: v.string(),
+    store_type: v.optional(v.string()),  // Shop.category
+    google_place_id: v.optional(v.string()),
+    maps_url: v.optional(v.string()),
+    address: v.optional(v.string()),
+    lat: v.optional(v.number()),
+    lng: v.optional(v.number()),
+    website: v.optional(v.string()),
+    instagram_handle: v.optional(v.string()),
+    tiktok_handle: v.optional(v.string()),
+    facebook_url: v.optional(v.string()),
+    found_via: v.string(),           // google_maps | named | mention | deal
+    last_scanned_at: v.number(),
+  })
+    .index("by_external_id", ["external_id"])
+    .index("by_instagram_handle", ["instagram_handle"]),
+
+  sources: defineTable({             // every page or post a run read
+    store_id: v.optional(v.id("stores")),
+    provider,
+    url: v.string(),                 // normalize_url()
+    title: v.optional(v.string()),
+    full_text: v.string(),
+    posted_at: v.optional(v.string()),   // YYYY-MM-DD
+    fetched_at: v.number(),
+    first_seen_run_id: v.id("agent_runs"),
+  }).index("by_url", ["url"]),
+
+  deals: defineTable({
+    dedupe_key: v.string(),          // store + offer + code, the same rule as verify.py
+    store_id: v.id("stores"),        // Deal.shop_id, resolved to the stores row
+    offer: v.string(),
+    category: v.string(),            // food | drink | retail | entertainment | beauty | fitness | other
+    code: v.optional(v.string()),
+    conditions: v.array(v.string()),
+    start_date: v.optional(v.string()),  // YYYY-MM-DD
+    end_date: v.optional(v.string()),
+    start_time: v.optional(v.string()),  // HH:MM
+    end_time: v.optional(v.string()),
+    status: v.string(),              // live | needs_check | stale | expired
+    confidence: v.string(),          // high | medium | low
+    flags: v.array(v.string()),
+    second_hand: v.boolean(),        // true only if every piece of evidence is second-hand
+    primary_source_id: v.id("sources"),
+    first_seen_at: v.number(),
+    last_verified_at: v.number(),
+  })
+    .index("by_dedupe_key", ["dedupe_key"])
+    .index("by_store", ["store_id"])
+    .index("by_status_end_date", ["status", "end_date"]),
+
+  deal_evidence: defineTable({       // deal <-> source; the same BOGO can be on Instagram and TikTok
+    evidence_key: v.string(),        // Deal.id: hash of source URL + quote + code
+    deal_id: v.id("deals"),
+    source_id: v.id("sources"),
+    verbatim_quote: v.string(),
+    source_post_date: v.optional(v.string()),
+    second_hand: v.boolean(),        // Deal.flags has "second_hand" (else "shop_own_post")
+    extracted_run_id: v.id("agent_runs"),
+  })
+    .index("by_evidence_key", ["evidence_key"])
+    .index("by_deal", ["deal_id"]),
+});
+```
+
+To save a job result: insert an `agent_runs` row; upsert each shop into `stores` by `external_id`; upsert each source by `url`; for each deal, upsert into `deals` by `dedupe_key` (keep `first_seen_at`, bump `last_verified_at`, overwrite `status`) and into `deal_evidence` by `evidence_key` (`Deal.id`). Two keys because `Deal.id` names one post's evidence, while `dedupe_key` merges the same offer seen in several posts. The API itself stays storage-free for now; the shop-list cache (`ShopCache` in `app/shop_pipeline.py`) is the one piece that would move into the `stores` table.
+
+### Apify setup
+
+1. Sign up at https://console.apify.com (the free plan includes $5 of usage a month). Cal Hacks: Billing → Subscription → promo code `APIFY_CAL_HACKS` adds $200 of credits.
+2. Settings → API & Integrations: copy the personal API token into `.env` as `APIFY_TOKEN`.
+3. Nothing else: the Actors are public Store Actors, billed per result to your account.
+
+**Memory cap.** Apify limits the memory of all running Actors on an account (16 GB on the free plan, even with promo credits; `GET /v2/users/me/limits`). The Actors' defaults add up past that, so each run asks for less (`ACTOR_MEMORY_MB` in `app/apify.py`: website crawler 4 GB, Maps/TikTok/Facebook 2 GB, Instagram 1 GB) and a process-wide gate makes runs wait for room. Set `APIFY_MEMORY_MB` if your plan allows more.
+
+```bash
+JOB=$(curl -s -X POST localhost:8000/extract/shops -H 'content-type: application/json' \
+  -d '{"location":{"neighborhood":"Westwood"},"search_terms":["boba"],"max_shops":3}' | python -c 'import json,sys; print(json.load(sys.stdin)["status_url"])')
+curl -s localhost:8000$JOB | python -m json.tool   # repeat until "status": "done"
+```
+
+Live, 2026-10-24, `{"location":{"neighborhood":"Westwood"},"search_terms":["boba"],"max_shops":3}`:
+- Google Maps returned Target, Just Boba Tea House and CHICHA San Chen (Sawtelle). Only CHICHA had a social link (Instagram); none had Facebook or TikTok links, so most of the signal came from Instagram.
+- 3 deals came back: CHICHA's K/DA collab drink with a free photocard (`live`, high, `shop_own_post`), its League of Legends prize draw (`needs_check`), and a Molly Tea BOGO from a food influencer's TikTok found by the sweep (second-hand, `needs_check`).
+- About 2.5 min and $0.16 in Apify usage with the shop list cached ($0.18 the first time). The TikTok search was the biggest cost ($0.075) and 19 of its 20 results were older than 14 days, so they were dropped. Search results have no date filter, so only recent posts can add mentioned shops.
+- Website crawling: `cheerio` (plain HTTP) got no text from CHICHA's JS-built site, so the crawler now runs `playwright:adaptive`. Just Boba's site returns HTTP 502; retries are capped at 2 (the default 10 spent 100 s on it).
+
+Live, 2026-10-24, `{"location":{"neighborhood":"Westwood"},"categories":["food","drink"],"max_shops":10}` (sweep on):
+- 10 shops from Maps plus 2 accounts tagged in creator posts; 61 sources (31 Instagram posts, 11 TikToks, 9 Facebook posts, sweep posts). 82 posts older than 14 days were dropped, almost all from the TikTok search, so it now asks for 15 results per query instead of 30.
+- 6 deals, every one linked to a shop: Enzo's Pizzeria "30% total off for UCLA students" (`live`, high, own post), CHICHA's K/DA collab drink (`live`, high), Danny Boy's limited sisig pie collab (`live`, medium), a Carl's Jr. (Ackerman Union) $5.99 Mega Deal from a creator post (`live`, medium, `second_hand`, linked to a new `found_via: "deal"` shop), plus two `needs_check`.
+- About $1.20 of Apify usage and 8 Actor runs. The website crawler hit its 4 min limit on 12 sites and was retried; timed-out runs are now not retried and sites get 2 pages each instead of 4.
+
+Live, 2026-10-24, `{"categories":["beauty","fitness","retail","entertainment"],"max_shops":8,"sweep":false}` in Westwood: a hair salon, boxing gym, yoga studio, nail salon, thrift shop, clothing store, bookstore and lawn bowling club. 43 sources (18 Instagram, 5 TikTok, 14 Facebook, 6 web pages), website crawl within its limit, but only 1 deal: Nessa Beauty Nails' $90 first-visit gel manicure (own post, linked to its Maps listing). Non-food shops post far fewer time-limited deals. 5 Actor runs, about $0.29, 2.5 min.
+
+Live, 2026-10-24, Bright Data's Google steps on (`{"categories":["food","drink"],"max_shops":6,"sweep":false,"channels":["instagram"]}`, shop list cached): the account lookup found Juice Crafters' Instagram (and its Facebook page on the first run); the deal search found 10 Instagram posts, fetched in full, which added 5 deals at places not on the Maps list: 26 Viet Cafe's BOGO soft opening (its own post), Patty Boys' free smash burger for the first 50 guests, Sana'a Cafe's grand-opening 20% off, each linked to a new `found_via: "deal"` shop. 6 deals in all, 63 s, 11 Bright Data requests (about $0.02) and 1 Apify run. On the first try the post fetch wasn't ready after 90 s and the posts were lost; it now waits up to 240 s (in parallel with the channels) and keeps the snippets if it still fails.
+
+Estimated cost for 8 shops (Store prices on the free plan; higher plans are cheaper): Google Maps + contacts about $0.03, Instagram/TikTok/Facebook at 6 posts per shop about $0.15, websites about $0.10, plus the Claude call. `apify_runs` shows how many Actor runs a job made; the Apify console shows the exact spend.
+
 ## Photo confirmation
 
 ### `POST /extract/photo` (blocking, 5 to 20 s)
@@ -170,7 +368,7 @@ curl -s localhost:8000$JOB | python -m json.tool   # repeat until "status": "don
 uv run pytest -q
 ```
 
-131 tests: every verification rule, the multi-turn tool loop (pause_turn, forced tool, give-up), malformed output, search errors, the Bright Data client (retries, polling, timeouts, error rows), both Bright Data pipelines, photo extraction (year inference, time windows, upload checks), the job flow, and the API. They use a fake Claude client returning real SDK `Message` objects and `httpx.MockTransport` for Bright Data, so no keys or credits are needed.
+215 tests: every verification rule, the multi-turn tool loop (pause_turn, forced tool, give-up), malformed output, search errors, the Bright Data client (retries, polling, timeouts, error rows), both Bright Data pipelines, the Apify client (request shape, errors, memory cap, each Actor's output), the shop pipeline (attribution, sweep, cache, batching, per-channel failures), the Bright Data Google steps (handle matching, account lookup, deal search) and deal-to-shop linking, photo extraction (year inference, time windows, upload checks), the job flow, and the API. They use a fake Claude client returning real SDK `Message` objects and `httpx.MockTransport` for Bright Data and Apify, so no keys or credits are needed.
 
 ## Cost and settings
 
@@ -178,10 +376,11 @@ uv run pytest -q
 - Model: `DIBS_MODEL` env var, default `claude-opus-5-5`. Any model that supports the web search tool works; a smaller model is cheaper for frequent runs.
 - Web search tool version: `web_search_20250305`, the basic version that works with direct calls.
 - Bright Data: billed per request on your account; `brightdata_requests` in each response shows how many were made. Check usage in the Bright Data dashboard.
+- Apify: billed per result by each Actor; `apify_runs` shows how many runs a job made. See the Apify section for estimates.
 
 ## Not in this MVP
 
-Storing photo submissions and rewards, Instagram story mentions, storage, scheduling, and auth. The mobile app is in `../app/`. CORS is wide open for the hackathon; tighten it before launch.
+Storing photo submissions and rewards, Instagram stories, speech-to-text for TikTok/reels, storage, scheduling, and auth. The mobile app is in `../app/`. CORS is wide open for the hackathon; tighten it before launch.
 
 ## Layout
 
@@ -189,10 +388,14 @@ Storing photo submissions and rewards, Instagram story mentions, storage, schedu
 app/schemas.py    Pydantic models: RawDeal (from Claude), Deal (verified), request/response
 app/extractor.py  Claude web search call, tool definitions, prompt, turn loop
 app/brightdata.py Bright Data client: SERP API, Instagram posts scraper
-app/sources.py    SourceDoc: one shape for everything Bright Data fetched
+app/apify.py      Apify client: Google Maps, Instagram, TikTok, Facebook, website Actors
+app/sources.py    SourceDoc: one shape for everything Bright Data or Apify fetched
 app/bd_pipeline.py Bright Data fetch -> Claude extraction -> verification
+app/shop_pipeline.py Google Maps shops -> each shop's channels (Apify) -> extraction -> verification
+app/linking.py    Deal -> shop links, stable shop and deal ids
+app/google_lookup.py Bright Data Google search for /extract/shops: missing accounts, deal posts
 app/photo.py      User photo -> Claude transcript + deals -> verification
-app/jobs.py       In-memory background jobs (Instagram)
+app/jobs.py       In-memory background jobs (Instagram, shops)
 app/errors.py     Upstream error -> HTTP status mapping
 app/verify.py     Deterministic verification rules
 app/main.py       FastAPI app

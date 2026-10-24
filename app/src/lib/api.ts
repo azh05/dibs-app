@@ -16,6 +16,8 @@ export const CATEGORY: Record<ApiDeal['category'], { storeType: string; label: s
   drink: { storeType: 'Boba & tea', label: 'Drinks', icon: 'boba' },
   retail: { storeType: 'Convenience stores', label: 'Retail', icon: 'cart' },
   entertainment: { storeType: 'Movies', label: 'Entertainment', icon: 'zap' },
+  beauty: { storeType: 'Hair & barbers', label: 'Beauty', icon: 'scissors' },
+  fitness: { storeType: 'Gyms', label: 'Fitness', icon: 'dumbbell' },
   other: { storeType: 'Restaurants', label: 'Local', icon: 'tag' },
 };
 
@@ -50,7 +52,7 @@ function initials(name: string) {
 
 /** Map one verified API deal onto the shape the screens render. Location and distance are unknown. */
 export function fromApiDeal(d: ApiDeal, index: number): Deal {
-  const cat = CATEGORY[d.category];
+  const cat = CATEGORY[d.category] ?? CATEGORY.other; // a category added to the API later still renders
   const instagram = /instagram\.com/i.test(d.source_url);
   const endsAt = d.end_date ? new Date(`${d.end_date}T23:59:00`) : null;
   const postedHoursAgo = daysSince(d.source_post_date);

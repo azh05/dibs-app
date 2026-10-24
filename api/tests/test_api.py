@@ -8,7 +8,8 @@ from fastapi.testclient import TestClient
 
 from app.brightdata import BrightDataAuthError, BrightDataError, BrightDataTimeout
 from app.jobs import JobStore
-from app.main import app, get_extractor, get_jobs, get_pipeline
+from app.apify import ApifyAuthError, ApifyError, ApifyTimeout
+from app.main import app, get_extractor, get_jobs, get_pipeline, get_shop_pipeline
 from app.schemas import SearchResponse, Usage
 
 
@@ -188,3 +189,71 @@ def test_instagram_validates_input(bd_client):
 def test_unknown_job_404(bd_client):
     client, _ = bd_client()
     assert client.get("/extract/instagram/nope").status_code == 404
+
+
+# --- Apify shops endpoint ---------------------------------------------------------
+
+class StubShopPipeline:
+    def __init__(self, error=None, ready_error=None):
+        self.error, self.ready_error = error, ready_error
+        self.requests = []
+
+    def check_ready(self):
+        if self.ready_error:
+            raise self.ready_error
+
+    def run(self, req, on_progress=None):
+        self.requests.append(req)
+        on_progress("found 3 shop(s) on Google Maps")
+        if self.error:
+            raise self.error
+        return bd_response("apify_shops").model_copy(update={"brightdata_requests": 0, "apify_runs": 5})
+
+
+@pytest.fixture
+def shops_client():
+    def make(pipeline=None):
+        pipeline = pipeline or StubShopPipeline()
+        app.dependency_overrides[get_shop_pipeline] = lambda: pipeline
+        jobs = JobStore(executor=InlineExecutor())
+        app.dependency_overrides[get_jobs] = lambda: jobs
+        return TestClient(app), pipeline
+
+    yield make
+    app.dependency_overrides.clear()
+
+
+def test_shops_job_flow(shops_client):
+    client, stub = shops_client()
+    r = client.post("/extract/shops", json={"location": {"neighborhood": "Westwood"}, "search_terms": ["boba"], "max_shops": 3})
+    assert r.status_code == 202
+    job = r.json()
+    assert job["status_url"] == f"/extract/shops/{job['job_id']}"
+    status = client.get(job["status_url"]).json()
+    assert status["status"] == "done" and status["progress"] == ["found 3 shop(s) on Google Maps"]
+    assert status["result"]["provider"] == "apify_shops" and status["result"]["apify_runs"] == 5
+    req = stub.requests[0]
+    assert req.max_shops == 3 and req.channels == ["instagram", "tiktok", "facebook", "website"] and req.sweep
+
+
+@pytest.mark.parametrize("error,status", [(ApifyAuthError("x"), 500), (ApifyTimeout("x"), 504), (ApifyError("x"), 502)])
+def test_shops_job_error_mapping(shops_client, error, status):
+    client, _ = shops_client(StubShopPipeline(error=error))
+    url = client.post("/extract/shops", json={}).json()["status_url"]
+    job = client.get(url).json()
+    assert job["status"] == "failed" and job["error"]["status_code"] == status
+
+
+def test_shops_missing_token_fails_fast(shops_client):
+    client, stub = shops_client(StubShopPipeline(ready_error=ApifyAuthError("APIFY_TOKEN is not set")))
+    r = client.post("/extract/shops", json={})
+    assert r.status_code == 500 and "APIFY_TOKEN" in r.json()["detail"]
+    assert stub.requests == []
+
+
+def test_shops_validates_input(shops_client):
+    client, _ = shops_client()
+    assert client.post("/extract/shops", json={"max_shops": 61}).status_code == 422
+    assert client.post("/extract/shops", json={"channels": ["myspace"]}).status_code == 422
+    assert client.post("/extract/shops", json={"days": 0}).status_code == 422
+    assert client.get("/extract/shops/nope").status_code == 404

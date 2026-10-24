@@ -1,13 +1,15 @@
-"""One document shape for everything Bright Data fetched, so extraction and verification don't care where it came from."""
+"""One document shape for everything Bright Data or Apify fetched, so extraction and verification don't care where it came from."""
 from __future__ import annotations
 
 import re
 from datetime import date
 from typing import Iterable, Literal, Optional
+from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel
 
+from .apify import SocialPost, WebPage
 from .brightdata import IgPost, SerpResult
 from .schemas import SearchResultSource
 from .verify import normalize_url
@@ -17,12 +19,14 @@ class SourceDoc(BaseModel):
     id: str  # "S1", "S2"...
     url: str
     title: Optional[str]
-    text: str  # SERP: title + description; Instagram: caption
-    post_date: Optional[date]  # Instagram: date_posted in the shop's timezone; SERP: None
+    text: str  # SERP: title + description; social: caption (+ image text); website: page text
+    post_date: Optional[date]  # social: posted date in the shop's timezone; SERP and websites: None
     page_age: Optional[str] = None  # SERP: the date Google prints before a snippet ('Oct 7, 2026', '3 days ago')
-    origin: Literal["serp", "instagram"]
+    origin: Literal["serp", "instagram", "tiktok", "facebook", "website"]
     handle: Optional[str]
     coauthors: list[str] = []  # Instagram collab posts: accounts that co-published it
+    shop: Optional[str] = None  # set when this is the shop's own channel (first-hand), to that shop's name
+    prompt_text: Optional[str] = None  # shorter text shown to Claude (long web pages); verification uses `text`
 
 
 # Google starts many snippets with a date: "Oct 7, 2026 — SEO for Westwood cafés...".
@@ -83,6 +87,77 @@ def from_instagram(posts: Iterable[IgPost], tz: str = "America/Los_Angeles") -> 
     )
 
 
+def _local_date(posted, zone: ZoneInfo) -> Optional[date]:
+    return posted.astimezone(zone).date() if posted else None
+
+
+def from_social(posts: Iterable[SocialPost], shop_of: dict[str, str], tz: str = "America/Los_Angeles") -> list[SourceDoc]:
+    """shop_of maps a post URL to the shop whose own account posted it; other posts are second-hand."""
+    zone = ZoneInfo(tz)
+    names = {"instagram": "Instagram", "tiktok": "TikTok", "facebook": "Facebook"}
+    return _number(
+        SourceDoc(
+            id="",
+            url=p.url,
+            title=f"@{p.handle} on {names[p.platform]}" if p.handle else f"{names[p.platform]} post",
+            text=p.text,
+            post_date=_local_date(p.posted_at, zone),
+            origin=p.platform,
+            handle=p.handle,
+            coauthors=p.coauthors,
+            shop=shop_of.get(p.url),
+        )
+        for p in posts
+    )
+
+
+# Lines on a web page that look like an offer. Websites are long (menus, footers); Claude sees only these.
+_DEALISH = re.compile(
+    r"%|\$\s?\d|\bbogo\b|\bfree\b|\bdeal|\bspecial|\bhappy hour|\bpromo|\bdiscount|\bsale\b|\boff\b|\boffer"
+    r"|\bcoupon|\bcode\b|\blimited\b|\bgrand opening|\bbuy one|\bstudent",
+    re.I,
+)
+EXCERPT_CHARS = 1500
+
+
+def deal_excerpt(text: str, limit: int = EXCERPT_CHARS) -> str:
+    """Deal-looking lines with one line of context each, in page order, up to `limit` characters."""
+    lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+    keep: set[int] = set()
+    for i, ln in enumerate(lines):
+        if _DEALISH.search(ln):
+            keep.update({i - 1, i, i + 1})
+    picked = [lines[i] for i in sorted(keep) if 0 <= i < len(lines)] or lines[:20]
+    out = "\n".join(picked)
+    return out if len(out) <= limit else out[:limit] + " [truncated]"
+
+
+def from_website(pages: Iterable[WebPage], shop_of: dict[str, str]) -> list[SourceDoc]:
+    """shop_of maps a site host ('milksha.com') to its shop."""
+    docs = []
+    for p in pages:
+        host = (urlsplit(p.url).hostname or "").lower().removeprefix("www.")
+        docs.append(
+            SourceDoc(
+                id="",
+                url=p.url,
+                title=p.title,
+                text=p.text,
+                prompt_text=deal_excerpt(p.text),
+                post_date=None,  # pages carry no reliable publish date
+                origin="website",
+                handle=None,
+                shop=shop_of.get(host),
+            )
+        )
+    return _number(docs)
+
+
+def combine(*groups: Iterable[SourceDoc]) -> list[SourceDoc]:
+    """Merge docs from several adapters into one list, deduped and renumbered S1..Sn in the order given."""
+    return _number(d for g in groups for d in g)
+
+
 def to_search_sources(docs: list[SourceDoc]) -> list[SearchResultSource]:
     return [
         SearchResultSource(url=d.url, title=d.title, page_age=d.post_date.isoformat() if d.post_date else d.page_age)
@@ -95,5 +170,5 @@ def source_texts(docs: list[SourceDoc]) -> dict[str, str]:
 
 
 def post_dates(docs: list[SourceDoc]) -> dict[str, date]:
-    """Scraper timestamps (Instagram only). They override Claude's reading; Google's snippet dates don't."""
+    """Scraper timestamps (social posts). They override Claude's reading; Google's snippet dates don't."""
     return {normalize_url(d.url): d.post_date for d in docs if d.post_date}
