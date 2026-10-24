@@ -109,6 +109,8 @@ def test_every_channel_scraped_and_verified():
     assert apify.calls["website"] == [["https://milksha.com/"]]
     assert {d.source_url for d in out.deals} == {IG_URL, TT_URL, FB_URL, WEB_URL}
     assert all("shop_own_post" in d.flags for d in out.deals)
+    assert {d.shop_id for d in out.deals} == {"ig:milksha_ca"} and all(d.id for d in out.deals)
+    assert all(d.address == "1099 Westwood Blvd" for d in out.deals)
     assert out.provider == "apify_shops" and out.shops[0].name == "Milksha Westwood"
     assert "found 1 shop(s) on Google Maps" in progress
 
@@ -220,6 +222,7 @@ def test_second_hand_post_is_kept_and_flagged():
     out, *_ = run([deal(FAN_URL, "Milksha is doing $3 drinks today", confidence="medium")])
     [d] = out.deals
     assert "second_hand" in d.flags and "shop_own_post" not in d.flags
+    assert d.shop_id == "ig:milksha_ca"  # "Milksha Westwood" named in the creator post
     assert d.status == DealStatus.live  # a concrete creator post can be live; the flag marks it less verified
 
 

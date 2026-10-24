@@ -6,7 +6,7 @@ from datetime import date, datetime, time
 from enum import Enum
 from typing import Literal, Optional
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class Category(str, Enum):
@@ -57,6 +57,8 @@ class Deal(RawDeal):
 
     status: DealStatus
     flags: list[str] = Field(default_factory=list)
+    id: Optional[str] = Field(None, description="/extract/shops: stable id (same deal, same id across runs), for upserts")
+    shop_id: Optional[str] = Field(None, description="/extract/shops: id of the Shop in `shops` this deal is at")
 
 
 class RejectedDeal(BaseModel):
@@ -103,18 +105,41 @@ Provider = Literal["claude_web_search", "brightdata_serp", "brightdata_instagram
 Channel = Literal["instagram", "tiktok", "facebook", "website"]
 
 
+def _slug(text: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
+
+
 class Shop(BaseModel):
     """A shop found on Google Maps, with the social accounts its listing or website links to."""
 
+    id: str = Field("", description="Stable id: gmaps:<place_id>, else ig:/tt:<handle>, else name:<slug>")
     name: str
     address: Optional[str] = None
     category: Optional[str] = None
     maps_url: Optional[str] = None
+    place_id: Optional[str] = Field(None, description="Google Maps place id")
+    lat: Optional[float] = None
+    lng: Optional[float] = None
     website: Optional[str] = None
     instagram: Optional[str] = Field(None, description="Handle without @")
     tiktok: Optional[str] = Field(None, description="Handle without @")
     facebook: Optional[str] = Field(None, description="Page URL")
-    found_via: Literal["google_maps", "named", "mention"] = "google_maps"
+    found_via: Literal["google_maps", "named", "mention", "deal"] = Field(
+        "google_maps", description="mention: tagged in a creator post; deal: only known from a deal that named it"
+    )
+
+    @model_validator(mode="after")
+    def _default_id(self) -> "Shop":
+        if not self.id:
+            if self.place_id:
+                self.id = f"gmaps:{self.place_id}"
+            elif self.instagram:
+                self.id = f"ig:{self.instagram.lower()}"
+            elif self.tiktok:
+                self.id = f"tt:{self.tiktok.lower()}"
+            else:
+                self.id = f"name:{_slug(self.name)}"
+        return self
 
 
 class SearchResponse(BaseModel):

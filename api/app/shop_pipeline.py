@@ -36,6 +36,7 @@ from .apify import (
 )
 from .bd_pipeline import extract_docs_batched, verify_docs
 from .extractor import DEFAULT_MODEL, _today
+from .linking import link_deals
 from .schemas import Category, SearchRequest, SearchResponse, Shop, ShopsRequest
 from .sources import combine, from_social, from_website
 from .verify import normalize_url
@@ -312,6 +313,7 @@ class ShopPipeline:
         own_keys = {normalize_url(d.url) for d in docs if d.shop}  # shop's own posts and website pages
         for d in deals:
             d.flags.append("shop_own_post" if normalize_url(d.source_url) in own_keys else "second_hand")
+        all_shops = link_deals(deals, docs, all_shops)
         queries = [f"maps: {t}" for t in (req.shops or terms)] + sweep_labels
         return SearchResponse(
             as_of=today,
