@@ -1,11 +1,20 @@
-import { StyleSheet, View } from 'react-native';
+import { Image, StyleSheet, View } from 'react-native';
 
 import { Text } from '@/components/text';
 import type { SourcePost } from '@/lib/types';
 import { colors, shadows } from '@/theme';
 
 // The source post card at the top of the deal and event screens (Figma "Instagram post").
-export function PostPreview({ post, imageHeight }: { post: SourcePost; imageHeight: number }) {
+// With `imageUri` (a submitted photo) the photo fills the image area instead of the headline.
+export function PostPreview({
+  post,
+  imageHeight,
+  imageUri,
+}: {
+  post: SourcePost;
+  imageHeight: number;
+  imageUri?: string;
+}) {
   return (
     <View style={[styles.card, shadows.post]}>
       <View style={styles.clip}>
@@ -24,20 +33,24 @@ export function PostPreview({ post, imageHeight }: { post: SourcePost; imageHeig
             </Text>
           ) : null}
         </View>
-        <View style={[styles.image, { height: imageHeight, backgroundColor: post.imageColor }]}>
-          <Text
-            weight="extrabold"
-            size={post.headlineSize}
-            tracking={-post.headlineSize * 0.03}
-            color={colors.surface}
-            numberOfLines={1}
-            adjustsFontSizeToFit>
-            {post.headline}
-          </Text>
-          <Text weight="bold" size={11} tracking={0.66} color={post.sublineColor} numberOfLines={1}>
-            {post.subline}
-          </Text>
-        </View>
+        {imageUri ? (
+          <Image source={{ uri: imageUri }} style={{ height: imageHeight }} resizeMode="cover" />
+        ) : (
+          <View style={[styles.image, { height: imageHeight, backgroundColor: post.imageColor }]}>
+            <Text
+              weight="extrabold"
+              size={post.headlineSize}
+              tracking={-post.headlineSize * 0.03}
+              color={colors.surface}
+              numberOfLines={1}
+              adjustsFontSizeToFit>
+              {post.headline}
+            </Text>
+            <Text weight="bold" size={11} tracking={0.66} color={post.sublineColor} numberOfLines={1}>
+              {post.subline}
+            </Text>
+          </View>
+        )}
         <View style={styles.caption}>
           <Text size={12} color={colors.inkSecondary} numberOfLines={3}>
             {post.caption}

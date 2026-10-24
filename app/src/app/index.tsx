@@ -10,7 +10,7 @@ import { Text } from '@/components/text';
 import { Wordmark } from '@/components/wordmark';
 import { colors } from '@/theme';
 
-// 01 · Welcome (Figma 3:97)
+// 01 · Welcome (Figma 3:97), onboarding step 1 of 3.
 export default function Welcome() {
   const insets = useSafeAreaInsets();
   const pulse = useAnimatedValue(1);
@@ -26,31 +26,32 @@ export default function Welcome() {
     return () => loop.stop();
   }, [pulse]);
 
-  const enter = () => router.replace('/deals');
+  const signUp = () => router.push('/onboarding/interests');
+  const signIn = () => router.replace('/deals');
 
   return (
     <View style={[styles.screen, { paddingTop: insets.top, paddingBottom: Math.max(insets.bottom, 24) + 24 }]}>
       <StatusBar style="light" />
       <View style={styles.hero}>
         <Wordmark height={113.4} color={colors.surface} dot="ink" />
-        <Text weight="bold" size={22} tracking={-0.33} color={colors.surface} style={{ lineHeight: 30 }}>
-          Your personal AI agent, running 24/7 to find the best deals around you.
-        </Text>
-        <Text size={16} color={colors.orangeSoft}>
+        <Text weight="extrabold" size={36} tracking={-1.08} color={colors.surface} style={{ lineHeight: 40 }}>
           Never miss out on a deal again.
+        </Text>
+        <Text weight="semibold" size={17} color={colors.orangeSoft} style={{ lineHeight: 24 }}>
+          Your personal AI agent runs 24/7 and pings you the second a deal you care about drops.
         </Text>
         <View style={styles.scanning}>
           <Animated.View style={{ opacity: pulse }}>
             <DotWelcome width={8} height={8} />
           </Animated.View>
           <Text weight="semibold" size={13} color={colors.surface}>
-            Agents scanning stores near you
+            Watching 1,284 spots near you · 24/7
           </Text>
         </View>
       </View>
       <View style={styles.actions}>
-        <Button label="Find deals near me" variant="dark" onPress={enter} style={styles.cta} />
-        <Button label="I already have an account" variant="ghost" onPress={enter} style={styles.cta} />
+        <Button label="Find deals near me" variant="dark" onPress={signUp} style={styles.cta} />
+        <Button label="I already have an account" variant="ghost" onPress={signIn} style={styles.cta} />
         <Text size={12} color={colors.orangeSoft} style={{ textAlign: 'center' }}>
           We only read public posts. No store pays to be in your feed.
         </Text>

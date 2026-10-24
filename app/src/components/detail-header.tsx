@@ -12,28 +12,33 @@ type Props = {
   /** Height below the status bar: 286 for deals, 276 for events (Figma 340 / 330 incl. status bar). */
   height: number;
   imageHeight: number;
-  saved: boolean;
-  onToggleSaved: () => void;
+  /** A submitted photo shown in place of the post image. */
+  imageUri?: string;
+  /** The bookmark button shows only when there is something to save. */
+  saved?: boolean;
+  onToggleSaved?: () => void;
 };
 
 // Orange-soft header with the source post and back / bookmark buttons (deal and event detail).
-export function DetailHeader({ post, height, imageHeight, saved, onToggleSaved }: Props) {
+export function DetailHeader({ post, height, imageHeight, imageUri, saved = false, onToggleSaved }: Props) {
   const insets = useSafeAreaInsets();
   return (
     <View style={[styles.header, { height: insets.top + height, paddingTop: insets.top + 24 }]}>
-      <PostPreview post={post} imageHeight={imageHeight} />
+      <PostPreview post={post} imageHeight={imageHeight} imageUri={imageUri} />
       <View style={[styles.actions, { top: insets.top + 2 }]}>
         <CircleButton
           icon="back"
           accessibilityLabel="Back"
           onPress={() => (router.canGoBack() ? router.back() : router.replace('/deals'))}
         />
-        <CircleButton
-          icon="bookmark"
-          accessibilityLabel={saved ? 'Remove bookmark' : 'Bookmark'}
-          color={saved ? colors.orange : colors.ink}
-          onPress={onToggleSaved}
-        />
+        {onToggleSaved && (
+          <CircleButton
+            icon="bookmark"
+            accessibilityLabel={saved ? 'Remove bookmark' : 'Bookmark'}
+            color={saved ? colors.orange : colors.ink}
+            onPress={onToggleSaved}
+          />
+        )}
       </View>
     </View>
   );

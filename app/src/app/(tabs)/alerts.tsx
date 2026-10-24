@@ -6,17 +6,26 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import DotRead from '@/assets/shapes/dot-read.svg';
 import DotUnread from '@/assets/shapes/dot-unread.svg';
-import { Chip } from '@/components/chip';
+import { AppIcon } from '@/components/app-icon';
 import { EventCard } from '@/components/event-card';
 import { Icon } from '@/components/icon';
+import { InterestChip } from '@/components/interest-chip';
 import { Overline } from '@/components/section-header';
 import { Text } from '@/components/text';
 import { Thumb } from '@/components/thumb';
-import { Wordmark } from '@/components/wordmark';
 import { findDeal, useDeals } from '@/lib/api';
 import { expiryText } from '@/lib/format';
-import { NOTIFY_TOPICS, useStore } from '@/lib/store';
-import { colors, gutter } from '@/theme';
+import { INTERESTS } from '@/lib/interests';
+import { useStore } from '@/lib/store';
+import { colors, gutter, radii } from '@/theme';
+
+/** Picked interests shown before the "+N more" pill. */
+const SHOWN_INTERESTS = 7;
+
+/** "Ends 6 PM" → "ends 6 PM", to follow the distance mid-sentence. */
+function lowerFirst(text: string) {
+  return text.charAt(0).toLowerCase() + text.slice(1);
+}
 
 // 06 · Alerts (Figma 5:559)
 export default function AlertsScreen() {
@@ -25,8 +34,11 @@ export default function AlertsScreen() {
   const store = useStore();
   const { activity, instant, topics, radiusMi, reminders } = store;
 
-  const latest = activity[0]?.dealId ? findDeal(deals, activity[0].dealId) : undefined;
+  const latestActivity = activity[0];
+  const latest = latestActivity?.dealId ? findDeal(deals, latestActivity.dealId) : undefined;
   const nextEvent = events[0];
+  const picked = INTERESTS.filter((i) => topics.has(i.label));
+  const editInterests = () => router.push({ pathname: '/onboarding/interests', params: { edit: '1' } });
 
   return (
     <View style={[styles.screen, { paddingTop: insets.top }]}>
@@ -48,23 +60,67 @@ export default function AlertsScreen() {
             />
           </View>
         </View>
+        <Text size={14} color={colors.inkSecondary}>
+          Live alerts for the interests you picked.
+        </Text>
+
+        <View style={{ gap: 12 }}>
+          <View style={styles.rowBetween}>
+            <Overline>YOUR INTERESTS</Overline>
+            <Pressable onPress={editInterests} hitSlop={8} accessibilityRole="button">
+              <Text weight="bold" size={14} color={colors.orange}>
+                Edit
+              </Text>
+            </Pressable>
+          </View>
+          <View style={styles.topics}>
+            {picked.slice(0, SHOWN_INTERESTS).map((i) => (
+              <InterestChip key={i.label} label={i.label} icon={i.icon} selected onPress={editInterests} />
+            ))}
+            {picked.length > SHOWN_INTERESTS && (
+              <Pressable onPress={editInterests} accessibilityRole="button" style={styles.more}>
+                <Text weight="bold" size={14} color={colors.inkSecondary}>
+                  +{picked.length - SHOWN_INTERESTS} more
+                </Text>
+              </Pressable>
+            )}
+          </View>
+          <View style={{ gap: 10 }}>
+            <View style={styles.rowBetween}>
+              <Text weight="bold" size={14}>
+                Distance
+              </Text>
+              <Text weight="bold" size={14} color={colors.orange}>
+                Within {radiusMi} mi
+              </Text>
+            </View>
+            <Slider
+              value={radiusMi}
+              onValueChange={store.setRadiusMi}
+              minimumValue={0.25}
+              maximumValue={5}
+              step={0.25}
+              minimumTrackTintColor={colors.orange}
+              maximumTrackTintColor={colors.border}
+              accessibilityLabel="Alert distance"
+            />
+          </View>
+        </View>
 
         {instant && latest && (
           <Pressable onPress={() => router.push(`/deal/${latest.id}`)} style={styles.push}>
-            <View style={styles.appIcon}>
-              <Wordmark height={15.12} color={colors.surface} dot="ink" />
-            </View>
+            <AppIcon />
             <View style={{ flex: 1, gap: 3 }}>
               <View style={styles.pushHeader}>
-                <Text weight="bold" size={14} color={colors.surface}>
-                  New deal · {latest.distanceMi} mi away
+                <Text weight="bold" size={14} color={colors.surface} numberOfLines={1} style={{ flexShrink: 1 }}>
+                  {latestActivity.title} · {latest.store}
                 </Text>
                 <Text size={12} color={colors.inkTertiary}>
                   now
                 </Text>
               </View>
               <Text size={13} color={colors.border} style={{ lineHeight: 18 }}>
-                {latest.store} just posted {latest.offer}. {expiryText(latest)}.
+                {latest.distanceMi} mi · {lowerFirst(expiryText(latest))}
               </Text>
             </View>
           </Pressable>
@@ -115,35 +171,6 @@ export default function AlertsScreen() {
             </Pressable>
           ))}
         </View>
-
-        <View style={{ gap: 12 }}>
-          <Overline>NOTIFY ME ABOUT</Overline>
-          <View style={styles.topics}>
-            {NOTIFY_TOPICS.map((t) => (
-              <Chip key={t} label={t} active={topics.has(t)} onPress={() => store.toggleTopic(t)} />
-            ))}
-          </View>
-          <View style={{ gap: 10 }}>
-            <View style={styles.rowBetween}>
-              <Text weight="bold" size={14}>
-                Distance
-              </Text>
-              <Text weight="bold" size={14} color={colors.orange}>
-                Within {radiusMi} mi
-              </Text>
-            </View>
-            <Slider
-              value={radiusMi}
-              onValueChange={store.setRadiusMi}
-              minimumValue={0.25}
-              maximumValue={3}
-              step={0.25}
-              minimumTrackTintColor={colors.orange}
-              maximumTrackTintColor={colors.border}
-              accessibilityLabel="Alert distance"
-            />
-          </View>
-        </View>
       </ScrollView>
     </View>
   );
@@ -151,7 +178,7 @@ export default function AlertsScreen() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.surface },
-  content: { paddingTop: 8, paddingHorizontal: gutter, paddingBottom: 24, gap: 20 },
+  content: { paddingTop: 8, paddingHorizontal: gutter, paddingBottom: 24, gap: 18 },
   titleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   instant: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   push: {
@@ -162,18 +189,11 @@ const styles = StyleSheet.create({
     borderRadius: 22,
     backgroundColor: colors.ink,
   },
-  appIcon: {
-    width: 38,
-    height: 38,
-    borderRadius: 10,
-    backgroundColor: colors.orange,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  pushHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
+  pushHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 },
   rowBetween: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   reminder: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   activity: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 12 },
   activityMeta: { alignItems: 'flex-end', gap: 6 },
   topics: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  more: { paddingHorizontal: 14, paddingVertical: 9, borderRadius: radii.pill, backgroundColor: colors.muted },
 });

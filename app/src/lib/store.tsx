@@ -5,18 +5,6 @@ import { createContext, useContext, useState, type ReactNode } from 'react';
 import { MOCK_ACTIVITY, MOCK_EARNED, MOCK_SUBMISSIONS } from '@/lib/mock';
 import type { Activity, Submission } from '@/lib/types';
 
-export const NOTIFY_TOPICS = [
-  'Upcoming events',
-  'Food',
-  'Boba',
-  'Cafes',
-  'Fast food',
-  'Barbers',
-  'Gyms',
-  'Grocery',
-  'Boxing',
-] as const;
-
 type Store = {
   saved: Set<string>;
   toggleSaved: (id: string) => void;
@@ -28,6 +16,8 @@ type Store = {
   setInstant: (on: boolean) => void;
   topics: Set<string>;
   toggleTopic: (topic: string) => void;
+  /** Turn a group of topics on or off at once ("Select all"). */
+  setTopicsOn: (topics: string[], on: boolean) => void;
   radiusMi: number;
   setRadiusMi: (mi: number) => void;
   activity: Activity[];
@@ -51,7 +41,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [followed, setFollowed] = useState(new Set<string>());
   const [reminders, setReminders] = useState(new Set(['kda-chicha-popup']));
   const [instant, setInstant] = useState(true);
-  const [topics, setTopics] = useState(new Set(['Upcoming events', 'Food', 'Boba', 'Cafes', 'Fast food', 'Gyms']));
+  const [topics, setTopics] = useState(new Set(['Upcoming events', 'Restaurants', 'Boba & tea', 'Cafes', 'Fast food', 'Gyms']));
   const [radiusMi, setRadiusMi] = useState(1);
   const [activity, setActivity] = useState(MOCK_ACTIVITY);
   const [submissions, setSubmissions] = useState(MOCK_SUBMISSIONS);
@@ -67,6 +57,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setInstant,
     topics,
     toggleTopic: (t) => setTopics((s) => toggle(s, t)),
+    setTopicsOn: (list, on) =>
+      setTopics((s) => {
+        const next = new Set(s);
+        for (const t of list) {
+          if (on) next.add(t);
+          else next.delete(t);
+        }
+        return next;
+      }),
     radiusMi,
     setRadiusMi,
     activity,

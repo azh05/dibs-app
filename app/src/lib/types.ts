@@ -11,6 +11,9 @@ export type ApiDeal = {
   conditions: string[];
   start_date: string | null;
   end_date: string | null;
+  /** HH:MM:SS local time, only if the source states it. */
+  start_time?: string | null;
+  end_time?: string | null;
   source_url: string;
   source_post_date: string | null;
   verbatim_quote: string;
@@ -22,11 +25,14 @@ export type ApiDeal = {
 export type ApiSearchResponse = {
   as_of: string;
   deals: ApiDeal[];
+  rejected?: { deal: unknown; reason: string }[];
   search_errors: string[];
+  /** user_photo only: every word read off the photo. */
+  transcript?: string | null;
 };
 
 /** Store types behind the filter chips. */
-export type StoreType = 'food' | 'boba' | 'cafe' | 'barber' | 'gym' | 'grocery' | 'boxing' | 'fastfood';
+export type StoreType = 'food' | 'boba' | 'cafe' | 'barber' | 'gym' | 'grocery' | 'boxing' | 'fastfood' | 'nails';
 
 export type SourceKind = 'instagram' | 'community' | 'website';
 

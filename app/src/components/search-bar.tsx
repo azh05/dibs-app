@@ -10,25 +10,34 @@ type Props = {
   onFilters?: () => void;
   /** White with a shadow when it floats over the map; muted grey otherwise. */
   floating?: boolean;
+  /** The smaller 42px bar without a filters button (Pick interests). */
+  compact?: boolean;
 };
 
-export function SearchBar({ value, onChangeText, placeholder, onFilters, floating = false }: Props) {
+export function SearchBar({ value, onChangeText, placeholder, onFilters, floating = false, compact = false }: Props) {
   return (
-    <View style={[styles.bar, floating ? [styles.floating, shadows.floating] : styles.muted]}>
-      <Icon name="search" size={20} color={colors.inkTertiary} />
+    <View
+      style={[
+        styles.bar,
+        floating ? [styles.floating, shadows.floating] : styles.muted,
+        compact && styles.compact,
+      ]}>
+      <Icon name="search" size={compact ? 18 : 20} color={colors.inkTertiary} />
       <TextInput
         value={value}
         onChangeText={onChangeText}
         placeholder={placeholder}
         placeholderTextColor={colors.inkTertiary}
-        style={styles.input}
+        style={[styles.input, compact && { fontSize: 14 }]}
         returnKeyType="search"
         clearButtonMode="while-editing"
         autoCorrect={false}
       />
-      <Pressable onPress={onFilters} hitSlop={10} accessibilityRole="button" accessibilityLabel="Filters">
-        <Icon name="sliders" size={20} />
-      </Pressable>
+      {!compact && (
+        <Pressable onPress={onFilters} hitSlop={10} accessibilityRole="button" accessibilityLabel="Filters">
+          <Icon name="sliders" size={20} />
+        </Pressable>
+      )}
     </View>
   );
 }
@@ -45,5 +54,6 @@ const styles = StyleSheet.create({
   },
   muted: { backgroundColor: colors.muted },
   floating: { backgroundColor: colors.surface },
+  compact: { height: 42, paddingLeft: 14, borderRadius: radii.thumb },
   input: { flex: 1, fontFamily: fonts.medium, fontSize: 15, color: colors.ink, paddingVertical: 0 },
 });

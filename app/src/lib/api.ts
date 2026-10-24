@@ -6,11 +6,11 @@ import { HOME, MOCK_DEALS, MOCK_EVENTS } from '@/lib/mock';
 import type { ApiDeal, ApiSearchResponse, Deal, DealEvent, StoreType } from '@/lib/types';
 import { colors } from '@/theme';
 
-const API_URL = process.env.EXPO_PUBLIC_API_URL?.replace(/\/$/, '');
+export const API_URL = process.env.EXPO_PUBLIC_API_URL?.replace(/\/$/, '');
 
 export const usingLiveApi = Boolean(API_URL);
 
-const CATEGORY: Record<ApiDeal['category'], { storeType: StoreType; label: string; icon: IconName }> = {
+export const CATEGORY: Record<ApiDeal['category'], { storeType: StoreType; label: string; icon: IconName }> = {
   food: { storeType: 'food', label: 'Food', icon: 'food' },
   drink: { storeType: 'boba', label: 'Drinks', icon: 'boba' },
   retail: { storeType: 'grocery', label: 'Retail', icon: 'cart' },

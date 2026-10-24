@@ -1,48 +1,27 @@
-import * as ImagePicker from 'expo-image-picker';
+import { router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { Alert, Image, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Image, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Icon } from '@/components/icon';
 import { StatusPill } from '@/components/pills';
 import { Text } from '@/components/text';
 import { Thumb } from '@/components/thumb';
+import { pickPhoto } from '@/lib/photo';
 import { useStore } from '@/lib/store';
 import type { Submission } from '@/lib/types';
 import { colors, gutter, radii } from '@/theme';
 
 const STEPS = ['Snap it', 'We verify', 'Get $5'];
 
-/** Camera first; the library when there is no camera (simulator) or camera access is denied. */
-async function pickPhoto() {
-  const camera = await ImagePicker.requestCameraPermissionsAsync();
-  if (camera.granted) {
-    try {
-      return await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], quality: 0.7 });
-    } catch {
-      // No camera available.
-    }
-  }
-  return ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.7 });
-}
-
 // 05 · Earn $5 (Figma 5:445)
 export default function EarnScreen() {
   const insets = useSafeAreaInsets();
-  const { submissions, addSubmission, earned } = useStore();
+  const { submissions, earned } = useStore();
 
   const snap = async () => {
-    const result = await pickPhoto();
-    if (result.canceled) return;
-    addSubmission({
-      id: `s-${Date.now()}`,
-      store: 'New deal photo',
-      offer: 'We’ll match it to a store',
-      icon: 'camera',
-      status: 'review',
-      photoUri: result.assets[0].uri,
-    });
-    Alert.alert('Thanks for the tip', 'We’ll verify it and send your $5 gift card once it checks out.');
+    const photo = await pickPhoto();
+    if (photo) router.push({ pathname: '/submission', params: photo });
   };
 
   return (
