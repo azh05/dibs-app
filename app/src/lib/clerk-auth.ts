@@ -6,6 +6,9 @@ import * as AuthSession from 'expo-auth-session';
 import { router } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
 
+import { pendingUsername } from '@/lib/backend-store';
+import { resetTo } from '@/lib/navigation';
+
 WebBrowser.maybeCompleteAuthSession();
 
 export type CodeMode = 'phone-in' | 'phone-up' | 'email-up';
@@ -34,7 +37,10 @@ export function clerkError(e: unknown): string {
 export function useSocialSignIn() {
   const { startSSOFlow } = useSSO();
   return async (strategy: 'oauth_google' | 'oauth_apple') => {
-    const { createdSessionId, setActive, signUp } = await startSSOFlow({ strategy, redirectUrl: AuthSession.makeRedirectUri() });
+    const { createdSessionId, setActive, signUp } = await startSSOFlow({
+      strategy,
+      redirectUrl: AuthSession.makeRedirectUri(),
+    });
     if (!createdSessionId || !setActive) return null;
     await setActive({ session: createdSessionId });
     return { isNew: Boolean(signUp?.createdSessionId) };
@@ -52,8 +58,7 @@ export function useCodeAuth() {
     try {
       const attempt = await signInState.signIn.create({ identifier: phoneNumber });
       const factor = attempt.supportedFirstFactors?.find((f) => f.strategy === 'phone_code') as
-        | { strategy: 'phone_code'; phoneNumberId: string }
-        | undefined;
+        { strategy: 'phone_code'; phoneNumberId: string } | undefined;
       if (!factor) throw new Error('Phone sign-in isn’t turned on for this app');
       await signInState.signIn.prepareFirstFactor({ strategy: 'phone_code', phoneNumberId: factor.phoneNumberId });
       return 'phone-in';
@@ -73,7 +78,9 @@ export function useCodeAuth() {
   };
 
   /** After any sign-up step: sign in if complete, else say what Clerk still needs. */
-  const next = async (attempt: Awaited<ReturnType<NonNullable<typeof signUpState.signUp>['update']>>): Promise<SignUpOutcome> => {
+  const next = async (
+    attempt: Awaited<ReturnType<NonNullable<typeof signUpState.signUp>['update']>>,
+  ): Promise<SignUpOutcome> => {
     if (!signUpState.isLoaded) throw new Error('Still loading, try again');
     if (attempt.status === 'complete') {
       await signUpState.setActive({ session: attempt.createdSessionId });
@@ -88,7 +95,9 @@ export function useCodeAuth() {
       await attempt.preparePhoneNumberVerification({ strategy: 'phone_code' });
       return { done: false, verify: 'phone-up', to: attempt.phoneNumber };
     }
-    const missing = attempt.missingFields.filter((f): f is FinishField => (FINISH_FIELDS as readonly string[]).includes(f));
+    const missing = attempt.missingFields.filter((f): f is FinishField =>
+      (FINISH_FIELDS as readonly string[]).includes(f),
+    );
     if (!missing.length) throw new Error(`Clerk needs: ${attempt.missingFields.join(', ') || attempt.status}`);
     return { done: false, missing };
   };
@@ -135,10 +144,11 @@ export function useCodeAuth() {
 /** Go wherever a sign-up step leaves the user. */
 export function goAfter(outcome: SignUpOutcome) {
   if (outcome.done) {
-    if (outcome.isNew) router.replace('/onboarding/interests');
+    // Create account already chose a username; phone sign-ups pick one first.
+    if (outcome.isNew && pendingUsername()) router.replace('/onboarding/interests');
+    else if (outcome.isNew) router.replace({ pathname: '/onboarding/username', params: { onboarding: '1' } });
     else {
-      router.dismissAll();
-      router.replace('/deals');
+      resetTo('/deals');
     }
   } else if ('verify' in outcome) {
     router.replace({ pathname: '/onboarding/verify', params: { mode: outcome.verify, to: outcome.to } });

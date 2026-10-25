@@ -1,4 +1,3 @@
-import { router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
 import { Animated, Pressable, StyleSheet, Text as SystemText, useAnimatedValue, View } from 'react-native';
@@ -10,6 +9,7 @@ import { NotificationCard } from '@/components/notification-card';
 import { Text } from '@/components/text';
 import { findDeal, findEvent } from '@/lib/api';
 import { MOCK_DEALS } from '@/lib/mock';
+import { resetTo } from '@/lib/navigation';
 import { alertBody, eventAlertBody } from '@/lib/notifications';
 import { useNow } from '@/lib/use-now';
 import { colors } from '@/theme';
@@ -45,8 +45,7 @@ const STAGGER_MS = 350;
 const AUTO_ADVANCE_MS = STAGGER_MS * NOTIFICATIONS.length + 3500;
 
 function enterApp() {
-  router.dismissAll();
-  router.replace('/deals');
+  resetTo('/deals');
 }
 
 // 06 · Live alerts (Figma 28:980), onboarding step 3 of 3. Tap anywhere, or wait, to enter the app.

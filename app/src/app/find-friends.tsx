@@ -13,25 +13,37 @@ import { SearchBar } from '@/components/search-bar';
 import { Overline } from '@/components/section-header';
 import { Text } from '@/components/text';
 import { errorText } from '@/lib/backend';
-import { colors, gutter } from '@/theme';
+import { inviteFriends } from '@/lib/social';
+import { useSocial } from '@/lib/social-data';
+import { colors, gutter, radii } from '@/theme';
 
 type Person = { id: Id<'users'>; name: string; username: string | null; initials: string };
 
-// Find friends (Profile → Friends → "Find friends"): search by username, answer requests. Friends' used deals,
+// Find friends (Profile → Friends → "Find friends"): search by name or @username, answer requests. Friends' used deals,
 // saved events and badges then show on Profile, and they get their own leaderboard. Backend mode only.
 export default function FriendsScreen() {
   const insets = useSafeAreaInsets();
   const [query, setQuery] = useState('');
-  const results = useQuery(api.social.findByUsername, { prefix: query });
+  const results = useQuery(api.social.findPeople, { query });
   const lists = useQuery(api.social.friends);
   const request = useMutation(api.social.request);
   const respond = useMutation(api.social.respond);
+  const { invites } = useSocial();
   const [sent, setSent] = useState(new Set<string>());
 
-  const known = new Set([...(lists?.friends ?? []), ...(lists?.outgoing ?? []), ...(lists?.incoming ?? [])].map((p) => p.id));
+  const known = new Set(
+    [...(lists?.friends ?? []), ...(lists?.outgoing ?? []), ...(lists?.incoming ?? [])].map((p) => p.id),
+  );
   const add = (p: Person) => {
     setSent((s) => new Set(s).add(p.id));
-    request({ userId: p.id }).catch((e) => Alert.alert('Couldn’t add friend', errorText(e)));
+    request({ userId: p.id }).catch((e) => {
+      setSent((s) => {
+        const next = new Set(s);
+        next.delete(p.id);
+        return next;
+      });
+      Alert.alert('Couldn’t add friend', errorText(e));
+    });
   };
   const answer = (p: Person, accept: boolean) =>
     respond({ userId: p.id, accept }).catch((e) => Alert.alert('Something went wrong', errorText(e)));
@@ -48,7 +60,7 @@ export default function FriendsScreen() {
         </Text>
       </View>
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-        <SearchBar value={query} onChangeText={setQuery} placeholder="Search by @username" compact />
+        <SearchBar value={query} onChangeText={setQuery} placeholder="Search by name or @username" compact />
 
         {query.trim().length >= 2 && (
           <View style={{ gap: 2 }}>
@@ -100,10 +112,25 @@ export default function FriendsScreen() {
           ))}
           {lists && lists.friends.length === 0 && lists.outgoing.length === 0 && (
             <Text size={14} color={colors.inkTertiary}>
-              Search for friends above, or invite them from your profile.
+              Search for friends above by name or @username.
             </Text>
           )}
         </View>
+
+        <Pressable
+          onPress={() => inviteFriends(invites.code, invites.reward)}
+          accessibilityRole="button"
+          style={styles.invite}>
+          <Icon name="user-plus" size={20} />
+          <View style={{ flex: 1, gap: 2 }}>
+            <Text weight="bold" size={14}>
+              Invite friends
+            </Text>
+            <Text size={12} color={colors.inkTertiary}>
+              Not on dibs yet? You both get {invites.reward} credits.
+            </Text>
+          </View>
+        </Pressable>
       </ScrollView>
     </View>
   );
@@ -145,4 +172,12 @@ const styles = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 10 },
   button: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 999, borderWidth: 1, borderColor: colors.border },
   primary: { backgroundColor: colors.orange, borderColor: colors.orange },
+  invite: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    padding: 14,
+    borderRadius: radii.button,
+    backgroundColor: colors.muted,
+  },
 });

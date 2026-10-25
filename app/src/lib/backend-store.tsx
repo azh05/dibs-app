@@ -9,6 +9,7 @@ import { Alert } from 'react-native';
 import { api } from '@convex/_generated/api';
 import type { Id } from '@convex/_generated/dataModel';
 import { DEAL_TYPES as CATALOG_DEAL_TYPES, STORE_TYPES as CATALOG_STORE_TYPES } from '@convex/catalog';
+import { NO_NAME } from '@/lib/account';
 import { errorText } from '@/lib/backend';
 import { storeTypeLabel } from '@/lib/feed';
 import { DEFAULT_FILTERS } from '@/lib/filters';
@@ -29,7 +30,12 @@ type DealTypeKey = (typeof CATALOG_DEAL_TYPES)[number]['key'];
 
 /** Profile fields from Create account (name, username, birthday, invite code). They're written once the users row
  * exists, right after sign-up completes. */
-export type PendingProfile = { username?: string; display_name?: string; birthday?: string | null; referral_code?: string };
+export type PendingProfile = {
+  username?: string;
+  display_name?: string;
+  birthday?: string | null;
+  referral_code?: string;
+};
 let pendingProfile: PendingProfile | null = null;
 export function setPendingProfile(profile: PendingProfile) {
   pendingProfile = { ...pendingProfile, ...profile };
@@ -112,8 +118,10 @@ export function BackendStoreProvider({ children }: { children: ReactNode }) {
   const addToList = useMutation(api.saves.addToList);
   const registerDevice = useMutation(api.prefs.registerDevice);
 
-  // Create the users row on sign-in, then register this device for push.
+  // Create the users row on sign-in, then register this device for push. While Create account's username is still
+  // being written, the account doesn't count as missing one.
   const stored = useRef(false);
+  const [settingUp, setSettingUp] = useState(false);
   useEffect(() => {
     if (!isAuthenticated) {
       stored.current = false;
@@ -121,12 +129,14 @@ export function BackendStoreProvider({ children }: { children: ReactNode }) {
     }
     if (stored.current) return;
     stored.current = true;
+    setSettingUp(true);
     storeUser({})
       .then(async () => {
         const profile = pendingProfile;
         pendingProfile = null;
         if (profile) await updateProfile(profile).catch(fail);
       })
+      .finally(() => setSettingUp(false))
       .then(() => registerForPush())
       .then((push) => push && registerDevice(push))
       .catch(() => undefined);
@@ -171,7 +181,9 @@ export function BackendStoreProvider({ children }: { children: ReactNode }) {
   const primary = locations?.find((l) => l.is_primary) ?? locations?.[0];
   const place: Place = primary
     ? {
-        label: primary.neighborhood ? [primary.neighborhood, primary.city === 'Los Angeles' ? 'LA' : primary.city].filter(Boolean).join(', ') : primary.label,
+        label: primary.neighborhood
+          ? [primary.neighborhood, primary.city === 'Los Angeles' ? 'LA' : primary.city].filter(Boolean).join(', ')
+          : primary.label,
         coords: { latitude: primary.lat, longitude: primary.lng },
         areaKey: primary.scan_area_key,
       }
@@ -179,7 +191,8 @@ export function BackendStoreProvider({ children }: { children: ReactNode }) {
   const [localRadius, setLocalRadius] = useState<number | null>(null);
   const alertRadiusMi = localRadius ?? primary?.radius_miles ?? 1;
   const [localInstant, setLocalInstant] = useState<{ on: boolean; seen: boolean | undefined } | null>(null);
-  const instant = localInstant && localInstant.seen === me?.instant_alerts ? localInstant.on : (me?.instant_alerts ?? true);
+  const instant =
+    localInstant && localInstant.seen === me?.instant_alerts ? localInstant.on : (me?.instant_alerts ?? true);
   const [filters, setFilters] = useState(DEFAULT_FILTERS);
   const [lineReports, setLineReports] = useState<LineReport[]>([]);
 
@@ -190,7 +203,12 @@ export function BackendStoreProvider({ children }: { children: ReactNode }) {
     return true;
   };
 
-  const optimistic = (set: ReturnType<typeof useOptimisticSet>, key: string, on: boolean, run: () => Promise<unknown>) => {
+  const optimistic = (
+    set: ReturnType<typeof useOptimisticSet>,
+    key: string,
+    on: boolean,
+    run: () => Promise<unknown>,
+  ) => {
     if (needAccount()) return;
     set.apply(key, on);
     run().catch((e) => {
@@ -230,7 +248,7 @@ export function BackendStoreProvider({ children }: { children: ReactNode }) {
     signedIn: isAuthenticated,
     account: me
       ? {
-          name: me.display_name ?? me.username ?? 'dibs user',
+          name: me.display_name ?? me.username ?? NO_NAME,
           username: me.username ?? 'you',
           email: me.email ?? '',
           birthday: me.birthday,
@@ -255,6 +273,10 @@ export function BackendStoreProvider({ children }: { children: ReactNode }) {
       await updateProfile({ birthday });
     },
     referralCode: me?.referral_code ?? null,
+    needsUsername: isAuthenticated && !settingUp && me != null && !me.username,
+    saveProfile: async ({ name, username }) => {
+      await updateProfile({ username, display_name: name });
+    },
 
     saved: saved.set,
     toggleSaved: (id) => optimistic(saved, id, !saved.set.has(id), () => toggleSave({ dealId: id as Id<'deals'> })),
@@ -343,8 +365,15 @@ export function BackendStoreProvider({ children }: { children: ReactNode }) {
       const report: LineReport = { dealId: deal.id, minutes, at: Date.now() };
       setLineReports((list) => [...list, report]);
       if (isAuthenticated && deal.storeId && position) {
-        reportLine({ storeId: deal.storeId as Id<'stores'>, wait_minutes: minutes, lat: position.latitude, lng: position.longitude })
-          .then(({ reportId }) => setLineReports((list) => list.map((r) => (r.at === report.at ? { ...r, serverId: reportId } : r))))
+        reportLine({
+          storeId: deal.storeId as Id<'stores'>,
+          wait_minutes: minutes,
+          lat: position.latitude,
+          lng: position.longitude,
+        })
+          .then(({ reportId }) =>
+            setLineReports((list) => list.map((r) => (r.at === report.at ? { ...r, serverId: reportId } : r))),
+          )
           .catch(fail);
       }
       return report;

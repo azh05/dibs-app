@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, expect, test } from "vitest";
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
 import { api, internal } from "./_generated/api";
 import { identity, json, makeTest, shopsResponse, stubFetch, type T } from "./test.setup";
@@ -6,8 +6,15 @@ import { identity, json, makeTest, shopsResponse, stubFetch, type T } from "./te
 let restore: () => void = () => {};
 beforeEach(() => {
   process.env.DIBS_API_URL = "http://api.test";
+  // Noon in Los Angeles on the seed data's day: before 10 AM or after 10 PM, using a deal also earns Early Bird or
+  // Night Owl, which then becomes the featured badge. Only Date is faked, so scheduled functions still run.
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date("2026-10-24T19:00:00Z"));
 });
-afterEach(() => restore());
+afterEach(() => {
+  restore();
+  vi.useRealTimers();
+});
 
 async function seed(t: T) {
   restore = stubFetch(() => json({ job_id: "j", status: "done", progress: [], result: shopsResponse() })).restore;
@@ -73,7 +80,7 @@ test("friends: request, accept, feed and cheers", async () => {
   const { boba } = await seed(t);
   const maya = await signIn(t, 1, "maya");
   const jess = await signIn(t, 2, "jess");
-  expect((await maya.as.query(api.social.findByUsername, { prefix: "je" })).map((u) => u.username)).toEqual(["jess"]);
+  expect((await maya.as.query(api.social.findPeople, { query: "je" })).map((u) => u.username)).toEqual(["jess"]);
   expect(await maya.as.mutation(api.social.request, { userId: jess.userId })).toBe("pending");
   expect((await jess.as.query(api.social.friends, {})).incoming.map((u) => u.username)).toEqual(["maya"]);
   await jess.as.mutation(api.social.respond, { userId: maya.userId, accept: true });
