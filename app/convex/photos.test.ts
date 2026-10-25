@@ -146,14 +146,27 @@ test("a photo of a deal we already know confirms it instead of earning credits",
   expect(await t.run(async (ctx) => (await ctx.db.get("deals", dealId))!.confirmation_count)).toBe(1);
 });
 
-test("the same photo can't be submitted twice", async () => {
+test("submitting your own photo again reopens the first submission", async () => {
   const t = makeTest();
   const { as } = await signIn(t, 1);
   const a = await t.run((ctx) => ctx.storage.store(new Blob(["same bytes"], { type: "image/png" })));
   const b = await t.run((ctx) => ctx.storage.store(new Blob(["same bytes"], { type: "image/png" })));
   restore = stubFetch(() => json(photoResponse(1))).restore;
-  await as.mutation(api.photos.submit, { storageId: a });
-  await expect(as.mutation(api.photos.submit, { storageId: b })).rejects.toThrow("already submitted");
+  const first = await as.mutation(api.photos.submit, { storageId: a });
+  await expect(as.mutation(api.photos.submit, { storageId: b })).resolves.toBe(first);
+  expect(await t.run((ctx) => ctx.db.query("photo_submissions").collect())).toHaveLength(1);
+  expect(await t.run((ctx) => ctx.db.system.get("_storage", b))).toBeNull();
+});
+
+test("someone else's photo can't be submitted again", async () => {
+  const t = makeTest();
+  const first = await signIn(t, 1);
+  const second = await signIn(t, 2);
+  const a = await t.run((ctx) => ctx.storage.store(new Blob(["same bytes"], { type: "image/png" })));
+  const b = await t.run((ctx) => ctx.storage.store(new Blob(["same bytes"], { type: "image/png" })));
+  restore = stubFetch(() => json(photoResponse(1))).restore;
+  await first.as.mutation(api.photos.submit, { storageId: a });
+  await expect(second.as.mutation(api.photos.submit, { storageId: b })).rejects.toThrow("already shared");
 });
 
 test("a photo whose processing failed can be submitted again", async () => {

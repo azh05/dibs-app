@@ -53,7 +53,9 @@ export const submit = mutation({
     ).find((s) => s.state !== "failed");
     if (duplicate) {
       await ctx.storage.delete(args.storageId);
-      throw new Error("This photo was already submitted");
+      // Picking your own photo again reopens its result instead of failing; someone else's photo earns nothing.
+      if (duplicate.user_id === user._id) return duplicate._id;
+      throw new Error("Someone already shared this photo");
     }
     await rateLimiter.limit(ctx, "photoSubmit", { key: user._id, throws: true });
     const timezone = args.timezone ?? DEFAULT_TIMEZONE;
