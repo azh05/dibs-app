@@ -39,7 +39,10 @@ export default function SignIn() {
     <View style={styles.screen}>
       <StatusBar style="light" />
       <View style={[styles.hero, { paddingTop: insets.top + 14 }]}>
-        <Wordmark height={52.92} color={colors.surface} dot="ink" />
+        <Wordmark height={113.4} color={colors.surface} dot="ink" />
+        <Text weight="extrabold" size={36} tracking={-1.08} color={colors.surface} style={{ lineHeight: 40 }}>
+          Never miss out on a deal again.
+        </Text>
       </View>
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         {PROVIDERS.map((p) => (
@@ -82,7 +85,7 @@ export default function SignIn() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.surface },
-  hero: { paddingHorizontal: 28, paddingBottom: 28, backgroundColor: colors.orange },
+  hero: { gap: 14, paddingHorizontal: 28, paddingBottom: 32, backgroundColor: colors.orange },
   content: { gap: 12, paddingTop: 24, paddingHorizontal: 24, paddingBottom: 40 },
   divider: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   rule: { flex: 1, height: 1, backgroundColor: colors.border },

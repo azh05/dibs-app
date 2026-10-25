@@ -5,6 +5,7 @@ import { Animated, Pressable, StyleSheet, useAnimatedValue, View } from 'react-n
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import DotWelcome from '@/assets/shapes/dot-welcome.svg';
+import { CategoryWheel } from '@/components/category-wheel';
 import { Icon } from '@/components/icon';
 import { Text } from '@/components/text';
 import { Wordmark } from '@/components/wordmark';
@@ -37,18 +38,25 @@ export default function Welcome() {
           Never miss out on a deal again.
         </Text>
         <Text weight="semibold" size={17} color={colors.orangeSoft} style={{ lineHeight: 24 }}>
-          Your personal AI agent that runs 24/7 and pings you the second a deal drops.
+          Your personal AI agent that runs 24/7 and pings you the second something drops.
         </Text>
+      </View>
+      <View style={styles.wheelZone}>
+        <CategoryWheel />
+      </View>
+      <View style={styles.actions}>
         <View style={styles.scanning}>
           <Animated.View style={{ opacity: pulse }}>
             <DotWelcome width={8} height={8} />
           </Animated.View>
           <Text weight="semibold" size={13} color={colors.surface}>
-            Watching 1,284 spots near you
+            Watching{' '}
+            <Text weight="extrabold" size={13} color={colors.surface}>
+              1,284
+            </Text>{' '}
+            spots near you
           </Text>
         </View>
-      </View>
-      <View style={styles.actions}>
         <Pressable
           onPress={signIn}
           accessibilityRole="button"
@@ -74,8 +82,10 @@ export default function Welcome() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.orange, paddingHorizontal: 28 },
-  hero: { flex: 1, justifyContent: 'center', alignItems: 'flex-start', gap: 20 },
+  hero: { paddingTop: 68, alignItems: 'flex-start', gap: 20 },
+  wheelZone: { flex: 1, justifyContent: 'center' },
   scanning: {
+    alignSelf: 'flex-start',
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
@@ -84,7 +94,7 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     backgroundColor: 'rgba(255,255,255,0.16)',
   },
-  actions: { gap: 12 },
+  actions: { gap: 14 },
   primary: {
     flexDirection: 'row',
     alignItems: 'center',

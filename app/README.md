@@ -1,6 +1,6 @@
 # dibs app
 
-Expo (SDK 58, expo-router) app built from the Figma file "dibs — App Design": all 20 screens in its six sections (Onboarding, Discover, Alerts & Saved, Earn $5, Profile & social, Notifications), wired the way its prototype links are.
+Expo (SDK 58, expo-router) app built from the Figma file "dibs — App Design": all 22 screens in its six sections (Onboarding, Discover, Alerts & Saved, Earn credits, Friends & profile, Notifications), wired the way its prototype links are.
 
 ```bash
 npm install
@@ -8,7 +8,7 @@ npx expo start --ios        # Expo Go on the iOS simulator
 npx tsc --noEmit && npx expo lint
 ```
 
-Data is mock (`src/lib/mock.ts`, `src/lib/social.ts`) unless `EXPO_PUBLIC_API_URL` points at the API, in which case the Deals list calls `POST /extract/search` (10 to 60 s, spends web searches) and maps results through `src/lib/api.ts`, and a photo snapped on Earn $5 goes to `POST /extract/photo` (5 to 20 s, `src/lib/photo.ts`). Without the API the photo check returns the Figma example, an expired Chipotle poster.
+Data is mock (`src/lib/mock.ts`, `src/lib/social.ts`) unless `EXPO_PUBLIC_API_URL` points at the API, in which case the Deals list calls `POST /extract/search` (10 to 60 s, spends web searches) and maps results through `src/lib/api.ts`, and a photo snapped on Earn goes to `POST /extract/photo` (5 to 20 s, `src/lib/photo.ts`). Without the API the photo check returns the Figma example, an expired Chipotle poster.
 
 ## Flow
 

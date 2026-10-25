@@ -106,6 +106,9 @@ export function noDealReason(res: ApiSearchResponse) {
   return `We read a deal, but ${REJECT_TEXT[reason] ?? reason}.`;
 }
 
+/** dibs credits for the first verified photo of a new, live deal. */
+export const CREDITS_PER_DEAL = 500;
+
 export function isEligible(deal: ApiDeal) {
   return deal.status === 'live' && !deal.flags.includes('low_confidence');
 }

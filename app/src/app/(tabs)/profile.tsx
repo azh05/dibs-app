@@ -1,7 +1,7 @@
 import { router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useState } from 'react';
-import { Alert, Pressable, ScrollView, Share, StyleSheet, View } from 'react-native';
+import { Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Avatar } from '@/components/avatar';
@@ -20,19 +20,17 @@ import {
   INVITES,
   LEADERBOARDS,
   PROFILE_STATS,
+  inviteFriends,
   levelFor,
 } from '@/lib/social';
 import { useStore } from '@/lib/store';
 import { colors, gutter, radii } from '@/theme';
 
-const INVITE_MESSAGE = `Join me on dibs: it finds the best deals near you before they’re gone. We both get $${INVITES.reward}.`;
-
 const ACTIVITY_BUTTON = { save: ['Save', 'Saved'], cheer: ['Cheer', 'Cheered'] } as const;
 
 const editInterests = () => router.push({ pathname: '/onboarding/interests', params: { edit: '1' } });
-const invite = () => Share.share({ message: INVITE_MESSAGE }).catch(() => undefined);
 
-// 16 · Profile (Figma 50:1552). Stats, badges, friends and the leaderboard are mock data until
+// 18 · Profile (Figma 50:1552). Stats, badges, friends and the leaderboard are mock data until
 // there is a social backend.
 export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
@@ -81,7 +79,7 @@ export default function ProfileScreen() {
           </Text>
           <View style={styles.topIcons}>
             <Pressable
-              onPress={() => router.push({ pathname: '/leaderboard', params: { scope: 'Friends' } })}
+              onPress={() => router.navigate('/friends')}
               hitSlop={8}
               accessibilityRole="button"
               accessibilityLabel="Friends">
@@ -235,7 +233,7 @@ export default function ProfileScreen() {
         </View>
 
         <View style={{ gap: 4 }}>
-          <SectionTitle title="Friends" action="Find friends" onAction={invite} />
+          <SectionTitle title="Friends" action="Find friends" onAction={() => router.navigate('/friends')} />
           {FRIEND_ACTIVITY.map((a) => {
             const done = a.savesId ? saved.has(a.savesId) : cheered.has(a.id);
             return (
@@ -273,13 +271,13 @@ export default function ProfileScreen() {
           <Icon name="gift" size={26} color={colors.orange} />
           <View style={{ flex: 1, gap: 2 }}>
             <Text weight="extrabold" size={14} tracking={-0.14}>
-              Invite friends, you both get ${INVITES.reward}
+              Invite friends, you both get {INVITES.reward} credits
             </Text>
             <Text size={12} color={colors.inkSecondary}>
-              {INVITES.joined} friends joined · ${INVITES.earned} earned
+              {INVITES.joined} friends joined · {INVITES.earned.toLocaleString()} credits earned
             </Text>
           </View>
-          <Pressable onPress={invite} accessibilityRole="button" style={styles.inviteButton}>
+          <Pressable onPress={inviteFriends} accessibilityRole="button" style={styles.inviteButton}>
             <Text weight="bold" size={13} color={colors.surface}>
               Invite
             </Text>

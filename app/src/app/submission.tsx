@@ -98,7 +98,7 @@ export default function SubmissionResult() {
   };
 
   const done = () => {
-    // Only live deals go on to review for the $5 reward; nothing else is kept.
+    // Only live deals go on to review for credits; nothing else is kept.
     if (deal && isEligible(deal)) {
       addSubmission({
         id: `s-${Date.now()}`,
@@ -174,7 +174,7 @@ export default function SubmissionResult() {
           <View style={styles.trust}>
             <Icon name="zap" size={16} color={colors.orange} />
             <Text weight="semibold" size={12} color={colors.inkSecondary} style={{ flex: 1 }}>
-              Only live deals earn the $5 reward. Nothing is stored yet.
+              Only live deals earn credits. Nothing is stored yet.
             </Text>
           </View>
         </View>

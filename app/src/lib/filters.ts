@@ -1,7 +1,6 @@
 // Filters shared by Deals, Map and the Filters screen (Figma "08 · Filters"), plus the
 // quick chips on the Deals screen, which narrow the list further without touching them.
 import type { IconName } from '@/components/icon';
-import { sectionOf } from '@/lib/interests';
 import type { Deal, DealEvent, SourceKind } from '@/lib/types';
 
 export type Sort = 'nearest' | 'newest' | 'ending';
@@ -38,7 +37,7 @@ export const DEFAULT_FILTERS: Filters = {
   radiusMi: 1,
   dealTypes: new Set(),
   storeTypes: new Set(),
-  openNow: false,
+  openNow: true,
   communityVerified: false,
   hideExpired: true,
   sources: new Set(SOURCES.map((s) => s.kind)),
@@ -126,53 +125,8 @@ export function appliedFilters(filters: Filters): { key: string; label: string; 
   ];
 }
 
-// Quick chips on the Deals screen (Figma "06 · Deals"): a deal type, one store type,
-// or a whole catalog section.
-export type QuickFilter =
-  | { label: string; kind: 'all' | 'upcoming' }
-  | { label: string; kind: 'tag' | 'type' | 'section'; value: string };
-
-export const ALL_DEALS: QuickFilter = { label: 'All', kind: 'all' };
-export const UPCOMING_ONLY: QuickFilter = { label: 'Upcoming', kind: 'upcoming' };
-
-export const QUICK_FILTERS: QuickFilter[] = [
-  ALL_DEALS,
-  UPCOMING_ONLY,
-  { label: 'BOGO', kind: 'tag', value: 'BOGO' },
-  { label: '% off', kind: 'tag', value: '% off' },
-  { label: 'Free', kind: 'tag', value: 'Free stuff' },
-  ...[
-    'Restaurants',
-    'Fast food',
-    'Food trucks',
-    'Cafes',
-    'Boba & tea',
-    'Desserts & bakeries',
-    'Nails',
-    'Hair & barbers',
-    'Spa & massage',
-    'Gyms',
-  ].map((t) => ({ label: t, kind: 'type' as const, value: t })),
-  ...['Shopping', 'Fun', 'Health', 'Everyday', 'Auto', 'Pets'].map((s) => ({
-    label: s,
-    kind: 'section' as const,
-    value: s,
-  })),
-];
-
-function quickMatchesType(quick: QuickFilter, storeType: string) {
-  if (quick.kind === 'type') return storeType === quick.value;
-  if (quick.kind === 'section') return sectionOf(storeType)?.title === quick.value;
-  return true;
-}
-
-export function quickFilterDeals(deals: Deal[], quick: QuickFilter) {
-  if (quick.kind === 'upcoming') return [];
-  if (quick.kind === 'tag') return deals.filter((d) => d.tags.some((t) => t === quick.value));
-  return deals.filter((d) => quickMatchesType(quick, d.storeType));
-}
-
-export function quickFilterEvents(events: DealEvent[], quick: QuickFilter) {
-  if (quick.kind === 'tag') return [];
-  return events.filter((e) => quickMatchesType(quick, e.storeType));
+// Quick chips on the Deals screen (Figma "06 · Deals"): "All" plus the store types you picked,
+// any number on at once. An empty set means every store type.
+export function byStoreTypes<T extends { storeType: string }>(items: T[], storeTypes: Set<string>) {
+  return storeTypes.size === 0 ? items : items.filter((i) => storeTypes.has(i.storeType));
 }

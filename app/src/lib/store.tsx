@@ -6,7 +6,7 @@ import { ageOn, type Account } from '@/lib/account';
 import { DEFAULT_FILTERS, type Filters } from '@/lib/filters';
 import { DEFAULT_INTERESTS } from '@/lib/interests';
 import { REPORT_XP, type LineReport } from '@/lib/line-check';
-import { MOCK_ACTIVITY, MOCK_EARNED, MOCK_SUBMISSIONS } from '@/lib/mock';
+import { MOCK_ACTIVITY, MOCK_CREDITS, MOCK_SUBMISSIONS } from '@/lib/mock';
 import { STARTING_XP } from '@/lib/social';
 import type { Activity, Submission } from '@/lib/types';
 
@@ -31,6 +31,8 @@ type Store = {
   toggleReminder: (eventId: string) => void;
   cheered: Set<string>;
   toggleCheer: (activityId: string) => void;
+  liked: Set<string>;
+  toggleLiked: (postId: string) => void;
 
   instant: boolean;
   setInstant: (on: boolean) => void;
@@ -48,7 +50,8 @@ type Store = {
   markRead: (id: string) => void;
   submissions: Submission[];
   addSubmission: (s: Submission) => void;
-  earned: number;
+  /** dibs credits earned from verified submissions. */
+  credits: number;
 
   lineReports: LineReport[];
   reportLine: (dealId: string, minutes: number) => LineReport;
@@ -98,6 +101,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [followed, toggleFollowed] = useToggleSet(['Tapioca Lab', 'Polish Bar']);
   const [reminders, toggleReminder] = useToggleSet(['kda-chicha-popup']);
   const [cheered, toggleCheer] = useToggleSet();
+  const [liked, toggleLiked] = useToggleSet();
   const [instant, setInstant] = useState(true);
   const [topics, toggleTopic, setTopicsOn] = useToggleSet(DEFAULT_INTERESTS);
   const [alertRadiusMi, setAlertRadiusMi] = useState(1);
@@ -137,6 +141,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     toggleReminder,
     cheered,
     toggleCheer,
+    liked,
+    toggleLiked,
     instant,
     setInstant,
     topics,
@@ -150,7 +156,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     markRead: (id) => setActivity((list) => list.map((a) => (a.id === id ? { ...a, unread: false } : a))),
     submissions,
     addSubmission: (s) => setSubmissions((list) => [s, ...list]),
-    earned: MOCK_EARNED,
+    credits: MOCK_CREDITS,
     lineReports,
     reportLine: (dealId, minutes) => {
       const report = { dealId, minutes, at: Date.now() };
