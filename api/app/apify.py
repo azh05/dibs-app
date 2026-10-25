@@ -404,13 +404,20 @@ class ApifyClient:
 
     def find_shops(
         self, terms: list[str], location: str, per_term: int, errors: list[str], counter: Optional[RunCounter] = None,
-        found_via: str = "google_maps",
+        found_via: str = "google_maps", near: Optional[tuple[float, float, float]] = None,
     ) -> list[Shop]:
+        """near: (lat, lng, radius_km) searches that circle instead of the named location (and isn't capped at 120)."""
+        # The Actor prefers locationQuery over customGeolocation, so send one or the other. GeoJSON is lng first.
+        where = (
+            {"customGeolocation": {"type": "Point", "coordinates": [near[1], near[0]], "radiusKm": near[2]}}
+            if near
+            else {"locationQuery": location}
+        )
         items = self.run(
             MAPS_ACTOR,
             {
                 "searchStringsArray": terms,
-                "locationQuery": location,
+                **where,
                 "maxCrawledPlacesPerSearch": per_term,
                 "language": "en",
                 "skipClosedPlaces": True,

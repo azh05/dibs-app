@@ -122,14 +122,19 @@ Run `npx eas-cli@latest init` once, so `app.json` gets an EAS `projectId`; the a
 | `DIBS_API_KEY` | Same value as the API's `DIBS_API_KEY`; sent as `X-Dibs-Key` |
 | `EXPO_ACCESS_TOKEN` | Optional: only if Expo enhanced push security is on |
 | `DIBS_SCAN_MAX_SHOPS` | Optional: shops per scheduled `/extract/shops` run (default 8; Apify cost grows with it) |
+| `DIBS_DISCOVER_MAX_SHOPS` | Optional: shops kept per area by `/discover/shops` (default 250; Google Maps is billed per place) |
 
 Tests need none of these: `npm test` runs the convex-test suite with no keys and no network.
 
 ## How data flows
 
-- **Scans** (`scans.ts`, `crons.ts`): every hour, up to 3 areas that people have saved and that weren't scanned in the last 6 hours get a `/extract/shops` job. The API runs it in the background (1 to 5 min). `pollShops` checks it every 15 s by rescheduling itself, because actions aren't retried, and gives up after 10 minutes. Saving a new place scans its area right away.
+- **Scan areas** (`areas.ts`): a saved place joins an enabled area whose circle covers it. Otherwise it widens an area centred within 0.5 mi (up to 5 mi), or it starts a new area centred on it (at least 1 mi). The place's `scan_area_key` becomes the area's `key`, so everyone in the circle shares one key.
+  - **Shop list**: `/discover/shops` returns up to 250 shops in the circle from Google Maps. Their stores are upserted (`last_scanned_at` untouched; new stores start at 0, meaning never deal-scanned) and linked in `area_stores` (`via: "maps"`). Stores a deal scan finds inside the circle, or with no coordinates (handle only), are linked too (`via: "scan"`).
+  - **Freshness**: a list is fresh for 7 days (`DISCOVERY_TTL`), or until the circle grows. `claimDiscovery` checks freshness and in-flight runs in one transaction, so a fresh area makes no API call, and neither does a new user inside one.
+  - **When**: a new or widened area is discovered right away (3 per user per day, `areaDiscovery`); the 6-hourly cron catches up on the rest, 2 areas per tick. Discovery runs carry `scan_area_id` and no `area`, so they don't count as deal scans.
+- **Scans** (`scans.ts`, `crons.ts`): every hour, up to 3 areas that people have saved and that weren't scanned in the last 6 hours get a `/extract/shops` job, over the area's own circle. The API runs it in the background (1 to 5 min). `pollShops` checks it every 15 s by rescheduling itself, because actions aren't retried, and gives up after 10 minutes (30 for discovery jobs). Saving a new place scans its area right away.
 - **Ingest** (`ingest.ts`): the result is written in batches.
-  - Stores are matched by `Shop.id`, then Instagram handle, then name within the scanned area.
+  - Stores are matched by `Shop.id`, then Instagram handle, then name within the scanned area. Two Google Maps places never merge (chain branches share a name and handle), so handle and name only join a Maps place to a store known some other way.
   - Sources are matched by normalized URL. Only the ones a deal cites are kept.
   - Deals are matched by `Deal.id` (the evidence key, one post), then by store + offer + code (the same offer in several posts).
   - Re-running a scan changes nothing but `last_verified_at`. A brand-new active deal triggers alerts.
@@ -151,6 +156,7 @@ Tests need none of these: `npm test` runs the convex-test suite with no keys and
 | Job | When |
 | --- | --- |
 | `scans.scheduleAreas` | hourly |
+| `areas.scheduleDiscovery` | every 6 hours |
 | `deals.recomputeStatus` | hourly |
 | `leaderboards.rebuild` | hourly |
 | `credits.settleDue` | daily (safety net for missed settle jobs) |
@@ -163,6 +169,13 @@ Tests need none of these: `npm test` runs the convex-test suite with no keys and
 npx convex run scans:startShops '{"area":{"scan_area_key":"westwood|los angeles|california","neighborhood":"Westwood","city":"Los Angeles","region":"California"},"trigger":"schedule","force":true}'
 npx convex data agent_runs --limit 5
 npx convex run deals:recomputeStatus
+
+# Scan areas: assign areas to places saved before they existed (once per deployment), list them, refresh one
+# area's shop list now (spends Apify credits), and page through a list
+npx convex run areas:backfill
+npx convex data scan_areas
+npx convex run areas:startDiscovery '{"areaId":"<scan_areas _id>","force":true}'
+npx convex run areas:storesInArea '{"areaId":"<scan_areas _id>","paginationOpts":{"numItems":20,"cursor":null}}'
 ```
 
 ## Layout
@@ -173,7 +186,8 @@ catalog.ts       store types and deal types, shared with the app; Google Maps ca
 users.ts         users.store, profile, 21+ check, Clerk webhook mutations
 http.ts          POST /clerk-users-webhook (Svix-verified)
 ingest.ts        writes an API response: stores, sources, deals, evidence, rejected
-scans.ts         /extract/shops jobs (cron), /extract/search (user, rate-limited), scan cache
+areas.ts         scan areas (circles saved places share), their shop lists, /discover/shops jobs (cron)
+scans.ts         /extract/shops jobs (cron), /extract/search (user, rate-limited), scan cache, job polling
 deals.ts         feed, deal detail, store deals, status recompute
 prefs.ts         saved places, interests, Instant alerts, store follows, push devices
 saves.ts         saved deals, Used it, lists

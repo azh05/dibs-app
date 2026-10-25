@@ -8,6 +8,7 @@
  * @module
  */
 
+import type * as areas from "../areas.js";
 import type * as catalog from "../catalog.js";
 import type * as challenges from "../challenges.js";
 import type * as community from "../community.js";
@@ -48,6 +49,7 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  areas: typeof areas;
   catalog: typeof catalog;
   challenges: typeof challenges;
   community: typeof community;
@@ -111,5 +113,6 @@ export declare const internal: FilterApi<
 export declare const components: {
   dealGeo: import("@convex-dev/geospatial/_generated/component.js").ComponentApi<"dealGeo">;
   locationGeo: import("@convex-dev/geospatial/_generated/component.js").ComponentApi<"locationGeo">;
+  areaGeo: import("@convex-dev/geospatial/_generated/component.js").ComponentApi<"areaGeo">;
   rateLimiter: import("@convex-dev/rate-limiter/_generated/component.js").ComponentApi<"rateLimiter">;
 };

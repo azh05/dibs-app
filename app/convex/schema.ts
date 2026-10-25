@@ -10,6 +10,7 @@ export const provider = v.union(
   v.literal("brightdata_instagram"),
   v.literal("user_photo"),
   v.literal("apify_shops"),
+  v.literal("apify_maps"),
 );
 
 export const dealStatus = v.union(
@@ -127,11 +128,49 @@ export default defineSchema({
     radius_miles: v.number(), // Figma slider, default 1
     notify: v.boolean(),
     is_primary: v.boolean(), // the one the feed and the Alerts slider use
-    scan_area_key: v.string(), // which area the 24/7 scans cover for it
+    scan_area_key: v.string(), // which area the 24/7 scans cover for it (its scan_areas.key)
+    scan_area_id: v.optional(v.id("scan_areas")),
     created_at: v.number(),
   })
     .index("by_user", ["user_id"])
     .index("by_area", ["scan_area_key"]),
+
+  // ---------------------------------------------------------------- scan areas and their shop lists
+
+  // A circle the agents cover. Saved locations inside one share it (areas.ts assignArea); its shop list is
+  // area_stores, refreshed from Google Maps every DISCOVERY_TTL by /discover/shops.
+  scan_areas: defineTable({
+    key: v.string(), // areaKey() of the location that created it ("westwood|los angeles|california"), "#2"... on a clash
+    name: v.string(),
+    lat: v.number(),
+    lng: v.number(),
+    radius_miles: v.number(),
+    neighborhood: v.optional(v.string()),
+    city: v.optional(v.string()),
+    region: v.optional(v.string()),
+    timezone: v.string(),
+    categories: v.array(v.string()), // the API's Category values; default food and drink
+    search_terms: v.optional(v.array(v.string())), // Google Maps searches, overriding categories
+    enabled: v.boolean(),
+    store_count: v.number(),
+    discovered_radius_miles: v.optional(v.number()), // radius at the last discovery; a bigger circle needs a new one
+    last_discovered_at: v.optional(v.number()),
+    created_at: v.number(),
+  })
+    .index("by_key", ["key"])
+    .index("by_enabled_and_last_discovered_at", ["enabled", "last_discovered_at"]),
+
+  area_stores: defineTable({
+    area_id: v.id("scan_areas"),
+    store_id: v.id("stores"),
+    distance_m: v.optional(v.number()), // from the area's center
+    via: v.union(v.literal("maps"), v.literal("scan")), // maps: discovery; scan: a deal scan found it (e.g. @mentioned)
+    first_seen_at: v.number(),
+    last_seen_at: v.number(), // maps rows not seen in the latest discovery dropped off Google Maps
+  })
+    .index("by_area_and_store", ["area_id", "store_id"])
+    .index("by_store", ["store_id"])
+    .index("by_area_and_last_seen_at", ["area_id", "last_seen_at"]),
 
   category_follows: defineTable({ user_id: v.id("users"), store_type: v.string() })
     .index("by_user_type", ["user_id", "store_type"])
@@ -195,6 +234,8 @@ export default defineSchema({
     status: v.union(v.literal("queued"), v.literal("running"), v.literal("done"), v.literal("failed")),
     error: v.optional(v.string()),
     area: v.optional(area),
+    scan_area_id: v.optional(v.id("scan_areas")), // discovery runs (apify_maps) set this instead of area
+    request: v.optional(v.any()), // the JSON sent to the API (discovery runs)
     queries: v.array(v.string()),
     api_job_id: v.optional(v.string()), // the API's in-memory job (background endpoints)
     poll_attempts: v.number(),
@@ -210,7 +251,8 @@ export default defineSchema({
     finished_at: v.optional(v.number()),
   })
     .index("by_status", ["status"])
-    .index("by_area", ["area.scan_area_key"]),
+    .index("by_area", ["area.scan_area_key"])
+    .index("by_scan_area", ["scan_area_id"]),
 
   sources: defineTable({
     store_id: v.optional(v.id("stores")),

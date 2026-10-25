@@ -55,6 +55,8 @@ Stateless: it fetches, has Claude extract deals as JSON, verifies them, and retu
 | `POST /extract/shops` (job) | Shops found on Google Maps, then their Instagram, TikTok, Facebook and websites, plus a hashtag and TikTok sweep of the area |
 | `POST /extract/photo` | A user's photo of an in-store poster or menu |
 
+`POST /discover/shops` (job) finds no deals: it lists every shop within a circle from Google Maps, for each scan area's shop list in Convex.
+
 With an Elastic Serverless project configured, every verified deal is also indexed with Jina embeddings. `POST /search/deals` searches them by meaning in any language, plus distance. `POST /agent/ask` talks to an Elastic Agent Builder agent that answers from that index, and through Elastic Workflows can watch for new deals (with a push alert) or scan an area. See [api/README.md, "Elastic"](api/README.md#elastic-search-agent-and-workflows).
 
 Every deal must cite a source the API actually fetched, with a word-for-word quote. For scraped pages and photos, that quote must also appear in the fetched text. Each deal gets a status (`live`, `needs_check`, `stale`, `expired`) and is marked as the shop's own post or second-hand. Every endpoint returns shop records and deals with stable ids, so Convex upserts them without duplicates. With `DIBS_API_KEY` set, `/extract/*` calls need the `X-Dibs-Key` header; without it the API is open and must stay on 127.0.0.1.
@@ -75,11 +77,12 @@ With the backend keys set, everything is stored in Convex: accounts (Clerk), sav
 ### Convex (built, `app/convex/`)
 
 - **Users and auth**: Clerk sign-in (Google, Apple, phone, email). Convex checks Clerk's session token on every call, and a signed Clerk webhook keeps users in sync. Students verify a `.edu` address through Clerk's email code.
-- **Tables**: stores, deals and their sources and evidence, scan runs and a scan cache, photo submissions and a credits ledger, follows, saved deals and lists, reminders, notifications, votes, deal confirmations, line reports, friends, activity, XP and leaderboards.
+- **Tables**: scan areas and their shop lists, stores, deals and their sources and evidence, scan runs and a scan cache, photo submissions and a credits ledger, follows, saved deals and lists, reminders, notifications, votes, deal confirmations, line reports, friends, activity, XP and leaderboards.
+- **Scan areas**: every saved place joins a scan area, a circle shared by everyone inside it. Each area keeps its shop list (up to the 250 nearest places from Google Maps, through `/discover/shops`), refreshed weekly. An area whose list is still fresh costs nothing when someone new saves a place in it.
 - **24/7 agents**: an hourly cron scans each area people have saved (at most every 6 hours per area) by calling `/extract/shops`, polling the job and upserting the result. Saving a new place scans its area right away. An hourly cron updates deal status.
 - **Credits**: a verified photo of a new, live deal earns 500 credits. They post after 24 hours, or once 2 other people confirm the deal; an "ended" report reverses them. At most 3 a day.
 - **Alerts**: Expo push to every device, when a new deal goes live near someone who follows its store type or deal type, or follows the store. Reminders are scheduled functions.
 
-Not built yet from the doc's design: per-area scan times, the 90-day purge of old deals, and paid placements. The schema and upsert rules are in [api/README.md, "Storing results"](api/README.md#storing-results-convex) and `app/convex/schema.ts`.
+Not built yet from the doc's design: daily deal scans of each area's shop list, per-area scan times and budgets, the 90-day purge of old deals, and paid placements. The schema and upsert rules are in [api/README.md, "Storing results"](api/README.md#storing-results-convex) and `app/convex/schema.ts`.
 
 API keys live only in `api/.env` (gitignored). Neither the app nor Convex calls Anthropic, Bright Data or Apify directly; Convex calls the API with the shared `DIBS_API_KEY` (header `X-Dibs-Key`).

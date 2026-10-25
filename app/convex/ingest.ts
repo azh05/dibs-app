@@ -15,7 +15,7 @@ import { dealTimes, statusNow, syncDealGeo } from "./lib/deals";
 import { isActive } from "./lib/status";
 import { alnum, contentHash, namesMatch, normalizeUrl, normName } from "./lib/text";
 import { DEFAULT_TIMEZONE } from "./lib/time";
-import { confidence, dealType, provider, recurringWindow, sourceKind } from "./schema";
+import { area, confidence, dealType, provider, recurringWindow, sourceKind } from "./schema";
 
 export const MAX_SOURCE_CHARS = 200_000;
 
@@ -79,40 +79,36 @@ export type DealIn = Infer<typeof dealIn>;
 
 // ---------------------------------------------------------------- runs
 
+const runIn = v.object({
+  provider,
+  trigger: v.union(v.literal("schedule"), v.literal("user_search"), v.literal("photo")),
+  area: v.optional(area),
+  scan_area_id: v.optional(v.id("scan_areas")),
+  request: v.optional(v.any()),
+  queries: v.array(v.string()),
+  requested_by: v.optional(v.id("users")),
+});
+
+/** A queued agent_runs row with zeroed counters. For mutations that check and start a run in one transaction. */
+export function insertRun(ctx: MutationCtx, args: Infer<typeof runIn>) {
+  return ctx.db.insert("agent_runs", {
+    ...args,
+    status: "queued",
+    poll_attempts: 0,
+    search_errors: [],
+    input_tokens: 0,
+    output_tokens: 0,
+    web_search_requests: 0,
+    brightdata_requests: 0,
+    apify_runs: 0,
+    deals_found: 0,
+    started_at: Date.now(),
+  });
+}
+
 export const startRun = internalMutation({
-  args: {
-    provider,
-    trigger: v.union(v.literal("schedule"), v.literal("user_search"), v.literal("photo")),
-    area: v.optional(
-      v.object({
-        scan_area_key: v.string(),
-        neighborhood: v.optional(v.string()),
-        city: v.optional(v.string()),
-        region: v.optional(v.string()),
-        timezone: v.optional(v.string()),
-        lat: v.optional(v.number()),
-        lng: v.optional(v.number()),
-        radius_miles: v.optional(v.number()),
-        saved_location_id: v.optional(v.id("saved_locations")),
-      }),
-    ),
-    queries: v.array(v.string()),
-    requested_by: v.optional(v.id("users")),
-  },
-  handler: async (ctx, args) =>
-    ctx.db.insert("agent_runs", {
-      ...args,
-      status: "queued",
-      poll_attempts: 0,
-      search_errors: [],
-      input_tokens: 0,
-      output_tokens: 0,
-      web_search_requests: 0,
-      brightdata_requests: 0,
-      apify_runs: 0,
-      deals_found: 0,
-      started_at: Date.now(),
-    }),
+  args: runIn.fields,
+  handler: async (ctx, args) => insertRun(ctx, args),
 });
 
 export const updateRun = internalMutation({
@@ -145,34 +141,46 @@ async function findStore(ctx: MutationCtx, s: StoreIn, scanAreaKey?: string): Pr
     .withIndex("by_external_id", (q) => q.eq("external_id", s.external_id))
     .unique();
   if (byId) return byId;
+  // Two Google Maps places are two stores, even with the same name or Instagram (chain branches: two Starbucks in
+  // one area share @starbucks). Handle and name matching only joins a Maps place to a store known some other way.
+  const fromMaps = s.external_id.startsWith("gmaps:");
+  const joinable = (st: Doc<"stores">) => !(fromMaps && st.external_id.startsWith("gmaps:"));
   if (s.instagram) {
     const byHandle = await ctx.db
       .query("stores")
       .withIndex("by_instagram_handle", (q) => q.eq("instagram_handle", s.instagram!.toLowerCase()))
-      .first();
-    if (byHandle) return byHandle;
+      .take(50);
+    const match = byHandle.find(joinable);
+    if (match) return match;
   }
   if (scanAreaKey) {
     const name = normName(s.name);
     const exact = await ctx.db
       .query("stores")
       .withIndex("by_area_name", (q) => q.eq("scan_area_key", scanAreaKey).eq("normalized_name", name))
-      .first();
-    if (exact) return exact;
+      .take(50);
+    const match = exact.find(joinable);
+    if (match) return match;
     // "Milksha" from a creator post = "Milksha Westwood" from Maps, but only within the same area.
     const nearby = await ctx.db
       .query("stores")
       .withIndex("by_area_name", (q) => q.eq("scan_area_key", scanAreaKey))
       .take(400);
-    return nearby.find((st) => namesMatch(st.name, s.name)) ?? null;
+    return nearby.find((st) => joinable(st) && namesMatch(st.name, s.name)) ?? null;
   }
   return null;
 }
 
-/** Returns external_id → stores row id, for every incoming shop. */
+/** Returns external_id → stores row id, for every incoming shop. discovery: a Google Maps shop list, not a deal scan,
+ * so last_scanned_at (when deals were last scraped) is left alone, and new stores start at 0 (never scanned). */
 export const upsertStores = internalMutation({
-  args: { stores: v.array(storeIn), scanAreaKey: v.optional(v.string()), timezone: v.optional(v.string()) },
-  handler: async (ctx, { stores, scanAreaKey, timezone }): Promise<Record<string, Id<"stores">>> => {
+  args: {
+    stores: v.array(storeIn),
+    scanAreaKey: v.optional(v.string()),
+    timezone: v.optional(v.string()),
+    discovery: v.optional(v.boolean()),
+  },
+  handler: async (ctx, { stores, scanAreaKey, timezone, discovery }): Promise<Record<string, Id<"stores">>> => {
     const now = Date.now();
     const out: Record<string, Id<"stores">> = {};
     for (const s of stores) {
@@ -205,13 +213,13 @@ export const upsertStores = internalMutation({
           geofence_m: 75,
           upvotes: 0,
           downvotes: 0,
-          last_scanned_at: now,
+          last_scanned_at: discovery ? 0 : now,
           created_at: now,
         });
         continue;
       }
       // Fill what we didn't know; Google Maps data wins over a name-only record.
-      const patch: Partial<Doc<"stores">> = { last_scanned_at: now };
+      const patch: Partial<Doc<"stores">> = discovery ? {} : { last_scanned_at: now };
       for (const [key, value] of Object.entries(fields) as [keyof typeof fields, unknown][]) {
         if (value === undefined) continue;
         if (existing[key] === undefined || s.found_via === "google_maps") (patch as Record<string, unknown>)[key] = value;

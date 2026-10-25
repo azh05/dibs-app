@@ -6,6 +6,8 @@ const crons = cronJobs();
 
 // 24/7 agents: scan areas people have saved (each area at most every 6 hours; a few areas per tick).
 crons.interval("scan saved areas", { hours: 1 }, internal.scans.scheduleAreas, {});
+// Each watched area's shop list from Google Maps, refreshed weekly (areas.DISCOVERY_TTL); a few areas per tick.
+crons.interval("discover area shops", { hours: 6 }, internal.areas.scheduleDiscovery, {});
 // Dates pass: expire, go stale, start upcoming deals.
 crons.interval("recompute deal status", { hours: 1 }, internal.deals.recomputeStatus, {});
 // Safety net for credit settle jobs.
