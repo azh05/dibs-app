@@ -1,4 +1,4 @@
-import { router, useLocalSearchParams } from 'expo-router';
+import { useLocalSearchParams } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useState } from 'react';
 import { KeyboardAvoidingView, StyleSheet, View } from 'react-native';
@@ -7,7 +7,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Button } from '@/components/button';
 import { Text } from '@/components/text';
 import { TextField } from '@/components/text-field';
-import { clerkError, useCodeAuth, type CodeMode } from '@/lib/clerk-auth';
+import { clerkError, goAfter, useCodeAuth, type CodeMode } from '@/lib/clerk-auth';
 import { colors, gutter } from '@/theme';
 
 // The 6-digit code from a text (phone) or email (Create account). New accounts go on to Pick interests.
@@ -23,12 +23,7 @@ export default function VerifyCode() {
     setBusy(true);
     setError(null);
     try {
-      const isNew = await verify(mode, code.trim());
-      if (isNew) router.replace('/onboarding/interests');
-      else {
-        router.dismissAll();
-        router.replace('/deals');
-      }
+      goAfter(await verify(mode, code.trim()));
     } catch (e) {
       setError(clerkError(e));
     } finally {

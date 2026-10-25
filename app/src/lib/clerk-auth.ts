@@ -3,11 +3,22 @@
 import { isClerkAPIResponseError, useSSO } from '@clerk/expo';
 import { useSignIn, useSignUp } from '@clerk/expo/legacy';
 import * as AuthSession from 'expo-auth-session';
+import { router } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
 
 WebBrowser.maybeCompleteAuthSession();
 
 export type CodeMode = 'phone-in' | 'phone-up' | 'email-up';
+
+/** Fields the finish step can collect when Clerk's settings require more than the user gave. */
+export const FINISH_FIELDS = ['email_address', 'username', 'password', 'first_name', 'last_name'] as const;
+export type FinishField = (typeof FINISH_FIELDS)[number];
+
+/** Where a sign-up stands: done (signed in), needs a code for a newly added email or phone, or needs fields. */
+export type SignUpOutcome =
+  | { done: true; isNew: boolean }
+  | { done: false; verify: CodeMode; to: string }
+  | { done: false; missing: FinishField[] };
 
 export function clerkError(e: unknown): string {
   if (isClerkAPIResponseError(e)) return e.errors[0]?.longMessage ?? e.errors[0]?.message ?? 'Sign-in failed';
@@ -56,22 +67,54 @@ export function useCodeAuth() {
     await signUpState.signUp.prepareEmailAddressVerification({ strategy: 'email_code' });
   };
 
-  /** Check the code and start the session. Returns true for a brand-new account. */
-  const verify = async (mode: CodeMode, code: string): Promise<boolean> => {
+  /** After any sign-up step: sign in if complete, else say what Clerk still needs. */
+  const next = async (attempt: Awaited<ReturnType<NonNullable<typeof signUpState.signUp>['update']>>): Promise<SignUpOutcome> => {
+    if (!signUpState.isLoaded) throw new Error('Still loading, try again');
+    if (attempt.status === 'complete') {
+      await signUpState.setActive({ session: attempt.createdSessionId });
+      return { done: true, isNew: true };
+    }
+    // A newly added email or phone has to be confirmed with its own code.
+    if (attempt.unverifiedFields.includes('email_address') && attempt.emailAddress) {
+      await attempt.prepareEmailAddressVerification({ strategy: 'email_code' });
+      return { done: false, verify: 'email-up', to: attempt.emailAddress };
+    }
+    if (attempt.unverifiedFields.includes('phone_number') && attempt.phoneNumber) {
+      await attempt.preparePhoneNumberVerification({ strategy: 'phone_code' });
+      return { done: false, verify: 'phone-up', to: attempt.phoneNumber };
+    }
+    const missing = attempt.missingFields.filter((f): f is FinishField => (FINISH_FIELDS as readonly string[]).includes(f));
+    if (!missing.length) throw new Error(`Clerk needs: ${attempt.missingFields.join(', ') || attempt.status}`);
+    return { done: false, missing };
+  };
+
+  /** Check the code. Signs in when that finishes the sign-in or sign-up. */
+  const verify = async (mode: CodeMode, code: string): Promise<SignUpOutcome> => {
     if (!signInState.isLoaded || !signUpState.isLoaded) throw new Error('Still loading, try again');
     if (mode === 'phone-in') {
       const done = await signInState.signIn.attemptFirstFactor({ strategy: 'phone_code', code });
       if (done.status !== 'complete') throw new Error('One more step is needed to sign in');
       await signInState.setActive({ session: done.createdSessionId });
-      return false;
+      return { done: true, isNew: false };
     }
-    const done =
+    const attempt =
       mode === 'phone-up'
         ? await signUpState.signUp.attemptPhoneNumberVerification({ code })
         : await signUpState.signUp.attemptEmailAddressVerification({ code });
-    if (done.status !== 'complete') throw new Error(`Clerk needs more details: ${done.missingFields.join(', ') || done.status}`);
-    await signUpState.setActive({ session: done.createdSessionId });
-    return true;
+    return next(attempt);
+  };
+
+  /** Fill in what Clerk's settings require (email, username, password, name), then carry on. */
+  const finish = async (fields: Partial<Record<FinishField, string>>): Promise<SignUpOutcome> => {
+    if (!signUpState.isLoaded) throw new Error('Still loading, try again');
+    const attempt = await signUpState.signUp.update({
+      emailAddress: fields.email_address,
+      username: fields.username,
+      password: fields.password,
+      firstName: fields.first_name,
+      lastName: fields.last_name,
+    });
+    return next(attempt);
   };
 
   const logIn = async (identifier: string, password: string) => {
@@ -81,5 +124,20 @@ export function useCodeAuth() {
     await signInState.setActive({ session: done.createdSessionId });
   };
 
-  return { ready, sendPhoneCode, startEmailSignUp, verify, logIn };
+  return { ready, sendPhoneCode, startEmailSignUp, verify, finish, logIn };
+}
+
+/** Go wherever a sign-up step leaves the user. */
+export function goAfter(outcome: SignUpOutcome) {
+  if (outcome.done) {
+    if (outcome.isNew) router.replace('/onboarding/interests');
+    else {
+      router.dismissAll();
+      router.replace('/deals');
+    }
+  } else if ('verify' in outcome) {
+    router.replace({ pathname: '/onboarding/verify', params: { mode: outcome.verify, to: outcome.to } });
+  } else {
+    router.replace({ pathname: '/onboarding/finish', params: { fields: outcome.missing.join(',') } });
+  }
 }

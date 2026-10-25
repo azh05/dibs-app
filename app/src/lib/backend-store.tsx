@@ -34,6 +34,9 @@ let pendingProfile: PendingProfile | null = null;
 export function setPendingProfile(profile: PendingProfile) {
   pendingProfile = { ...pendingProfile, ...profile };
 }
+export function pendingUsername() {
+  return pendingProfile?.username ?? '';
+}
 export function pendingReferralCode() {
   return pendingProfile?.referral_code ?? '';
 }
