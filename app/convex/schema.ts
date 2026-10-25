@@ -34,6 +34,7 @@ export const dealType = v.union(
 );
 
 export const confidence = v.union(v.literal("high"), v.literal("medium"), v.literal("low"));
+export const scanTier = v.union(v.literal("hot"), v.literal("warm"), v.literal("cold")); // lib/tiers.ts
 
 export const sourceKind = v.union(
   v.literal("instagram"),
@@ -156,6 +157,8 @@ export default defineSchema({
     store_count: v.number(),
     discovered_radius_miles: v.optional(v.number()), // radius at the last discovery; a bigger circle needs a new one
     last_discovered_at: v.optional(v.number()),
+    extra_discovered_at: v.optional(v.number()), // the weekly discovery of non-food shops (areas.EXTRA_CATEGORIES)
+    daily_budget_usd: v.optional(v.number()), // deal-scan spend cap per local day; default DIBS_AREA_DAILY_BUDGET_USD
     created_at: v.number(),
   })
     .index("by_key", ["key"])
@@ -222,6 +225,13 @@ export default defineSchema({
     upvotes: v.number(),
     downvotes: v.number(),
     last_scanned_at: v.number(),
+    // Rotating batch scans (batches.ts): due when next_scan_at is unset or past; leased while a batch runs.
+    next_scan_at: v.optional(v.number()),
+    scan_tier: v.optional(scanTier),
+    last_post_at: v.optional(v.number()), // newest own post a batch saw
+    last_deal_at: v.optional(v.number()), // last batch that found a deal
+    quiet_scans: v.optional(v.number()), // batches in a row with no new posts or deals
+    accounts_checked_at: v.optional(v.number()), // last account lookup for a store with nothing to scrape
     created_at: v.number(),
   })
     .index("by_external_id", ["external_id"])
@@ -248,11 +258,15 @@ export default defineSchema({
     brightdata_requests: v.number(),
     apify_runs: v.number(),
     deals_found: v.number(),
+    stores_scanned: v.optional(v.number()),
+    cost_usd: v.optional(v.number()), // lib/cost.ts estimate, for the area's daily budget
+    retried: v.optional(v.boolean()), // a batch re-sent once after the API lost its job
     started_at: v.number(),
     finished_at: v.optional(v.number()),
   })
     .index("by_status", ["status"])
     .index("by_area", ["area.scan_area_key"])
+    .index("by_area_and_started_at", ["area.scan_area_key", "started_at"])
     .index("by_scan_area", ["scan_area_id"]),
 
   sources: defineTable({

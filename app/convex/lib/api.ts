@@ -104,7 +104,15 @@ export type ApiSearchResponse = {
   brightdata_requests: number;
   apify_runs: number;
   shops: ApiShop[];
+  scanned?: ApiScannedShop[]; // store batches (ShopsRequest.stores): one per store sent
   transcript?: string | null;
+};
+
+export type ApiScannedShop = {
+  id: string;
+  posts: number;
+  latest_post_date?: string | null;
+  deals: number;
 };
 
 export type ApiJobStatus = {

@@ -3,7 +3,7 @@ from datetime import date, datetime, timedelta, timezone
 import pytest
 
 from app.apify import ApifyAuthError, ApifyError, ApifyTimeout, SocialPost, WebPage
-from app.schemas import DealStatus, DiscoverRequest, Location, Shop, ShopsRequest
+from app.schemas import DealStatus, DiscoverRequest, KnownShop, Location, Shop, ShopsRequest
 from app.shop_pipeline import ShopCache, ShopPipeline, distance_km, mentioned_shops, search_terms, sweep_targets
 from tests.test_extractor import FakeClient, msg, record_block
 
@@ -308,6 +308,78 @@ def test_old_sweep_posts_add_no_mentioned_shops():
     assert [s.name for s in out.shops] == ["Milksha Westwood"]
 
 
+# --- store batches and area sweeps (Convex's rotating scans) --------------------------------
+
+KNOWN_MILKSHA = KnownShop(
+    id="gmaps:milksha", name="Milksha Westwood", instagram="milksha_ca", tiktok="milksha.ca",
+    facebook="https://www.facebook.com/MilkshaUSA/", website="https://milksha.com/",
+)
+KNOWN_DELI = KnownShop(id="gmaps:deli", name="Corner Deli")
+
+
+def batch(stores, **kw):
+    return ShopsRequest(location=Location(neighborhood="Westwood"), stores=stores, **kw)
+
+
+def test_store_batch_scrapes_known_shops_without_maps_or_sweep():
+    out, apify, calls, progress = run(req=batch([KNOWN_MILKSHA, KNOWN_DELI]))
+    assert "maps" not in apify.calls and "tiktok_search" not in apify.calls and "hashtags" not in apify.calls
+    assert apify.calls["instagram"] == [["milksha_ca"]] and apify.calls["tiktok"] == [["milksha.ca"]]
+    assert {d.shop_id for d in out.deals} == {"gmaps:milksha"}
+    assert all("shop_own_post" in d.flags for d in out.deals)
+    assert [s.id for s in out.shops] == ["gmaps:milksha", "gmaps:deli"]
+    assert out.queries == []
+    assert "These known shops' own channels were scraped: Milksha Westwood, Corner Deli" in calls[0]["messages"][0]["content"]
+    assert "scanning 2 known shop(s)" in progress
+
+
+def test_store_batch_reports_each_store():
+    out, *_ = run(req=batch([KNOWN_MILKSHA, KNOWN_DELI]))
+    scanned = {s.id: s for s in out.scanned}
+    assert scanned["gmaps:milksha"].posts == 3  # Instagram, TikTok, Facebook
+    assert scanned["gmaps:milksha"].latest_post_date == date(2026, 10, 20)
+    assert scanned["gmaps:milksha"].deals == 4
+    assert scanned["gmaps:deli"].model_dump() == {"id": "gmaps:deli", "posts": 0, "latest_post_date": None, "deals": 0}
+
+
+def test_store_batch_scrapes_from_the_oldest_since_and_drops_posts_a_shop_already_had():
+    class Dated(FakeApify):
+        def instagram_posts(self, handles, since, n, errors, counter=None):
+            self.calls.setdefault("instagram_since", []).append(since)
+            old = SocialPost("instagram", "https://www.instagram.com/p/old/", "Milksha_CA", "Old BOGO", datetime(2026, 10, 15, tzinfo=timezone.utc))
+            return [IG_POST, old]
+
+    milksha = KNOWN_MILKSHA.model_copy(update={"since": date(2026, 10, 19)})
+    tapioca = KnownShop(id="ig:tapiocalab", name="Tapioca Lab", instagram="tapiocalab", since=date(2026, 10, 10))
+    out, apify, calls, _ = run(deals=[], req=batch([milksha, tapioca]), apify=Dated())
+    assert apify.calls["instagram_since"] == [date(2026, 10, 9)]  # the oldest since, less a day of overlap
+    prompt = calls[0]["messages"][0]["content"]
+    assert IG_URL in prompt and "instagram.com/p/old" not in prompt  # before Milksha's last scan
+    scanned = {s.id: s for s in out.scanned}
+    assert scanned["gmaps:milksha"].posts == 3  # the old Instagram post isn't counted
+
+
+def test_store_batch_without_since_uses_the_days_window():
+    class Dated(FakeApify):
+        def instagram_posts(self, handles, since, n, errors, counter=None):
+            self.calls.setdefault("instagram_since", []).append(since)
+            return [IG_POST]
+
+    milksha = KNOWN_MILKSHA.model_copy(update={"since": date(2026, 10, 19)})
+    _, apify, *_ = run(deals=[], req=batch([milksha, KNOWN_DELI]), apify=Dated())
+    assert apify.calls["instagram_since"] == [TODAY - timedelta(days=14)]
+
+
+def test_area_sweep_runs_no_shop_channels():
+    fan_deal = deal(FAN_URL, "Milksha is doing $3 drinks today", confidence="medium")
+    out, apify, calls, _ = run(deals=[fan_deal], req=batch([KNOWN_MILKSHA, KNOWN_DELI], sweep_only=True))
+    assert set(apify.calls) == {"tiktok_search", "hashtags"}
+    assert out.scanned == []
+    # Known shops are only for attribution: the deal's shop and the new mentioned account come back, the deli doesn't.
+    assert {s.id for s in out.shops} == {"gmaps:milksha", "name:newbobaspot"}
+    assert "Posts were found by searching the area's hashtags" in calls[0]["messages"][0]["content"]
+
+
 
 # --- /discover/shops ---------------------------------------------------------------
 
@@ -393,3 +465,10 @@ def test_discover_fails_when_every_term_fails_or_the_token_is_bad():
 def test_distance_km():
     assert distance_km(*CENTER, *CENTER) == 0
     assert distance_km(*CENTER, 34.0095, -118.4973) == pytest.approx(7.6, abs=0.3)
+
+
+def test_store_batches_are_capped_but_sweeps_take_the_whole_list():
+    many = [KnownShop(id=f"ig:s{i}", name=f"Shop {i}", instagram=f"s{i}") for i in range(61)]
+    with pytest.raises(ValueError, match="at most 60 stores per batch"):
+        batch(many)
+    assert len(batch(many, sweep_only=True).stores) == 61

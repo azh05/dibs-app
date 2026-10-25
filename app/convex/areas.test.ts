@@ -3,7 +3,7 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { DAY } from "./lib/time";
-import { identity, json, makeTest, shopsResponse, stubFetch, TAPIOCA, WESTWOOD, type T } from "./test.setup";
+import { discoveryResponse, identity, json, makeTest, shopsResponse, stubFetch, TAPIOCA, WESTWOOD, type T } from "./test.setup";
 
 let restore: () => void = () => {};
 beforeEach(() => {
@@ -18,25 +18,6 @@ afterEach(() => {
 
 const LA = { neighborhood: "Westwood", city: "Los Angeles", region: "California" };
 const SANTA_MONICA = { lat: 34.0195, lng: -118.4912 }; // 3.8 mi from WESTWOOD
-const ENZO = { lat: 34.0612, lng: -118.4471 };
-
-/** A /discover/shops result: two shops from Google Maps, no deals. */
-function discoveryResponse() {
-  const base = shopsResponse({ deals: [], sources: [] });
-  return {
-    ...base,
-    rejected: [],
-    queries: ["maps: restaurant"],
-    usage: { input_tokens: 0, output_tokens: 0, web_search_requests: 0 },
-    provider: "apify_maps",
-    brightdata_requests: 0,
-    apify_runs: 7,
-    shops: [
-      base.shops[0],
-      { id: "gmaps:enzo", name: "Enzo's Pizzeria", category: "Pizza restaurant", place_id: "enzo", ...ENZO, found_via: "google_maps" },
-    ],
-  };
-}
 
 /** Routes the API: discovery and deal-scan jobs both finish on their first poll. */
 function api_(opts: { discovery?: unknown; scan?: unknown; failScan?: boolean } = {}) {
@@ -225,13 +206,24 @@ test("the cron discovers watched areas that are new, stale or widened", async ()
 
 test("a discovery run doesn't count as a recent deal scan", async () => {
   const t = makeTest();
-  api_({ failScan: true });
+  api_({ failScan: true, discovery: { ...discoveryResponse(), shops: [] } }); // an empty list: still the area scan
   await save(t, 1, { ...WESTWOOD, ...LA, radius_miles: 0.5 });
   await runJobs(t); // discovery done; the deal scan failed
   const [area] = await areas(t);
   expect(await t.query(internal.scans.areasToScan, {})).toMatchObject([
     { scan_area_key: area!.key, lat: WESTWOOD.lat, radius_miles: 1, neighborhood: "Westwood" }, // the area's circle
   ]);
+});
+
+test("an area with a shop list is scanned in batches, not by the area scan", async () => {
+  const t = makeTest();
+  api_({ failScan: true });
+  await save(t, 1, { ...WESTWOOD, ...LA, radius_miles: 0.5 });
+  await runJobs(t);
+  const [area] = await areas(t);
+  expect(area!.store_count).toBe(2);
+  expect(await t.query(internal.scans.areasToScan, {})).toEqual([]);
+  expect(await t.query(internal.batches.areasToBatch, {})).toEqual([area!._id]);
 });
 
 test("deal scans add shops inside the circle, or without coordinates, to the list", async () => {
@@ -263,4 +255,23 @@ test("one user can start at most 3 discoveries a day", async () => {
   // The fourth is left to the cron.
   const due: Id<"scan_areas">[] = await t.query(internal.areas.areasToDiscover, { now: Date.now() });
   expect(due).toHaveLength(1);
+});
+
+test("the cron adds a weekly non-food discovery once the main list exists", async () => {
+  const t = makeTest();
+  const { posts } = api_({ failScan: true });
+  await save(t, 1, { ...WESTWOOD, ...LA, radius_miles: 1 });
+  await runJobs(t); // the main discovery
+  const [before] = await areas(t);
+  await t.action(internal.areas.scheduleDiscovery, {});
+  await runJobs(t);
+  const bodies = posts("/discover/shops").map((c) => JSON.parse(String(c.init!.body)));
+  expect(bodies).toHaveLength(2);
+  expect(bodies[1]).toMatchObject({ categories: ["retail", "beauty", "fitness", "entertainment"], search_terms: [], per_term: 20 });
+  const [after] = await areas(t);
+  expect(after!.extra_discovered_at).toEqual(expect.any(Number));
+  expect(after!.last_discovered_at).toBe(before!.last_discovered_at); // the main list's clock is its own
+  await t.action(internal.areas.scheduleDiscovery, {});
+  await runJobs(t);
+  expect(posts("/discover/shops")).toHaveLength(2); // both fresh for a week
 });

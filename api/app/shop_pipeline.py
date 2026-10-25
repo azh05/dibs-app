@@ -7,6 +7,10 @@ then extract and verify deals exactly like the Bright Data path.
 2. One Apify run per channel covering every shop, all channels in parallel.
 3. Posts from a shop's own account are first-hand. Everything else (creators, food blogs) is second-hand: still
    recorded, at most medium confidence, and flagged `second_hand` so the app can show it as less verified.
+
+Convex's rotating scans use two other shapes of the same request: a store batch (`stores`: shops it already has, so
+step 1 is skipped and only their own channels are scraped, each from its last scan on) and a daily area sweep
+(`sweep_only`: the keyword sweep and Google's deal search, no shop channels).
 """
 from __future__ import annotations
 
@@ -21,6 +25,7 @@ from concurrent.futures import Future, ThreadPoolExecutor
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable, Optional
+from zoneinfo import ZoneInfo
 
 import anthropic
 
@@ -40,7 +45,7 @@ from .brightdata import BrightDataClient, BrightDataError
 from .extractor import DEFAULT_MODEL, _today
 from .google_lookup import GoogleFindings, GoogleLookup
 from .linking import link_deals
-from .schemas import Category, DiscoverRequest, SearchRequest, SearchResponse, Shop, ShopsRequest, Usage
+from .schemas import Category, DiscoverRequest, ScannedShop, SearchRequest, SearchResponse, Shop, ShopsRequest, Usage
 from .sources import combine, from_serp, from_social, from_website
 from .verify import normalize_url
 
@@ -261,11 +266,19 @@ class ShopPipeline:
             return GoogleFindings()
 
     def run(self, req: ShopsRequest, on_progress: Optional[Callable[[str], None]] = None, today: Optional[date] = None) -> SearchResponse:
+        """Three shapes: an area search (Google Maps shops + the sweep), a store batch (req.stores: those shops' own
+        channels only) and an area sweep (req.sweep_only: the sweep and Google's deal search, no shop channels)."""
         progress = on_progress or (lambda _msg: None)
         self.check_ready()
         tz = req.location.timezone
         today = today or _today(tz)
+        batch = bool(req.stores) and not req.sweep_only
+        area_wide = not batch  # the sweep and Google's deal search cover the area, not a shop
+        cutoff = {k.id: k.since - timedelta(days=1) for k in req.stores if k.since}  # a day of overlap
         since = today - timedelta(days=req.days)
+        if batch and len(cutoff) == len(req.stores):
+            # One date per Actor run: the batch's oldest. Each shop's own cutoff is applied to its posts below.
+            since = max(since, min(cutoff.values()))
         terms = search_terms(req)
         counter = RunCounter()
         errors: list[str] = []
@@ -277,19 +290,28 @@ class ShopPipeline:
 
         with ThreadPoolExecutor(max_workers=7) as pool:
             # Step 1: shops, the keyword sweep and the Google deal search at the same time.
-            sweep_futures, sweep_labels = self._sweep(req, terms, since, errors, counter, pool) if req.sweep else ({}, [])
-            google_future = pool.submit(self._google_deals, google, req, terms, since, errors) if google else None
-            shops = self._find_shops(req, terms, errors, counter, progress)
-            if google:
-                # Maps only knows the links a shop listed; Google usually shows the rest.
+            sweep_futures, sweep_labels = self._sweep(req, terms, since, errors, counter, pool) if req.sweep and area_wide else ({}, [])
+            google_future = pool.submit(self._google_deals, google, req, terms, since, errors) if google and area_wide else None
+            if req.stores:
+                shops = [k.shop() for k in req.stores]
+                progress(f"scanning {len(shops)} known shop(s)")
+            elif req.sweep_only:
+                shops = []
+            else:
+                shops = self._find_shops(req, terms, errors, counter, progress)
+            if google and not req.sweep_only:
+                # Maps only knows the links a shop listed; Google usually shows the rest. A store batch looks up only
+                # the stores Convex asks for (it remembers when each one was last checked).
+                todo = [s for s, k in zip(shops, req.stores) if k.lookup] if req.stores else shops
                 try:
-                    added = google.fill_accounts(shops, req, errors)
+                    added = google.fill_accounts(todo, req, errors)
                 except BrightDataError as exc:
                     added = []
                     errors.append(f"Bright Data account lookup skipped: {exc}")
                 if added:
                     progress(f"Google found {len(added)} missing account(s): " + "; ".join(added))
-                    self.cache.put(ShopCache.key(req, terms), shops)  # next run skips these lookups
+                    if not req.stores:
+                        self.cache.put(ShopCache.key(req, terms), shops)  # next run skips these lookups
             sweep_posts: list[SocialPost] = []
             for name, fut in sweep_futures.items():
                 sweep_posts += self._collect(name, fut, errors, progress)
@@ -301,12 +323,13 @@ class ShopPipeline:
                 progress(f"adding {len(extra)} account(s) the sweep posts mention: " + ", ".join(s.name for s in extra))
             all_shops = shops + extra
 
-            # Step 2: one run per channel, all shops at once.
-            ig = list(dict.fromkeys(s.instagram for s in all_shops if s.instagram))
-            tt = list(dict.fromkeys(s.tiktok for s in all_shops if s.tiktok))
-            fb = list(dict.fromkeys(s.facebook for s in all_shops if s.facebook))
+            # Step 2: one run per channel, all shops at once (none for an area sweep).
+            scraped = [] if req.sweep_only else all_shops
+            ig = list(dict.fromkeys(s.instagram for s in scraped if s.instagram))
+            tt = list(dict.fromkeys(s.tiktok for s in scraped if s.tiktok))
+            fb = list(dict.fromkeys(s.facebook for s in scraped if s.facebook))
             sites = list(dict.fromkeys(
-                s.website for s in all_shops if s.website and not (site_host(s.website) or "").endswith(_SOCIAL_HOSTS)
+                s.website for s in scraped if s.website and not (site_host(s.website) or "").endswith(_SOCIAL_HOSTS)
             ))
             jobs: dict[str, Callable[[], list]] = {}
             if "instagram" in req.channels and ig:
@@ -317,9 +340,9 @@ class ShopPipeline:
                 jobs["facebook"] = lambda: self.apify.facebook_posts(fb, since, n, errors, counter)
             if "website" in req.channels and sites:
                 jobs["website"] = lambda: self.apify.website_pages(sites, PAGES_PER_SITE, errors, counter)
-            if not jobs and not sweep_posts:
+            if not jobs and not sweep_posts and not req.sweep_only:
                 errors.append("no shop had a website or social account to scrape")
-            progress("scraping " + (", ".join(jobs) or "nothing") + f" for {len(all_shops)} shop(s)")
+            progress("scraping " + (", ".join(jobs) or "nothing") + f" for {len(scraped)} shop(s)")
             futures = {name: pool.submit(self._channel, fn) for name, fn in jobs.items()}
             results = {name: self._collect(name, fut, errors, progress) for name, fut in futures.items()}
             found = google_future.result() if google_future else GoogleFindings()
@@ -329,14 +352,23 @@ class ShopPipeline:
         posts: list[SocialPost] = results.get("instagram", []) + results.get("tiktok", []) + results.get("facebook", [])
         sweep_posts += found.posts  # Instagram posts Google surfaced: first-hand when a shop posted them
         pages: list[WebPage] = results.get("website", [])
-        own, shop_of = self._attribute(all_shops, posts + sweep_posts)
-        dropped = [p for p in posts + sweep_posts if not recent(p)]
+        owner = self._attribute(all_shops, posts + sweep_posts)
+        shop_of = {url: s.name for url, s in owner.items()}
+
+        def fresh(p: SocialPost) -> bool:
+            """Inside the window, and for a known shop's own post, not older than its last scan."""
+            if not recent(p):
+                return False
+            start = cutoff.get(owner[p.url].id) if p.url in owner else None
+            return start is None or p.posted_at is None or p.posted_at.astimezone(timezone.utc).date() >= start
+
+        dropped = [p for p in posts + sweep_posts if not fresh(p)]
         if dropped:
-            errors.append(f"dropped {len(dropped)} post(s) older than {req.days} days")
+            errors.append(f"dropped {len(dropped)} post(s) older than {req.days} days or the shop's last scan")
 
         # Shop's own posts first, so they survive the prompt budget; second-hand sweep posts last.
-        first_hand = [p for p in posts + sweep_posts if recent(p) and p.url in own]
-        second_hand = [p for p in posts + sweep_posts if recent(p) and p.url not in own]
+        first_hand = [p for p in posts + sweep_posts if fresh(p) and p.url in owner]
+        second_hand = [p for p in posts + sweep_posts if fresh(p) and p.url not in owner]
         host_of = {site_host(s.website): s.name for s in all_shops if s.website and site_host(s.website)}
         docs = combine(
             from_social(first_hand, shop_of, tz),
@@ -345,12 +377,13 @@ class ShopPipeline:
             from_serp(found.snippets),  # Google snippets last: short and second-hand
         )
 
-        context = SearchRequest(
-            location=req.location,
-            radius_miles=req.radius_miles,
-            categories=req.categories,
-            query="Shops were found by searching Google Maps for: " + ", ".join(req.shops or terms),
-        )
+        if req.stores and not req.sweep_only:
+            how = "These known shops' own channels were scraped: " + ", ".join(k.name for k in req.stores)
+        elif req.sweep_only:
+            how = "Posts were found by searching the area's hashtags, TikTok and Google for deals"
+        else:
+            how = "Shops were found by searching Google Maps for: " + ", ".join(req.shops or terms)
+        context = SearchRequest(location=req.location, radius_miles=req.radius_miles, categories=req.categories, query=how)
         raw, usage = extract_docs_batched(self.anthropic, self.model, docs, context, today, errors, progress, provider_name="Apify")
         sources, deals, rejected = verify_docs(docs, raw, today)
         all_shops = link_deals(deals, docs, all_shops)
@@ -363,7 +396,12 @@ class ShopPipeline:
             key = normalize_url(d.source_url)
             own = key in own_keys or author.get(key, "") in handles.get(d.shop_id, set())
             d.flags.append("shop_own_post" if own else "second_hand")
-        queries = [f"maps: {t}" for t in (req.shops or terms)] + sweep_labels + found.labels
+        if req.sweep_only:
+            # The known shops were sent for attribution, not scraped: return only the ones a deal names, and new ones.
+            linked = {d.shop_id for d in deals}
+            all_shops = [s for s in all_shops if s.id in linked or s.found_via in ("mention", "deal")]
+        maps_ran = not req.stores and not req.sweep_only
+        queries = ([f"maps: {t}" for t in (req.shops or terms)] if maps_ran else []) + sweep_labels + found.labels
         return SearchResponse(
             as_of=today,
             deals=deals,
@@ -376,7 +414,27 @@ class ShopPipeline:
             apify_runs=counter.count,
             brightdata_requests=google.counter.count if google else 0,
             shops=all_shops,
+            scanned=self._scanned(req, owner, posts + sweep_posts, fresh, deals, tz) if batch else [],
         )
+
+    @staticmethod
+    def _scanned(req: ShopsRequest, owner: dict[str, Shop], posts: list[SocialPost], fresh, deals: list, tz: str) -> list[ScannedShop]:
+        """One entry per store sent: its own posts in the window, its newest own post, and its deals."""
+        zone = ZoneInfo(tz)
+        out = {k.id: ScannedShop(id=k.id) for k in req.stores}
+        for p in posts:
+            entry = out.get(owner[p.url].id) if p.url in owner else None
+            if entry is None:
+                continue
+            if fresh(p):
+                entry.posts += 1
+            if p.posted_at is not None:
+                day = p.posted_at.astimezone(zone).date()
+                entry.latest_post_date = max(entry.latest_post_date or day, day)
+        for d in deals:
+            if d.shop_id in out:
+                out[d.shop_id].deals += 1
+        return list(out.values())
 
     def discover(self, req: DiscoverRequest, on_progress: Optional[Callable[[str], None]] = None) -> SearchResponse:
         """Every shop in the circle from Google Maps, nearest first. One Actor run per search term (each capped at
@@ -447,20 +505,21 @@ class ShopPipeline:
         )
 
     @staticmethod
-    def _attribute(shops: list[Shop], posts: list[SocialPost]) -> tuple[set[str], dict[str, str]]:
-        """Which posts came from a shop's own account: (their URLs, URL -> shop name)."""
-        ig = {s.instagram: s.name for s in shops if s.instagram}
-        tt = {s.tiktok: s.name for s in shops if s.tiktok}
-        fb = {s.facebook: s.name for s in shops if s.facebook}
-        shop_of: dict[str, str] = {}
+    def _attribute(shops: list[Shop], posts: list[SocialPost]) -> dict[str, Shop]:
+        """Which posts came from a shop's own account: URL -> that shop. Handles match case-insensitively (Convex
+        stores them lowercased)."""
+        ig = {s.instagram.lower(): s for s in shops if s.instagram}
+        tt = {s.tiktok.lower(): s for s in shops if s.tiktok}
+        fb = {s.facebook: s for s in shops if s.facebook}
+        owner: dict[str, Shop] = {}
         for p in posts:
-            name = None
+            shop = None
             if p.platform == "instagram":
-                name = ig.get(p.handle or "") or next((ig[c] for c in p.coauthors if c in ig), None)
+                shop = ig.get((p.handle or "").lower()) or next((ig[c.lower()] for c in p.coauthors if c.lower() in ig), None)
             elif p.platform == "tiktok":
-                name = tt.get(p.handle or "")
+                shop = tt.get((p.handle or "").lower())
             elif p.platform == "facebook" and p.input_url:
-                name = fb.get(facebook_page(p.input_url) or "")
-            if name:
-                shop_of[p.url] = name
-        return set(shop_of), shop_of
+                shop = fb.get(facebook_page(p.input_url) or "")
+            if shop:
+                owner[p.url] = shop
+        return owner

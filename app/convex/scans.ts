@@ -4,6 +4,8 @@
 //   runs it as a background job (1 to 5 min); pollShops checks it every 15 s by rescheduling itself, because
 //   actions aren't retried and shouldn't sit waiting.
 // - Area discovery (areas.ts): /discover/shops jobs are polled here too, and their shops become the area's list.
+//   Once an area has a list, batches.ts scans its stores in rotating batches (also /extract/shops jobs, polled here)
+//   and scheduleAreas leaves it alone.
 // - User searches (requestSearch): /extract/search for the user's area, rate-limited and cached.
 // Every run is an agent_runs row; scan_cache stops paying twice for the same query within CACHE_TTL.
 import { v } from "convex/values";
@@ -12,11 +14,13 @@ import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { internalAction, internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import type { ActionCtx } from "./_generated/server";
-import { scanTarget } from "./areas";
+import { scanLocation, scanTarget } from "./areas";
+import { scanKind } from "./batches";
 import type { DealIn, SourceIn, StoreIn } from "./ingest";
 import { requireUser } from "./lib/auth";
 import { type ApiJobStatus, type ApiSearchResponse, apiConfigured, dibsApi, DibsApiError } from "./lib/api";
 import { rateLimiter } from "./lib/rateLimits";
+import { estimateRunUsd } from "./lib/cost";
 import { normalizeUrl, sha256Hex } from "./lib/text";
 import { HOUR } from "./lib/time";
 import { area as areaValidator, dealType } from "./schema";
@@ -138,7 +142,9 @@ export async function ingestResponse(
   ctx: ActionCtx,
   runId: Id<"agent_runs">,
   resp: ApiSearchResponse,
-  opts: { scanAreaKey?: string; timezone?: string; notify: boolean; discovery?: boolean },
+  // discovery: leave the stores' deal-scan clock alone (a shop list, or an area sweep that didn't scrape them).
+  // storesScanned: shops whose own channels were scraped, for the cost estimate.
+  opts: { scanAreaKey?: string; timezone?: string; notify: boolean; discovery?: boolean; storesScanned?: number },
 ) {
   const { stores, sources, deals, rejected } = toBatches(resp);
   const storeIds: Record<string, Id<"stores">> = {};
@@ -178,6 +184,8 @@ export async function ingestResponse(
     brightdata_requests: resp.brightdata_requests,
     apify_runs: resp.apify_runs,
     deals_found: deals.length,
+    stores_scanned: opts.storesScanned ?? 0,
+    cost_usd: estimateRunUsd({ ...resp.usage, brightdata_requests: resp.brightdata_requests, stores_scanned: opts.storesScanned ?? 0 }),
   });
   return { dealIds, created, storeIds };
 }
@@ -214,16 +222,6 @@ async function cacheKey(provider: string, body: unknown, areaKey: string) {
   return sha256Hex(`${provider}|${areaKey}|${JSON.stringify(body)}`);
 }
 
-function location(area: Area) {
-  return {
-    neighborhood: area.neighborhood,
-    city: area.city ?? "Los Angeles",
-    region: area.region ?? "California",
-    country: "US",
-    timezone: area.timezone ?? "America/Los_Angeles",
-  };
-}
-
 // ---------------------------------------------------------------- /extract/shops (scheduled)
 
 export const startShops = internalAction({
@@ -236,7 +234,7 @@ export const startShops = internalAction({
   handler: async (ctx, { area, trigger, force, request }): Promise<Id<"agent_runs"> | null> => {
     if (!apiConfigured()) return null;
     const body = {
-      location: location(area),
+      location: scanLocation(area),
       radius_miles: area.radius_miles ?? 1,
       max_shops: SCAN_SHOPS,
       ...(request ?? {}),
@@ -283,9 +281,13 @@ export const pollShops = internalAction({
     try {
       job = await dibsApi<ApiJobStatus>(`${path}/${run.api_job_id}`);
     } catch (err) {
-      // 404: the API restarted and lost the job. Other errors: try again until the cap.
+      // 404: the API restarted and lost the job. A batch or sweep is sent once more (its request is on the run);
+      // other errors: try again until the cap.
       const fatal = err instanceof DibsApiError && err.status === 404;
-      if (fatal || attempts >= maxPolls) {
+      if (fatal && scanKind(run.request) !== "area" && !run.retried) {
+        await ctx.runMutation(internal.ingest.updateRun, { runId, status: "queued", retried: true, poll_attempts: 0, error: String(err) });
+        await ctx.scheduler.runAfter(0, internal.batches.send, { runId });
+      } else if (fatal || attempts >= maxPolls) {
         await ctx.runMutation(internal.ingest.updateRun, { runId, status: "failed", error: String(err), poll_attempts: attempts });
       } else {
         await ctx.runMutation(internal.ingest.updateRun, { runId, poll_attempts: attempts });
@@ -304,11 +306,22 @@ export const pollShops = internalAction({
       });
       await ctx.runMutation(internal.areas.recordDiscovery, { runId, storeIds: Object.values(storeIds) });
     } else if (job.status === "done" && job.result) {
+      const kind = scanKind(run.request);
+      const scanned = job.result.scanned ?? [];
       const { storeIds } = await ingestResponse(ctx, runId, job.result, {
         scanAreaKey: run.area?.scan_area_key,
         timezone: run.area?.timezone,
         notify: true,
+        discovery: kind === "sweep",
+        storesScanned: kind === "batch" ? scanned.length : kind === "area" ? job.result.shops.length : 0,
       });
+      if (kind === "batch") {
+        await ctx.runMutation(internal.batches.finishBatch, {
+          runId,
+          storeIds,
+          scanned: scanned.map((s) => ({ id: s.id, posts: s.posts, deals: s.deals, latest_post_date: orUndef(s.latest_post_date) })),
+        });
+      }
       if (run.area?.scan_area_key) {
         await ctx.runMutation(internal.areas.linkScanStores, { scanAreaKey: run.area.scan_area_key, storeIds: Object.values(storeIds) });
       }
@@ -354,25 +367,27 @@ export const areasToScan = internalQuery({
           },
         });
     }
-    const recent = new Set<string>();
+    const skip = new Set<string>();
     for (const { area } of byArea.values()) {
       const last = await ctx.db
         .query("agent_runs")
         .withIndex("by_area", (q) => q.eq("area.scan_area_key", area.scan_area_key))
         .order("desc")
         .first();
-      if (last && last.status !== "failed" && last.started_at > Date.now() - CACHE_TTL) recent.add(area.scan_area_key);
+      if (last && last.status !== "failed" && last.started_at > Date.now() - CACHE_TTL) skip.add(area.scan_area_key);
     }
-    // Scan the area's own circle (the one its shop list covers) when it has one.
+    // Scan the area's own circle (the one its shop list covers) when it has one. An area with a shop list is
+    // scanned store by store (batches.ts) instead.
     for (const entry of byArea.values()) {
       const row = await ctx.db
         .query("scan_areas")
         .withIndex("by_key", (q) => q.eq("key", entry.area.scan_area_key))
         .unique();
-      if (row) entry.area = { ...scanTarget(row), saved_location_id: entry.area.saved_location_id };
+      if (row && row.store_count > 0) skip.add(entry.area.scan_area_key);
+      else if (row) entry.area = { ...scanTarget(row), saved_location_id: entry.area.saved_location_id };
     }
     return [...byArea.values()]
-      .filter(({ area }) => !recent.has(area.scan_area_key) && area.neighborhood)
+      .filter(({ area }) => !skip.has(area.scan_area_key) && area.neighborhood)
       .sort((a, b) => b.watchers - a.watchers)
       .map(({ area }) => area);
   },
@@ -425,7 +440,7 @@ export const runSearch = internalAction({
     const run = await ctx.runQuery(internal.scans.getRun, { runId });
     if (!run?.area) return;
     const body = {
-      location: location(run.area),
+      location: scanLocation(run.area),
       radius_miles: run.area.radius_miles ?? 1,
       query: run.queries[0],
       max_searches: 5,

@@ -9,6 +9,7 @@
  */
 
 import type * as areas from "../areas.js";
+import type * as batches from "../batches.js";
 import type * as catalog from "../catalog.js";
 import type * as challenges from "../challenges.js";
 import type * as community from "../community.js";
@@ -20,6 +21,7 @@ import type * as ingest from "../ingest.js";
 import type * as leaderboards from "../leaderboards.js";
 import type * as lib_api from "../lib/api.js";
 import type * as lib_auth from "../lib/auth.js";
+import type * as lib_cost from "../lib/cost.js";
 import type * as lib_credits from "../lib/credits.js";
 import type * as lib_deals from "../lib/deals.js";
 import type * as lib_gamify from "../lib/gamify.js";
@@ -29,6 +31,7 @@ import type * as lib_line from "../lib/line.js";
 import type * as lib_rateLimits from "../lib/rateLimits.js";
 import type * as lib_status from "../lib/status.js";
 import type * as lib_text from "../lib/text.js";
+import type * as lib_tiers from "../lib/tiers.js";
 import type * as lib_time from "../lib/time.js";
 import type * as lib_views from "../lib/views.js";
 import type * as lineChecks from "../lineChecks.js";
@@ -50,6 +53,7 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   areas: typeof areas;
+  batches: typeof batches;
   catalog: typeof catalog;
   challenges: typeof challenges;
   community: typeof community;
@@ -61,6 +65,7 @@ declare const fullApi: ApiFromModules<{
   leaderboards: typeof leaderboards;
   "lib/api": typeof lib_api;
   "lib/auth": typeof lib_auth;
+  "lib/cost": typeof lib_cost;
   "lib/credits": typeof lib_credits;
   "lib/deals": typeof lib_deals;
   "lib/gamify": typeof lib_gamify;
@@ -70,6 +75,7 @@ declare const fullApi: ApiFromModules<{
   "lib/rateLimits": typeof lib_rateLimits;
   "lib/status": typeof lib_status;
   "lib/text": typeof lib_text;
+  "lib/tiers": typeof lib_tiers;
   "lib/time": typeof lib_time;
   "lib/views": typeof lib_views;
   lineChecks: typeof lineChecks;

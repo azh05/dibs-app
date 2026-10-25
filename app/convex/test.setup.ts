@@ -128,6 +128,26 @@ export function shopsResponse(overrides: { deals?: Json[]; shops?: Json[]; sourc
   };
 }
 
+export const ENZO = { lat: 34.0612, lng: -118.4471 };
+
+/** A /discover/shops result: two shops from Google Maps, no deals. */
+export function discoveryResponse() {
+  const base = shopsResponse({ deals: [], sources: [] });
+  return {
+    ...base,
+    rejected: [],
+    queries: ["maps: restaurant"],
+    usage: { input_tokens: 0, output_tokens: 0, web_search_requests: 0 },
+    provider: "apify_maps",
+    brightdata_requests: 0,
+    apify_runs: 7,
+    shops: [
+      base.shops[0],
+      { id: "gmaps:enzo", name: "Enzo's Pizzeria", category: "Pizza restaurant", place_id: "enzo", ...ENZO, found_via: "google_maps" },
+    ],
+  };
+}
+
 /** Replace global fetch with a router; returns the calls made. */
 export function stubFetch(routes: (url: string, init?: RequestInit) => Response | Promise<Response>) {
   const calls: { url: string; init?: RequestInit }[] = [];
