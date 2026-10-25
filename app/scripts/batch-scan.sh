@@ -4,6 +4,8 @@
 #
 #   scripts/batch-scan.sh '<area JSON>' ['<area JSON>' ...]     4 scans per area by search term, ~95 shops
 #   scripts/batch-scan.sh --all <area id> [<area id> ...]        every shop in each area's discovered list
+#   scripts/batch-scan.sh --place "Mission District, San Francisco, California" [--place ...]
+#                                                                 a place not in Convex yet, same 4 scans
 #
 # Area JSON and ids come from `npx convex data scan_areas`. Area JSON looks like:
 #   {"scan_area_key":"...","neighborhood":"Westwood","city":"Los Angeles","region":"California",
@@ -11,11 +13,15 @@
 # --all uses the shops discovery stored for the area (up to 250), 25 per scan: about $0.05 per shop and
 # 10 scans (an hour) for 250 shops. Discovery must have finished for the area first.
 #
+# --place needs no scan area: shops are found on Google Maps by neighborhood and city, and their deals land in
+# Convex with the shops' coordinates. To see them in the app, set your location (or a saved place) there. Format
+# "Neighborhood, City, State[, Timezone]"; the timezone defaults to America/Los_Angeles.
+#
 # Each scan covers up to 25 shops and takes 1-5 min. Scans start GAP seconds apart (default 360) so they don't
 # queue on Apify's 16 GB memory cap past Convex's 10-minute polling limit. Uses Apify, plus Bright Data's Google
 # lookups when BRIGHTDATA_API_KEY is set on the API.
 set -euo pipefail
-[ $# -ge 1 ] || { sed -n 2,17p "$0"; exit 1; }
+[ $# -ge 1 ] || { sed -n 2,22p "$0"; exit 1; }
 GAP="${GAP:-360}"
 BATCH_SIZE=25
 
@@ -52,6 +58,20 @@ if [ "$1" = "--all" ]; then
         console.log(JSON.stringify({shops: d.slice(i, i + n), max_shops: n, sweep: i === 0}));')
   done
 else
+  if [ "$1" = "--place" ]; then
+    # Turn each --place "Neighborhood, City, State[, Timezone]" into area JSON, then scan it like any area.
+    PLACES=()
+    while [ $# -ge 2 ] && [ "$1" = "--place" ]; do PLACES+=("$2"); shift 2; done
+    [ $# -eq 0 ] && [ ${#PLACES[@]} -gt 0 ] || { echo 'usage: --place "Neighborhood, City, State" [--place ...]'; exit 1; }
+    for P in "${PLACES[@]}"; do
+      set -- "$@" "$(printf '%s' "\"$P\"" | js '
+        const [neighborhood, city, region, timezone] = d.split(",").map(x => x.trim());
+        if (!neighborhood || !city || !region) throw new Error("--place needs \"Neighborhood, City, State\"");
+        const key = [neighborhood, city, region].join("|").toLowerCase();
+        console.log(JSON.stringify({scan_area_key: key, neighborhood, city, region,
+                                    timezone: timezone || "America/Los_Angeles", radius_miles: 1}));')"
+    done
+  fi
   BATCHES=(
     '{"search_terms":["boba","coffee shop","juice bar","dessert"],"max_shops":25}'
     '{"search_terms":["pizza","burger","tacos","fast food"],"max_shops":25}'
