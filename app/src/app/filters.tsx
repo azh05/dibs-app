@@ -35,7 +35,12 @@ const GROUP_ORDER = [
 ];
 const GROUPS = [...STORE_SECTIONS].sort((a, b) => GROUP_ORDER.indexOf(a.title) - GROUP_ORDER.indexOf(b.title));
 
-const TOGGLES: { key: 'openNow' | 'communityVerified' | 'hideExpired'; title: string; subtitle: string }[] = [
+const TOGGLES: {
+  key: 'matchInterests' | 'openNow' | 'communityVerified' | 'hideExpired';
+  title: string;
+  subtitle: string;
+}[] = [
+  { key: 'matchInterests', title: 'Match my interests', subtitle: 'Only the store and deal types you picked' },
   { key: 'openNow', title: 'Open now', subtitle: 'Only stores open right now' },
   { key: 'communityVerified', title: 'Community verified', subtitle: 'Confirmed in store by dibs users' },
   { key: 'hideExpired', title: 'Hide likely expired', subtitle: 'Older posts with no end date' },

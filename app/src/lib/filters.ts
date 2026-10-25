@@ -22,6 +22,8 @@ export type Filters = {
   openNow: boolean;
   communityVerified: boolean;
   hideExpired: boolean;
+  /** Only deals matching your interests (Pick interests). Store or deal types picked here, or a search, replace them. */
+  matchInterests: boolean;
 };
 
 export const DEFAULT_FILTERS: Filters = {
@@ -32,6 +34,7 @@ export const DEFAULT_FILTERS: Filters = {
   openNow: true,
   communityVerified: false,
   hideExpired: true,
+  matchInterests: true,
 };
 
 /** Posts this old with no end date have probably run their course. */
@@ -62,6 +65,22 @@ function withinRadius(distanceMi: number | null, radiusMi: number) {
   return distanceMi == null || distanceMi <= radiusMi;
 }
 
+/** Same rule as alerts: a deal matches if you follow its store type or one of its deal types. */
+function matchesInterests(deal: Deal, interests: Set<string>) {
+  return interests.has(deal.storeType) || deal.tags.some((t) => interests.has(t));
+}
+
+/** Your interests narrow the list only while nothing more specific is asked for. */
+function usesInterests(filters: Filters, query: string, interests: Set<string>) {
+  return (
+    filters.matchInterests &&
+    interests.size > 0 &&
+    filters.storeTypes.size === 0 &&
+    filters.dealTypes.size === 0 &&
+    !query.trim()
+  );
+}
+
 const nearest = (a: Deal, b: Deal) => (a.distanceMi ?? Infinity) - (b.distanceMi ?? Infinity);
 
 /** Best deals: most confirmed in store first, then the freshest post. */
@@ -80,9 +99,11 @@ export function applyFilters(
 ) {
   const sorter = { best, relevance: relevance(interests), distance: nearest }[filters.sort];
   const dealTypes = [...filters.dealTypes].filter((t) => t !== UPCOMING_EVENTS);
+  const byInterests = usesInterests(filters, query, interests);
   return deals
     .filter(
       (d) =>
+        (!byInterests || matchesInterests(d, interests)) &&
         withinRadius(d.distanceMi, filters.radiusMi) &&
         (dealTypes.length === 0 || d.tags.some((t) => filters.dealTypes.has(t))) &&
         (filters.storeTypes.size === 0 || filters.storeTypes.has(d.storeType)) &&
@@ -95,10 +116,17 @@ export function applyFilters(
 }
 
 /** Events are worth a short trip, so distance doesn't hide them (the 1.2 mi pop-up shows at 1 mi). */
-export function applyEventFilters(events: DealEvent[], filters: Filters, query = '') {
+export function applyEventFilters(
+  events: DealEvent[],
+  filters: Filters,
+  query = '',
+  interests: Set<string> = new Set(),
+) {
   if (filters.dealTypes.size > 0 && !filters.dealTypes.has(UPCOMING_EVENTS)) return [];
+  const byInterests = usesInterests(filters, query, interests) && !interests.has(UPCOMING_EVENTS);
   return events.filter(
     (e) =>
+      (!byInterests || interests.has(e.storeType)) &&
       (filters.storeTypes.size === 0 || filters.storeTypes.has(e.storeType)) &&
       matchesQuery(query, e.title, e.store, e.area),
   );
@@ -108,6 +136,9 @@ export function applyEventFilters(events: DealEvent[], filters: Filters, query =
 export function appliedFilters(filters: Filters): { key: string; label: string; remove: (f: Filters) => Filters }[] {
   const without = (set: Set<string>, value: string) => new Set([...set].filter((v) => v !== value));
   return [
+    ...(filters.matchInterests
+      ? [{ key: 'interests', label: 'My interests', remove: (f: Filters) => ({ ...f, matchInterests: false }) }]
+      : []),
     ...(filters.openNow ? [{ key: 'open', label: 'Open now', remove: (f: Filters) => ({ ...f, openNow: false }) }] : []),
     ...(filters.communityVerified
       ? [{ key: 'verified', label: 'Community verified', remove: (f: Filters) => ({ ...f, communityVerified: false }) }]
@@ -127,7 +158,8 @@ export function appliedFilters(filters: Filters): { key: string; label: string; 
 
 // Quick chips on the Deals screen (Figma "07 · Deals"): "All", your store types, then deal types,
 // any number on at once. Running the filters a second time with these sets narrows the list
-// further without touching the saved filters; empty sets mean any.
+// further without touching the saved filters; empty sets mean any. The first pass already
+// applied your interests, so the chips narrow within them.
 export function quickFilters(filters: Filters, storeTypes: Set<string>, dealTypes: Set<string>): Filters {
-  return { ...filters, storeTypes, dealTypes };
+  return { ...filters, storeTypes, dealTypes, matchInterests: false };
 }

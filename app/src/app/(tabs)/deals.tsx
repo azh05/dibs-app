@@ -69,7 +69,7 @@ export default function DealsScreen() {
       ? indexed.deals.filter((d) => !localDeals.some((l) => l.id === d.id))
       : [];
   const shownDeals = eventsOnly ? [] : [...localDeals, ...indexedExtra];
-  const shownEvents = applyEventFilters(applyEventFilters(events, filters, query), quick);
+  const shownEvents = applyEventFilters(applyEventFilters(events, filters, query, topics), quick);
   const allOn = pickedStores.size === 0 && pickedTypes.size === 0 && !upcomingOnly;
   const unread = activity.some((a) => a.unread);
 
@@ -233,7 +233,9 @@ export default function DealsScreen() {
               ))}
               {!loading && shownDeals.length === 0 && (
                 <Text size={14} color={colors.inkTertiary}>
-                  No live deals match yet. Your agent keeps looking.
+                  {filters.matchInterests && deals.length > 0
+                    ? 'No live deals match your interests yet. Turn off "Match my interests" in Filters to see everything.'
+                    : 'No live deals match yet. Your agent keeps looking.'}
                 </Text>
               )}
             </View>
