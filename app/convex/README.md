@@ -110,11 +110,13 @@ Phone and social sign-ups skip Create account, so they have no birthday. **Verif
 
 ### Push
 
-**Not set up yet:** `app.json` has no EAS `projectId`, so the app gets no Expo push token and no device registers. Alerts still show in the Alerts tab, but nothing reaches the lock screen. To set it up (someone logged in to Expo):
+The EAS project is `@azhao05s-team/dibs` (`owner` and `extra.eas.projectId` in `app.json`, from `npx eas-cli@latest init`), so the app can get an Expo push token. Members of the `azhao05s-team` Expo organization can see it on expo.dev. Still to do before pushes reach a phone:
 
-1. `cd app && npx eas-cli@latest init`, choosing an Expo organization the team shares. It writes `owner` and `extra.eas.projectId` to `app.json`; commit that.
-2. Android: remote push needs a development build and FCM V1 credentials (Firebase service account key, uploaded with `npx eas-cli@latest credentials`). iOS: a development build needs a paid Apple Developer account; let EAS create the APNs key when it asks.
+1. Android: remote push needs a development build and FCM V1 credentials (Firebase service account key, uploaded with `npx eas-cli@latest credentials`: Android, then Google Service Account, then FCM V1). Then `npx eas-cli@latest build --profile development --platform android`.
+2. iOS: a development build needs a paid Apple Developer account: `npx eas-cli@latest build --profile development --platform ios`, and let EAS set up push and an APNs key when it asks. The first build runs `eas build:configure`, which creates `eas.json`.
 3. On a real phone, sign in and allow notifications, then check the `devices` table in the Convex dashboard for a row.
+
+Until then alerts still show in the Alerts tab, but nothing reaches the lock screen.
 
 The app registers its token (`prefs.registerDevice`) after sign-in and again once onboarding gets notification permission. Alerts are always on (there is no Instant toggle). Convex sends alerts and reminders through Expo's push service, 100 per request, and drops tokens Expo reports as `DeviceNotRegistered`.
 
