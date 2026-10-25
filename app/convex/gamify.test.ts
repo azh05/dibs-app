@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, expect, test } from "vitest";
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
 import { api, internal } from "./_generated/api";
 import { identity, json, makeTest, shopsResponse, stubFetch, type T } from "./test.setup";
@@ -6,8 +6,15 @@ import { identity, json, makeTest, shopsResponse, stubFetch, type T } from "./te
 let restore: () => void = () => {};
 beforeEach(() => {
   process.env.DIBS_API_URL = "http://api.test";
+  // Noon in Los Angeles on the seed data's day: before 10 AM or after 10 PM, using a deal also earns Early Bird or
+  // Night Owl, which then becomes the featured badge. Only Date is faked, so scheduled functions still run.
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date("2026-10-24T19:00:00Z"));
 });
-afterEach(() => restore());
+afterEach(() => {
+  restore();
+  vi.useRealTimers();
+});
 
 async function seed(t: T) {
   restore = stubFetch(() => json({ job_id: "j", status: "done", progress: [], result: shopsResponse() })).restore;
