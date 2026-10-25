@@ -1,5 +1,7 @@
 // Profile, leaderboard and friends data (Figma "5 · Profile & social"). There is no social
 // backend yet, so everything here is mock data shaped like the screens.
+import { Share } from 'react-native';
+
 import type { IconName } from '@/components/icon';
 import { colors } from '@/theme';
 
@@ -102,14 +104,78 @@ export const FRIEND_ACTIVITY: FriendActivity[] = [
   },
 ];
 
-export const INVITES = { joined: 3, earned: 15, reward: 5 };
+/** Friends tab (Figma "17 · Friends"): who's out using a deal right now (ringed) and who isn't. */
+export const FRIENDS_OUT: (Friend & { out: boolean })[] = [
+  { name: 'Jess', initials: 'JL', tone: 'ink', out: true },
+  { name: 'Daniel', initials: 'DK', tone: 'soft', out: true },
+  { name: 'Priya', initials: 'PS', tone: 'muted', out: true },
+  { name: 'Kevin', initials: 'KT', tone: 'orange', out: true },
+  { name: 'Ana', initials: 'AN', tone: 'muted', out: false },
+];
+
+export type FriendPost = {
+  id: string;
+  friend: Friend;
+  verb: string;
+  subject: string;
+  ago: string;
+  likes: number;
+  comments: number;
+  /** The deal or event the post is about; posts without one (rank changes) show no card. */
+  card?: { id: string; kind: 'deal' | 'event'; title: string; subtitle: string };
+};
+
+export const FRIEND_POSTS: FriendPost[] = [
+  {
+    id: 'p1',
+    friend: { name: 'Jess', initials: 'JL', tone: 'ink' },
+    verb: 'used',
+    subject: 'BOGO milk tea',
+    ago: '2h',
+    likes: 12,
+    comments: 3,
+    card: { id: 'tapioca-lab-bogo', kind: 'deal', title: 'BOGO milk tea', subtitle: 'Tapioca Lab · ends 6 PM' },
+  },
+  {
+    id: 'p2',
+    friend: { name: 'Daniel', initials: 'DK', tone: 'soft' },
+    verb: 'is going to',
+    subject: 'KDA × Chicha',
+    ago: '5h',
+    likes: 12,
+    comments: 3,
+    card: { id: 'kda-chicha-popup', kind: 'event', title: 'KDA × Chicha pop-up', subtitle: 'Sat 12 PM · Sawtelle' },
+  },
+  {
+    id: 'p3',
+    friend: { name: 'Kevin', initials: 'KT', tone: 'orange' },
+    verb: 'passed you on the',
+    subject: 'Westwood leaderboard',
+    ago: '1d',
+    likes: 12,
+    comments: 3,
+  },
+];
+
+/** Credits, not cash: both people get this when an invited friend signs up and verifies. */
+export const INVITES = { joined: 3, earned: 1500, reward: 500 };
+
+/** The share sheet behind "Invite" (Profile) and the add-friends button (Friends). */
+export function inviteFriends() {
+  const message = `Join me on dibs: it finds the best deals near you before they’re gone. We both get ${INVITES.reward} credits.`;
+  Share.share({ message }).catch(() => undefined);
+}
 
 export type Scope = 'Friends' | 'Westwood' | 'UCLA';
 export const SCOPES: Scope[] = ['Friends', 'Westwood', 'UCLA'];
 
 export type Ranked = { name: string; initials: string; saved: number; change: number };
 
-export const LEADERBOARDS: Record<Scope, { ranked: Ranked[]; you: { rank: number; change: number } }> = {
+/** `toNext` is how many dollars short of the person one rank above you are. */
+export const LEADERBOARDS: Record<
+  Scope,
+  { ranked: Ranked[]; you: { rank: number; change: number; toNext: number } }
+> = {
   Westwood: {
     ranked: [
       { name: 'Kevin T.', initials: 'KT', saved: 486, change: 0 },
@@ -123,7 +189,7 @@ export const LEADERBOARDS: Record<Scope, { ranked: Ranked[]; you: { rank: number
       { name: 'Omar R.', initials: 'OR', saved: 344, change: 0 },
       { name: 'Ben S.', initials: 'BS', saved: 330, change: -1 },
     ],
-    you: { rank: 14, change: 3 },
+    you: { rank: 14, change: 3, toNext: 90 },
   },
   Friends: {
     ranked: [
@@ -133,7 +199,7 @@ export const LEADERBOARDS: Record<Scope, { ranked: Ranked[]; you: { rank: number
       { name: 'Tom H.', initials: 'TH', saved: 205, change: -1 },
       { name: 'Ivy C.', initials: 'IC', saved: 188, change: 0 },
     ],
-    you: { rank: 2, change: 1 },
+    you: { rank: 2, change: 1, toNext: 29 },
   },
   UCLA: {
     ranked: [
@@ -143,7 +209,7 @@ export const LEADERBOARDS: Record<Scope, { ranked: Ranked[]; you: { rank: number
       { name: 'Sofia M.', initials: 'SM', saved: 451, change: 2 },
       { name: 'Jordan P.', initials: 'JP', saved: 430, change: 0 },
     ],
-    you: { rank: 37, change: 5 },
+    you: { rank: 37, change: 5, toNext: 12 },
   },
 };
 

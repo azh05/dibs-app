@@ -16,6 +16,23 @@ import { DEAL_TYPES, RADIUS_OPTIONS, STORE_SECTIONS, type InterestSection } from
 import { useStore } from '@/lib/store';
 import { colors, gutter, radii } from '@/theme';
 
+/** Store-type groups in the Filters order, which differs from Pick interests (Figma 08 · Filters). */
+const GROUP_ORDER = [
+  'Food & drink',
+  'Nightlife',
+  'Beauty & self-care',
+  'Health',
+  'Fitness',
+  'Shopping',
+  'Fun',
+  'Everyday',
+  'Auto',
+  'Pets',
+  '21+ shops',
+  'Stays',
+];
+const GROUPS = [...STORE_SECTIONS].sort((a, b) => GROUP_ORDER.indexOf(a.title) - GROUP_ORDER.indexOf(b.title));
+
 const TOGGLES: { key: 'openNow' | 'communityVerified' | 'hideExpired'; title: string; subtitle: string }[] = [
   { key: 'openNow', title: 'Open now', subtitle: 'Only stores open right now' },
   { key: 'communityVerified', title: 'Community verified', subtitle: 'Confirmed in store by dibs users' },
@@ -108,12 +125,12 @@ export default function FiltersScreen() {
 
         <Section title="Store type" action="Clear" onAction={() => update({ storeTypes: new Set() })}>
           <View style={styles.groups}>
-            {STORE_SECTIONS.map((section, i) => {
+            {GROUPS.map((section, i) => {
               const picked = section.interests.filter((t) => draft.storeTypes.has(t.label)).length;
               const locked = section.adult && !store.adultUnlocked;
               const open = openGroup === section.title;
               return (
-                <View key={section.title} style={i < STORE_SECTIONS.length - 1 && styles.groupDivider}>
+                <View key={section.title} style={i < GROUPS.length - 1 && styles.groupDivider}>
                   <Pressable onPress={() => toggleGroup(section)} accessibilityRole="button" style={styles.groupRow}>
                     <View style={[styles.groupIcon, picked > 0 && { backgroundColor: colors.orangeSoft }]}>
                       <Icon name={section.icon} size={18} color={picked > 0 ? colors.orange : colors.ink} />

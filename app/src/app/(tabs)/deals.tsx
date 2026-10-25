@@ -12,20 +12,13 @@ import { Chip } from '@/components/chip';
 import { DealCard } from '@/components/deal-card';
 import { EventCard } from '@/components/event-card';
 import { Icon } from '@/components/icon';
+import { InterestChip } from '@/components/interest-chip';
 import { SearchBar } from '@/components/search-bar';
 import { SectionHeader } from '@/components/section-header';
 import { Text } from '@/components/text';
 import { useDeals, usingLiveApi } from '@/lib/api';
-import {
-  ALL_DEALS,
-  QUICK_FILTERS,
-  UPCOMING_ONLY,
-  applyEventFilters,
-  applyFilters,
-  quickFilterDeals,
-  quickFilterEvents,
-  type QuickFilter,
-} from '@/lib/filters';
+import { applyEventFilters, applyFilters, byStoreTypes } from '@/lib/filters';
+import { STORE_TYPES } from '@/lib/interests';
 import { combinedLine } from '@/lib/line-check';
 import { HOME } from '@/lib/mock';
 import { useStore } from '@/lib/store';
@@ -35,12 +28,22 @@ import { colors, gutter } from '@/theme';
 export default function DealsScreen() {
   const insets = useSafeAreaInsets();
   const { deals, events, loading, error } = useDeals();
-  const { saved, toggleSaved, activity, filters, lineReports } = useStore();
-  const [quick, setQuick] = useState<QuickFilter>(ALL_DEALS);
+  const { saved, toggleSaved, activity, filters, lineReports, topics } = useStore();
+  // Your store-type interests as chips, all on at first; "All" turns them off.
+  const interests = STORE_TYPES.filter((t) => topics.has(t.label));
+  const [picked, setPicked] = useState(() => new Set(interests.map((t) => t.label)));
+  const [upcomingOnly, setUpcomingOnly] = useState(false);
   const [query, setQuery] = useState('');
 
-  const shownDeals = quickFilterDeals(applyFilters(deals, filters, query), quick);
-  const shownEvents = quickFilterEvents(applyEventFilters(events, filters, query), quick);
+  const togglePicked = (label: string) =>
+    setPicked((s) => {
+      const next = new Set(s);
+      if (next.has(label)) next.delete(label);
+      else next.add(label);
+      return next;
+    });
+  const shownDeals = upcomingOnly ? [] : byStoreTypes(applyFilters(deals, filters, query), picked);
+  const shownEvents = byStoreTypes(applyEventFilters(events, filters, query), picked);
   const unread = activity.some((a) => a.unread);
 
   let agentStatus = 'Watching 1,284 spots near you';
@@ -91,8 +94,22 @@ export default function DealsScreen() {
         </View>
 
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips}>
-          {QUICK_FILTERS.map((f) => (
-            <Chip key={f.label} label={f.label} active={f === quick} onPress={() => setQuick(f)} />
+          <Chip
+            label="All"
+            active={picked.size === 0 && !upcomingOnly}
+            onPress={() => {
+              setPicked(new Set());
+              setUpcomingOnly(false);
+            }}
+          />
+          {interests.map((t) => (
+            <InterestChip
+              key={t.label}
+              label={t.label}
+              icon={t.icon}
+              selected={picked.has(t.label)}
+              onPress={() => togglePicked(t.label)}
+            />
           ))}
         </ScrollView>
 
@@ -110,7 +127,7 @@ export default function DealsScreen() {
             <SectionHeader
               leading={<Icon name="calendar" size={16} color={colors.orange} />}
               title="Coming up"
-              onSeeAll={() => setQuick(UPCOMING_ONLY)}
+              onSeeAll={() => setUpcomingOnly(true)}
             />
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.carousel}>
               {shownEvents.map((e) => (
@@ -120,12 +137,12 @@ export default function DealsScreen() {
           </View>
         )}
 
-        {quick !== UPCOMING_ONLY && (
+        {!upcomingOnly && (
           <View style={{ gap: 20 }}>
             <SectionHeader
               leading={<DotSection width={8} height={8} />}
               title="Live now"
-              onSeeAll={() => setQuick(ALL_DEALS)}
+              onSeeAll={() => setUpcomingOnly(false)}
             />
             <View style={[styles.pad, { gap: 12 }]}>
               {shownDeals.map((d) => (

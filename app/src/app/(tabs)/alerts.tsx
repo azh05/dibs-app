@@ -14,13 +14,13 @@ import { Overline } from '@/components/section-header';
 import { Text } from '@/components/text';
 import { Thumb } from '@/components/thumb';
 import { findDeal, useDeals } from '@/lib/api';
-import { INTERESTS } from '@/lib/interests';
+import { INTERESTS, STORE_TYPES } from '@/lib/interests';
 import { alertBody } from '@/lib/notifications';
 import { useStore } from '@/lib/store';
 import { colors, gutter, radii } from '@/theme';
 
-/** Picked interests shown before the "+N more" pill. */
-const SHOWN_INTERESTS = 7;
+/** Chips shown before the "+N more" pill: picked interests first, then store types to add. */
+const SHOWN_INTERESTS = 9;
 
 // 12 · Alerts (Figma 5:559)
 export default function AlertsScreen() {
@@ -33,6 +33,10 @@ export default function AlertsScreen() {
   const latest = latestId ? findDeal(deals, latestId) : undefined;
   const nextEvent = events[0];
   const picked = INTERESTS.filter((i) => topics.has(i.label));
+  // Figma shows unpicked store types after your picks, so you can add one with a tap.
+  const suggestions = STORE_TYPES.filter((i) => !topics.has(i.label));
+  const chips = [...picked, ...suggestions].slice(0, SHOWN_INTERESTS);
+  const morePicked = picked.length - chips.filter((i) => topics.has(i.label)).length;
   const editInterests = () => router.push({ pathname: '/onboarding/interests', params: { edit: '1' } });
 
   return (
@@ -69,13 +73,19 @@ export default function AlertsScreen() {
             </Pressable>
           </View>
           <View style={styles.topics}>
-            {picked.slice(0, SHOWN_INTERESTS).map((i) => (
-              <InterestChip key={i.label} label={i.label} icon={i.icon} selected onPress={editInterests} />
+            {chips.map((i) => (
+              <InterestChip
+                key={i.label}
+                label={i.label}
+                icon={i.icon}
+                selected={topics.has(i.label)}
+                onPress={() => store.toggleTopic(i.label)}
+              />
             ))}
-            {picked.length > SHOWN_INTERESTS && (
+            {morePicked > 0 && (
               <Pressable onPress={editInterests} accessibilityRole="button" style={styles.more}>
                 <Text weight="bold" size={14} color={colors.inkSecondary}>
-                  +{picked.length - SHOWN_INTERESTS} more
+                  +{morePicked} more
                 </Text>
               </Pressable>
             )}

@@ -452,5 +452,5 @@ export const MOCK_SUBMISSIONS: Submission[] = [
   { id: 's2', store: 'Corner Market', offer: '2 for $5 snacks', icon: 'cart', status: 'review' },
 ];
 
-/** Gift card dollars earned before this session (the design shows "$10 earned"). */
-export const MOCK_EARNED = 10;
+/** Credits earned before this session (the design shows "1,000 credits earned"). */
+export const MOCK_CREDITS = 1000;

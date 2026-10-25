@@ -23,7 +23,7 @@ const TONES = {
   success: { bg: colors.muted, fg: colors.success, Dot: DotSuccess },
 } as const;
 
-// Dot + label pill: "Ends 6 PM", "Ends in 2h 14m", "Verified · +$5", "In review".
+// Dot + label pill: "Ends 6 PM", "Ends in 2h 14m", "Verified · +500", "In review".
 export function StatusPill({ label, tone = 'orange' }: { label: string; tone?: keyof typeof TONES }) {
   const { bg, fg, Dot } = TONES[tone];
   return (

@@ -5,7 +5,7 @@ Short-lived local deals (grand-opening specials, BOGO offers, promo codes) found
 | Folder | What | Docs |
 | --- | --- | --- |
 | [`api/`](api/) | FastAPI backend: finds and verifies deals. Claude web search, Bright Data (Google + public Instagram posts), Apify (Google Maps shops + their Instagram, TikTok, Facebook and websites), user photos | [api/README.md](api/README.md) |
-| [`app/`](app/) | Expo (React Native) app built from the Figma design: Deals, Map, Earn $5, Alerts, deal and event detail | [app/README.md](app/README.md) |
+| [`app/`](app/) | Expo (React Native) app built from the Figma design: Deals, Map, Friends, Earn credits, Alerts, deal and event detail | [app/README.md](app/README.md) |
 | [`docs/`](docs/) | Team notes: [outside APIs, keys and user sign-in options](docs/apis-and-auth.md) | |
 | Convex | Backend for the app: Clerk sign-in and the tables in the "Backend data model" doc. Not in the repo yet | [api/README.md, "Storing results"](api/README.md#storing-results-convex) |
 
@@ -41,6 +41,6 @@ app (Expo)  ->  Convex (Clerk sign-in, tables, scheduled scans)  ->  api/ (FastA
 - **app** reads and writes through Convex: the deal feed, saved deals, alerts, photo submissions. It holds no outside API keys.
 - **Convex** owns all storage and user auth. Its actions call the extract endpoints (on a schedule for 24/7 scans, or when a user searches or submits a photo) and upsert the results: shops by `Shop.id`, deals by `Deal.id` and the dedupe key. The schema and upsert rules are in [api/README.md, "Storing results"](api/README.md#storing-results-convex).
 - **api/** is stateless: it fetches, has Claude extract, verifies, and returns JSON. It has no auth yet, so it stays on 127.0.0.1; once Convex calls it from the cloud it needs a shared key between the two (planned: a `DIBS_API_KEY` header, see [docs/apis-and-auth.md](docs/apis-and-auth.md)).
-- Until Convex exists, the app calls the API directly when `EXPO_PUBLIC_API_URL` is set (`/extract/search` for the feed, `/extract/photo` for Earn $5).
+- Until Convex exists, the app calls the API directly when `EXPO_PUBLIC_API_URL` is set (`/extract/search` for the feed, `/extract/photo` for Earn).
 
 API keys live only in `api/.env` (gitignored). Neither the app nor Convex calls Anthropic, Bright Data or Apify directly.

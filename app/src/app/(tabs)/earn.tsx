@@ -7,17 +7,17 @@ import { Icon } from '@/components/icon';
 import { StatusPill } from '@/components/pills';
 import { Text } from '@/components/text';
 import { Thumb } from '@/components/thumb';
-import { pickPhoto } from '@/lib/photo';
+import { CREDITS_PER_DEAL, pickPhoto } from '@/lib/photo';
 import { useStore } from '@/lib/store';
 import type { Submission } from '@/lib/types';
 import { colors, gutter, radii } from '@/theme';
 
-const STEPS = ['Snap it', 'We verify', 'Get $5'];
+const STEPS = ['Snap it', 'We verify', `Earn ${CREDITS_PER_DEAL}`];
 
-// 05 · Earn $5 (Figma 5:445)
+// 14 · Earn credits (Figma 5:445)
 export default function EarnScreen() {
   const insets = useSafeAreaInsets();
-  const { submissions, earned } = useStore();
+  const { submissions, credits } = useStore();
 
   const snap = async () => {
     const photo = await pickPhoto();
@@ -30,10 +30,10 @@ export default function EarnScreen() {
       <ScrollView contentContainerStyle={styles.content}>
         <View style={{ gap: 6 }}>
           <Text weight="extrabold" size={30} tracking={-0.9}>
-            Spot a deal. Get $5.
+            Spot a deal. Earn credits.
           </Text>
           <Text size={14} color={colors.inkSecondary} style={{ lineHeight: 21 }}>
-            Some deals only live on a poster or the menu. Snap one we haven’t found and get a gift card once it’s
+            Some deals only live on a poster or the menu. Snap one we haven’t found and earn credits once it’s
             verified.
           </Text>
         </View>
@@ -41,13 +41,13 @@ export default function EarnScreen() {
         <View style={styles.reward}>
           <View style={{ flex: 1, gap: 2 }}>
             <Text weight="extrabold" size={48} tracking={-1.92} color={colors.surface}>
-              $5
+              {CREDITS_PER_DEAL}
             </Text>
             <Text weight="bold" size={15} color={colors.surface}>
-              gift card per verified deal
+              credits per verified deal
             </Text>
             <Text size={13} color={colors.orangeSoft}>
-              Redeemable at most stores
+              Perks at local shops coming soon
             </Text>
           </View>
           <View style={styles.gift}>
@@ -89,7 +89,7 @@ export default function EarnScreen() {
               Your submissions
             </Text>
             <Text weight="bold" size={14} color={colors.success}>
-              ${earned} earned
+              {credits.toLocaleString()} credits earned
             </Text>
           </View>
           {submissions.map((s) => (
@@ -118,7 +118,7 @@ function SubmissionRow({ submission: s }: { submission: Submission }) {
         </Text>
       </View>
       {s.status === 'verified' ? (
-        <StatusPill label="Verified · +$5" tone="success" />
+        <StatusPill label={`Verified · +${CREDITS_PER_DEAL}`} tone="success" />
       ) : (
         <StatusPill label="In review" />
       )}

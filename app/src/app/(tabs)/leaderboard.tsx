@@ -36,7 +36,7 @@ function change(delta: number) {
   return { text: '— no change', color: colors.inkTertiary };
 }
 
-// 17 · Leaderboard (Figma 51:1657): ranked by dollars saved this month. Mock data for now.
+// 19 · Leaderboard (Figma 51:1657): ranked by dollars saved this month. Mock data for now.
 export default function LeaderboardScreen() {
   const insets = useSafeAreaInsets();
   const params = useLocalSearchParams<{ scope?: Scope }>();
@@ -53,7 +53,7 @@ export default function LeaderboardScreen() {
   return (
     <View style={[styles.screen, { paddingTop: insets.top }]}>
       <StatusBar style="dark" />
-      <ScrollView contentContainerStyle={[styles.content, { paddingBottom: 110 + insets.bottom }]}>
+      <ScrollView contentContainerStyle={[styles.content, { paddingBottom: 90 }]}>
         <View style={styles.header}>
           <Pressable onPress={() => router.back()} hitSlop={10} accessibilityRole="button" accessibilityLabel="Back">
             <Icon name="back" size={22} />
@@ -131,7 +131,7 @@ export default function LeaderboardScreen() {
         </View>
       </ScrollView>
 
-      <View style={[styles.you, { bottom: Math.max(insets.bottom, 16) }]}>
+      <View style={[styles.you, { bottom: 12 }]}>
         <Text weight="extrabold" size={15} color={colors.orange}>
           {board.you.rank}
         </Text>
