@@ -230,6 +230,13 @@ class StubShopPipeline:
             raise self.error
         return bd_response("apify_shops").model_copy(update={"brightdata_requests": 0, "apify_runs": 5})
 
+    def discover(self, req, on_progress=None):
+        self.requests.append(req)
+        on_progress("found 2 shop(s) within 1 mi")
+        if self.error:
+            raise self.error
+        return bd_response("apify_maps").model_copy(update={"deals": [], "brightdata_requests": 0, "apify_runs": 7})
+
 
 @pytest.fixture
 def shops_client():
@@ -278,3 +285,31 @@ def test_shops_validates_input(shops_client):
     assert client.post("/extract/shops", json={"channels": ["myspace"]}).status_code == 422
     assert client.post("/extract/shops", json={"days": 0}).status_code == 422
     assert client.get("/extract/shops/nope").status_code == 404
+
+
+def test_discover_job_flow(shops_client):
+    client, stub = shops_client()
+    r = client.post("/discover/shops", json={"location": {"neighborhood": "Westwood"}, "lat": 34.0628, "lng": -118.4455})
+    assert r.status_code == 202
+    job = r.json()
+    assert job["status_url"] == f"/discover/shops/{job['job_id']}"
+    status = client.get(job["status_url"]).json()
+    assert status["status"] == "done" and status["progress"] == ["found 2 shop(s) within 1 mi"]
+    assert status["result"]["provider"] == "apify_maps" and status["result"]["deals"] == []
+    req = stub.requests[0]
+    assert req.radius_miles == 1 and req.max_shops == 250 and req.per_term == 60
+
+
+def test_discover_validates_input(shops_client):
+    client, _ = shops_client()
+    assert client.post("/discover/shops", json={"lat": 34.0}).status_code == 422  # no lng
+    assert client.post("/discover/shops", json={"lat": 34.0, "lng": -118.4, "radius_miles": 6}).status_code == 422
+    assert client.post("/discover/shops", json={"lat": 34.0, "lng": -118.4, "max_shops": 401}).status_code == 422
+    assert client.get("/discover/shops/nope").status_code == 404
+
+
+def test_discover_job_error_mapping(shops_client):
+    client, _ = shops_client(StubShopPipeline(error=ApifyTimeout("x")))
+    url = client.post("/discover/shops", json={"lat": 34.0, "lng": -118.4}).json()["status_url"]
+    job = client.get(url).json()
+    assert job["status"] == "failed" and job["error"]["status_code"] == 504

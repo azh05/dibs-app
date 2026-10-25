@@ -191,9 +191,33 @@ The response adds `shops` and `apify_runs`; `provider` is `apify_shops`.
 | Account memory full (402 "memory limit") | retried after 20 s, up to 3 times, then 502 |
 | One channel failed | 200, noted in `search_errors` |
 
+### `POST /discover/shops` (background job, 1 to 10 min)
+
+Every shop within a circle, from Google Maps only: no posts, no Claude, no deals. Convex calls it to keep each scan area's shop list (`app/convex/areas.ts`), so the API caches nothing for it.
+
+```bash
+JOB=$(curl -s -X POST localhost:8000/discover/shops -H 'content-type: application/json' \
+  -d '{"location":{"neighborhood":"Westwood"},"lat":34.0628,"lng":-118.4455,"radius_miles":1}' | python -c 'import json,sys; print(json.load(sys.stdin)["status_url"])')
+curl -s localhost:8000$JOB | python -m json.tool   # repeat until "status": "done"
+```
+
+| Field | Default | Meaning |
+| --- | --- | --- |
+| `lat`, `lng` | required | Center of the circle |
+| `radius_miles` | 1 (max 5) | Circle radius |
+| `categories`, `search_terms` | food and drink | Google Maps searches, as for `/extract/shops` |
+| `per_term` | 60 (max 120) | Results per search term |
+| `max_shops` | 250 (max 400) | Nearest shops kept across all terms |
+| `location` | Los Angeles | Names the area and sets the timezone; the search itself uses `lat`/`lng` |
+
+- One Maps Actor run per search term, 3 at a time, with `customGeolocation` (a GeoJSON point and `radiusKm`) instead of `locationQuery`. A text search stops at 120 places; a geolocated one doesn't, and one run per term keeps each inside the 4 minute limit.
+- Results are deduplicated by `Shop.id`, places outside the circle (or without coordinates) are dropped, and the rest are sorted nearest first and capped at `max_shops` (noted in `search_errors` when it cuts).
+- The response is a `SearchResponse` with `provider: "apify_maps"`, `deals: []` and the list in `shops`, each with the social links from its Maps listing or website.
+- Errors: a bad or missing `APIFY_TOKEN` fails the job; one search term failing (including a timeout) is noted in `search_errors`; the job fails only when every term does.
+
 ### Shops, deals and ids
 
-Every endpoint links its deals: each deal has a `shop_id` pointing at an entry in `shops`, and both have ids that stay the same across runs, so a database can upsert them without duplicates. Only `/extract/shops` starts from a Google Maps shop list; the other endpoints start from none, so their shops are the `found_via: "deal"` ones the deals name (`ig:<handle>` when Claude read a handle, else `name:<slug>`).
+Every endpoint links its deals: each deal has a `shop_id` pointing at an entry in `shops`, and both have ids that stay the same across runs, so a database can upsert them without duplicates. Only `/extract/shops` (and `/discover/shops`, which returns no deals) starts from a Google Maps shop list; the other endpoints start from none, so their shops are the `found_via: "deal"` ones the deals name (`ig:<handle>` when Claude read a handle, else `name:<slug>`).
 
 | Field | Meaning |
 | --- | --- |
@@ -215,13 +239,14 @@ The API stores nothing: results live in the job until the server restarts. Stora
 | Table | Upsert key | From |
 | --- | --- | --- |
 | `agent_runs` | one per job or response | `provider`, `usage`, `brightdata_requests`, `apify_runs`, `search_errors`; the API job id while polling |
-| `stores` | `external_id` = `Shop.id`, else Instagram handle, else name within the scanned area | `shops[]`; `Shop.category` → the app's store type (`app/convex/catalog.ts`), `Shop.hours` |
+| `stores` | `external_id` = `Shop.id`, else Instagram handle, else name within the scanned area (never one `gmaps:` place into another: chain branches stay separate) | `shops[]`; `Shop.category` → the app's store type (`app/convex/catalog.ts`), `Shop.hours` |
+| `scan_areas`, `area_stores` | one area per circle; one row per (area, store) | `/discover/shops` `shops[]` become the area's shop list; deal scans add the stores they find |
 | `sources` | normalized URL (`verify.normalize_url`, ported) | `sources[]` that a deal cites, with `text`, `origin` and `handle` |
 | `deals` | `dedupe_key` = store id + offer + code (`verify.py`'s rule, with the store's id instead of its name) | `deals[]`, including the display fields |
 | `deal_evidence` | `evidence_key` = `Deal.id` | one row per post behind a deal: quote, post date, `second_hand` |
 | `rejected_extractions` | one per rejected deal | `rejected[]` |
 
-A deal is first looked up by `Deal.id` (same post), then by the dedupe key (same offer in another post). `first_seen_at` is kept and `last_verified_at` bumped. A deal is `second_hand` only while every piece of its evidence is. Status is recomputed hourly with `verify.py`'s rules, plus `upcoming` and `hidden` (see `app/convex/lib/status.ts`). The shop-list cache (`ShopCache`) still lives in the API; Convex's own scan cache (`scan_cache`) stops it from re-running the same area within 6 hours.
+A deal is first looked up by `Deal.id` (same post), then by the dedupe key (same offer in another post). `first_seen_at` is kept and `last_verified_at` bumped. A deal is `second_hand` only while every piece of its evidence is. Status is recomputed hourly with `verify.py`'s rules, plus `upcoming` and `hidden` (see `app/convex/lib/status.ts`). Each area's shop list lives in Convex (`scan_areas` and `area_stores`, refreshed weekly through `/discover/shops`), so nothing is lost when the API restarts. The API's `ShopCache` is now only used by `/extract/shops`; Convex's own scan cache (`scan_cache`) stops it from re-running the same area within 6 hours.
 
 ### Apify setup
 
@@ -346,7 +371,7 @@ The act workflows call the API from Elastic Cloud, so the API needs a public URL
 uv run pytest -q
 ```
 
-240 tests: every verification rule, the display fields, deal linking on every endpoint, the multi-turn tool loop (pause_turn, forced tool, give-up), malformed output, search errors, the Bright Data client (retries, polling, timeouts, error rows), both Bright Data pipelines, the Apify client (request shape, errors, memory cap, each Actor's output), the shop pipeline (attribution, sweep, cache, batching, per-channel failures), the Bright Data Google steps (handle matching, account lookup, deal search) and deal-to-shop linking, photo extraction (year inference, time windows, upload checks), Elastic indexing, search, the agent, setup and Expo pushes, the shared API key, the job flow, and the API. They use a fake Claude client returning real SDK `Message` objects and `httpx.MockTransport` for Bright Data, Apify, Elastic and Expo, so no keys or credits are needed.
+253 tests: every verification rule, the display fields, deal linking on every endpoint, the multi-turn tool loop (pause_turn, forced tool, give-up), malformed output, search errors, the Bright Data client (retries, polling, timeouts, error rows), both Bright Data pipelines, the Apify client (request shape, errors, memory cap, each Actor's output), the shop pipeline (attribution, sweep, cache, batching, per-channel failures, area discovery), the Bright Data Google steps (handle matching, account lookup, deal search) and deal-to-shop linking, photo extraction (year inference, time windows, upload checks), Elastic indexing, search, the agent, setup and Expo pushes, the shared API key, the job flow, and the API. They use a fake Claude client returning real SDK `Message` objects and `httpx.MockTransport` for Bright Data, Apify, Elastic and Expo, so no keys or credits are needed.
 
 ## Cost and settings
 
@@ -369,7 +394,7 @@ app/brightdata.py Bright Data client: SERP API, Instagram posts scraper
 app/apify.py      Apify client: Google Maps, Instagram, TikTok, Facebook, website Actors
 app/sources.py    SourceDoc: one shape for everything Bright Data or Apify fetched
 app/bd_pipeline.py Bright Data fetch -> Claude extraction -> verification
-app/shop_pipeline.py Google Maps shops -> each shop's channels (Apify) -> extraction -> verification
+app/shop_pipeline.py Google Maps shops -> each shop's channels (Apify) -> extraction -> verification; discover(): Maps only
 app/linking.py    Deal -> shop links, stable shop and deal ids
 app/google_lookup.py Bright Data Google search for /extract/shops: missing accounts, deal posts
 app/photo.py      User photo -> Claude transcript + deals -> verification

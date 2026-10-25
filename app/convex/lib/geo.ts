@@ -13,6 +13,9 @@ export const dealGeo = new GeospatialIndex<Id<"deals">, { store_type: string; de
 /** Saved locations with alerts on, for finding who to notify about a new deal. */
 export const locationGeo = new GeospatialIndex<Id<"saved_locations">, Record<string, never>>(components.locationGeo);
 
+/** Scan area centers, for finding the area a new saved location falls in. */
+export const areaGeo = new GeospatialIndex<Id<"scan_areas">, Record<string, never>>(components.areaGeo);
+
 export function haversineMeters(a: { lat: number; lng: number }, b: { lat: number; lng: number }): number {
   const rad = Math.PI / 180;
   const dLat = (b.lat - a.lat) * rad;

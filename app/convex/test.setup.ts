@@ -1,5 +1,5 @@
 /// <reference types="vite/client" />
-// Shared convex-test setup: the schema, every function module and the three components.
+// Shared convex-test setup: the schema, every function module and the four components.
 import geospatialTest from "@convex-dev/geospatial/test";
 import rateLimiterTest from "@convex-dev/rate-limiter/test";
 import { convexTest } from "convex-test";
@@ -12,6 +12,7 @@ export function makeTest() {
   const t = convexTest(schema, modules);
   geospatialTest.register(t, "dealGeo");
   geospatialTest.register(t, "locationGeo");
+  geospatialTest.register(t, "areaGeo");
   rateLimiterTest.register(t);
   return t;
 }

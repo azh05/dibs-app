@@ -101,6 +101,22 @@ def test_website_globs_cover_each_site():
     assert "https://milksha.com/**deal**" in globs and "http://boba.example/**special**" in globs
 
 
+
+def test_find_shops_near_a_point_sends_geojson_not_location_query():
+    bodies = []
+
+    def handler(request):
+        bodies.append(json.loads(request.content))
+        return httpx.Response(201, json=[])
+
+    c = client(handler)
+    c.find_shops(["boba"], "Westwood, Los Angeles", 60, [], near=(34.0628, -118.4455, 1.6))
+    c.find_shops(["boba"], "Westwood, Los Angeles", 5, [])
+    near, named = bodies
+    assert near["customGeolocation"] == {"type": "Point", "coordinates": [-118.4455, 34.0628], "radiusKm": 1.6}
+    assert "locationQuery" not in near and near["maxCrawledPlacesPerSearch"] == 60
+    assert named["locationQuery"] == "Westwood, Los Angeles" and "customGeolocation" not in named
+
 # --- link parsing ----------------------------------------------------------------------
 
 @pytest.mark.parametrize(

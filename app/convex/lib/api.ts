@@ -100,7 +100,7 @@ export type ApiSearchResponse = {
   sources: ApiSource[];
   search_errors: string[];
   usage: { input_tokens: number; output_tokens: number; web_search_requests: number };
-  provider: "claude_web_search" | "brightdata_serp" | "brightdata_instagram" | "user_photo" | "apify_shops";
+  provider: "claude_web_search" | "brightdata_serp" | "brightdata_instagram" | "user_photo" | "apify_shops" | "apify_maps";
   brightdata_requests: number;
   apify_runs: number;
   shops: ApiShop[];

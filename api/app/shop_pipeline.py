@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import os
 import re
 import threading
@@ -39,7 +40,7 @@ from .brightdata import BrightDataClient, BrightDataError
 from .extractor import DEFAULT_MODEL, _today
 from .google_lookup import GoogleFindings, GoogleLookup
 from .linking import link_deals
-from .schemas import Category, SearchRequest, SearchResponse, Shop, ShopsRequest
+from .schemas import Category, DiscoverRequest, SearchRequest, SearchResponse, Shop, ShopsRequest, Usage
 from .sources import combine, from_serp, from_social, from_website
 from .verify import normalize_url
 
@@ -61,19 +62,21 @@ SWEEP_QUERY_TERMS = 3  # TikTok searches for the first N terms
 SWEEP_TIKTOK_RESULTS = 15  # search has no date filter: live, 82 of 90 results were too old
 SWEEP_HASHTAG_RESULTS = 25
 MAX_MENTIONED_SHOPS = 15
+DISCOVER_PARALLEL = 3  # Maps runs at once in /discover/shops (2 GB each), leaving Apify memory for deal scans
+KM_PER_MILE = 1.609344
 CACHE_TTL = timedelta(days=7)
 DEFAULT_CACHE = Path(__file__).resolve().parent.parent / ".cache" / "shops.json"
 _SOCIAL_HOSTS = ("instagram.com", "facebook.com", "tiktok.com", "fb.com")
 
 
-def search_terms(req: ShopsRequest) -> list[str]:
+def search_terms(req: ShopsRequest | DiscoverRequest) -> list[str]:
     if req.search_terms:
         return list(dict.fromkeys(t.strip() for t in req.search_terms if t.strip()))
     terms = [t for c in req.categories for t in CATEGORY_TERMS[c]]
     return list(dict.fromkeys(terms)) or DEFAULT_TERMS
 
 
-def area(req: ShopsRequest) -> str:
+def area(req: ShopsRequest | DiscoverRequest) -> str:
     loc = req.location
     return ", ".join(p for p in (loc.neighborhood, loc.city, loc.region) if p)
 
@@ -144,6 +147,12 @@ def _cache_from_env() -> ShopCache:
     if path is not None and path.strip().lower() in ("", "off", "none"):
         return ShopCache(None)
     return ShopCache(Path(path) if path else DEFAULT_CACHE)
+
+
+def distance_km(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
+    rad = math.pi / 180
+    h = math.sin((lat2 - lat1) * rad / 2) ** 2 + math.cos(lat1 * rad) * math.cos(lat2 * rad) * math.sin((lng2 - lng1) * rad / 2) ** 2
+    return 2 * 6371 * math.asin(math.sqrt(h))
 
 
 def mentioned_shops(posts: list[SocialPost], known: set[str], limit: int = MAX_MENTIONED_SHOPS) -> list[Shop]:
@@ -367,6 +376,74 @@ class ShopPipeline:
             apify_runs=counter.count,
             brightdata_requests=google.counter.count if google else 0,
             shops=all_shops,
+        )
+
+    def discover(self, req: DiscoverRequest, on_progress: Optional[Callable[[str], None]] = None) -> SearchResponse:
+        """Every shop in the circle from Google Maps, nearest first. One Actor run per search term (each capped at
+        per_term results), so a big area stays inside the 4 minute run limit. No posts and no Claude."""
+        progress = on_progress or (lambda _msg: None)
+        self.check_ready()
+        terms = search_terms(req)
+        radius_km = req.radius_miles * KM_PER_MILE
+        counter = RunCounter()
+        errors: list[str] = []
+        name = area(req)
+        found: dict[str, list[Shop]] = {}
+        with ThreadPoolExecutor(max_workers=DISCOVER_PARALLEL) as pool:
+            futures = {
+                t: pool.submit(
+                    self._channel,
+                    lambda t=t: self.apify.find_shops([t], name, req.per_term, errors, counter, near=(req.lat, req.lng, radius_km)),
+                )
+                for t in terms
+            }
+            failed: list[str] = []
+            for t, fut in futures.items():
+                try:
+                    found[t] = fut.result()
+                except ApifyAuthError:
+                    raise
+                except ApifyError as exc:  # incl. a timeout: the other terms still count
+                    failed.append(f"maps: {t} failed: {exc}")
+                    found[t] = []
+                    progress(f"maps: {t}: failed")
+                    continue
+                progress(f"maps: {t}: {len(found[t])} place(s)")
+        if len(failed) == len(terms):
+            raise ApifyError("every Google Maps search failed: " + "; ".join(failed[:3]))
+        errors += failed
+
+        shops: dict[str, tuple[float, Shop]] = {}
+        outside = 0
+        for t in terms:
+            for s in found[t]:
+                if s.id in shops:
+                    continue
+                if s.lat is None or s.lng is None:
+                    errors.append(f"{s.name}: no coordinates on Google Maps; skipped")
+                    continue
+                km = distance_km(req.lat, req.lng, s.lat, s.lng)
+                if km > radius_km:
+                    outside += 1
+                    continue
+                shops[s.id] = (km, s)
+        nearest = [s for _km, s in sorted(shops.values(), key=lambda pair: pair[0])]
+        if outside:
+            progress(f"dropped {outside} place(s) outside {req.radius_miles:g} mi")
+        if len(nearest) > req.max_shops:
+            errors.append(f"kept the nearest {req.max_shops} of {len(nearest)} shops")
+        progress(f"found {min(len(nearest), req.max_shops)} shop(s) within {req.radius_miles:g} mi")
+        return SearchResponse(
+            as_of=_today(req.location.timezone),
+            deals=[],
+            rejected=[],
+            queries=[f"maps: {t}" for t in terms],
+            sources=[],
+            usage=Usage(),
+            search_errors=errors,
+            provider="apify_maps",
+            apify_runs=counter.count,
+            shops=nearest[: req.max_shops],
         )
 
     @staticmethod

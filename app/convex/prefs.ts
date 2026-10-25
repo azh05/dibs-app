@@ -5,8 +5,10 @@ import { internal } from "./_generated/api";
 import type { Doc } from "./_generated/dataModel";
 import { mutation, query } from "./_generated/server";
 import type { MutationCtx } from "./_generated/server";
+import { assignArea, scanTarget } from "./areas";
 import { getUser, requireUser } from "./lib/auth";
 import { locationGeo } from "./lib/geo";
+import { rateLimiter } from "./lib/rateLimits";
 import { ACTIVE_STATUSES } from "./lib/status";
 import { areaKey } from "./lib/text";
 import { DEFAULT_TIMEZONE } from "./lib/time";
@@ -19,28 +21,29 @@ async function syncLocationGeo(ctx: MutationCtx, loc: Doc<"saved_locations">) {
 }
 
 /** Kick off a scan for an area nobody has scanned lately, so a new user's feed fills in. */
-async function scanIfNew(ctx: MutationCtx, loc: Doc<"saved_locations">) {
-  if (!loc.neighborhood) return;
+async function scanIfNew(ctx: MutationCtx, loc: Doc<"saved_locations">, area: Doc<"scan_areas">) {
+  if (!area.neighborhood) return;
   const last = await ctx.db
     .query("agent_runs")
-    .withIndex("by_area", (q) => q.eq("area.scan_area_key", loc.scan_area_key))
+    .withIndex("by_area", (q) => q.eq("area.scan_area_key", area.key))
     .order("desc")
     .first();
   if (last && last.status !== "failed" && last.started_at > Date.now() - CACHE_TTL) return;
   await ctx.scheduler.runAfter(0, internal.scans.startShops, {
     trigger: "schedule",
-    area: {
-      scan_area_key: loc.scan_area_key,
-      neighborhood: loc.neighborhood,
-      city: loc.city,
-      region: loc.region,
-      timezone: loc.timezone,
-      lat: loc.lat,
-      lng: loc.lng,
-      radius_miles: Math.max(1, loc.radius_miles),
-      saved_location_id: loc._id,
-    },
+    area: { ...scanTarget(area), saved_location_id: loc._id },
   });
+}
+
+/** Put the location in a scan area. A new or widened area gets its shop list now (rate-limited per user; the
+ * discovery cron catches up otherwise); an area with a fresh list costs nothing. */
+async function placeInArea(ctx: MutationCtx, user: Doc<"users">, loc: Doc<"saved_locations">) {
+  const { area, needsDiscovery } = await assignArea(ctx, loc);
+  if (needsDiscovery) {
+    const { ok } = await rateLimiter.limit(ctx, "areaDiscovery", { key: user._id });
+    if (ok) await ctx.scheduler.runAfter(0, internal.areas.startDiscovery, { areaId: area._id });
+  }
+  return area;
 }
 
 export const savedLocations = query({
@@ -101,7 +104,8 @@ export const saveLocation = mutation({
     }
     const loc = (await ctx.db.get("saved_locations", locId))!;
     await syncLocationGeo(ctx, loc);
-    await scanIfNew(ctx, loc);
+    const area = await placeInArea(ctx, user, loc);
+    await scanIfNew(ctx, loc, area);
     return locId;
   },
 });
@@ -117,7 +121,9 @@ export const setAlertRadius = mutation({
         .withIndex("by_user", (q) => q.eq("user_id", user._id))
         .collect()
     ).find((l) => l.is_primary);
-    if (loc) await ctx.db.patch("saved_locations", loc._id, { radius_miles: Math.min(Math.max(radius_miles, 0.25), 5) });
+    if (!loc) return;
+    await ctx.db.patch("saved_locations", loc._id, { radius_miles: Math.min(Math.max(radius_miles, 0.25), 5) });
+    await placeInArea(ctx, user, (await ctx.db.get("saved_locations", loc._id))!); // a wider circle may need more shops
   },
 });
 

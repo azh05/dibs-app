@@ -193,7 +193,7 @@ class Usage(BaseModel):
     web_search_requests: int = 0
 
 
-Provider = Literal["claude_web_search", "brightdata_serp", "brightdata_instagram", "user_photo", "apify_shops"]
+Provider = Literal["claude_web_search", "brightdata_serp", "brightdata_instagram", "user_photo", "apify_shops", "apify_maps"]
 
 Channel = Literal["instagram", "tiktok", "facebook", "website"]
 
@@ -326,6 +326,21 @@ class ShopsRequest(BaseModel):
         description="Bright Data Google search: find shops' missing Instagram/TikTok/Facebook accounts, and recent deal "
         "posts in the area. Skipped when BRIGHTDATA_API_KEY isn't set",
     )
+
+
+class DiscoverRequest(BaseModel):
+    """Every shop within a circle, from Google Maps only (no posts, no Claude). Convex keeps the list per area."""
+
+    location: Location = Field(default_factory=Location, description="Names the area and sets the timezone")
+    lat: float = Field(ge=-90, le=90, examples=[34.0628])
+    lng: float = Field(ge=-180, le=180, examples=[-118.4455])
+    radius_miles: float = Field(1.0, gt=0, le=5)
+    categories: list[Category] = Field(default_factory=list)
+    search_terms: list[str] = Field(
+        default_factory=list, max_length=12, description="Google Maps searches. Default: from categories, else food and drink"
+    )
+    max_shops: int = Field(250, ge=1, le=400, description="Nearest shops kept, across all search terms")
+    per_term: int = Field(60, ge=1, le=120, description="Google Maps results per search term")
 
 
 class DealSearchRequest(BaseModel):

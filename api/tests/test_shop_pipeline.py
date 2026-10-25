@@ -2,9 +2,9 @@ from datetime import date, datetime, timedelta, timezone
 
 import pytest
 
-from app.apify import ApifyAuthError, ApifyError, SocialPost, WebPage
-from app.schemas import DealStatus, Location, Shop, ShopsRequest
-from app.shop_pipeline import ShopCache, ShopPipeline, mentioned_shops, search_terms, sweep_targets
+from app.apify import ApifyAuthError, ApifyError, ApifyTimeout, SocialPost, WebPage
+from app.schemas import DealStatus, DiscoverRequest, Location, Shop, ShopsRequest
+from app.shop_pipeline import ShopCache, ShopPipeline, distance_km, mentioned_shops, search_terms, sweep_targets
 from tests.test_extractor import FakeClient, msg, record_block
 
 TODAY = date(2026, 10, 23)
@@ -37,8 +37,9 @@ FAN_POST = SocialPost("tiktok", FAN_URL, "westwoodfoodie", "Milksha is doing $3 
 
 
 class FakeApify:
-    def __init__(self, shops=None, fail=None):
+    def __init__(self, shops=None, fail=None, by_term=None):
         self.shops = [MILKSHA] if shops is None else shops
+        self.by_term = by_term or {}
         self.fail = fail or {}
         self.calls = {}
         self.token = "tok"
@@ -53,7 +54,14 @@ class FakeApify:
             raise self.fail[name]
         return result
 
-    def find_shops(self, terms, location, per_term, errors, counter=None, found_via="google_maps"):
+    def find_shops(self, terms, location, per_term, errors, counter=None, found_via="google_maps", near=None):
+        if near:
+            if counter:
+                counter.add()
+            self.calls.setdefault("maps_near", []).append((terms, near, per_term))
+            if terms[0] in self.fail:
+                raise self.fail[terms[0]]
+            return list(self.by_term.get(terms[0], []))
         return self._call("maps", (terms, location, per_term, found_via), list(self.shops))
 
     def instagram_posts(self, handles, since, n, errors, counter=None):
@@ -298,3 +306,90 @@ def test_old_sweep_posts_add_no_mentioned_shops():
     out, apify, *_ = run(deals=[], apify=OldSweep())
     assert apify.calls["tiktok"] == [["milksha.ca"]]
     assert [s.name for s in out.shops] == ["Milksha Westwood"]
+
+
+
+# --- /discover/shops ---------------------------------------------------------------
+
+CENTER = (34.0628, -118.4455)  # Westwood
+
+
+def place(name, lat, lng, **kw):
+    return Shop(name=name, place_id=f"p_{name.lower().replace(' ', '_')}", lat=lat, lng=lng, **kw)
+
+
+NEAR = place("Tapioca Lab", 34.0644, -118.4419, instagram="tapiocalab")  # 0.2 mi
+MID = place("Enzos Pizzeria", 34.0600, -118.4480)  # 0.25 mi
+FAR = place("Santa Monica Pier Cafe", 34.0095, -118.4973)  # 4.6 mi
+
+
+def discover(by_term, req=None, fail=None):
+    apify = FakeApify(by_term=by_term, fail=fail)
+    pipeline = ShopPipeline(apify=apify, anthropic_client=FakeClient([]), model="test-model", cache=ShopCache(None))
+    progress = []
+    req = req or DiscoverRequest(location=Location(neighborhood="Westwood"), lat=CENTER[0], lng=CENTER[1], search_terms=["boba", "pizza"])
+    return pipeline.discover(req, on_progress=progress.append), apify, progress
+
+
+def test_discover_searches_each_term_around_the_point():
+    out, apify, _ = discover({"boba": [NEAR], "pizza": [MID]})
+    assert sorted(c[0][0] for c in apify.calls["maps_near"]) == ["boba", "pizza"]
+    _, near, per_term = apify.calls["maps_near"][0]
+    assert near == (CENTER[0], CENTER[1], pytest.approx(1.609344)) and per_term == 60
+    assert out.provider == "apify_maps" and out.deals == [] and out.apify_runs == 2
+    assert out.queries == ["maps: boba", "maps: pizza"]
+
+
+def test_discover_dedupes_filters_radius_and_sorts_nearest_first():
+    no_coords = Shop(name="Ghost Kitchen", place_id="p_ghost")
+    out, _, progress = discover({"boba": [MID, NEAR, FAR], "pizza": [MID, no_coords]})
+    assert [s.name for s in out.shops] == ["Tapioca Lab", "Enzos Pizzeria"]
+    assert any("Ghost Kitchen" in e for e in out.search_errors)
+    assert any("outside 1 mi" in p for p in progress)
+
+
+def test_discover_caps_at_max_shops():
+    req = DiscoverRequest(lat=CENTER[0], lng=CENTER[1], search_terms=["boba"], max_shops=1)
+    out, *_ = discover({"boba": [MID, NEAR]}, req=req)
+    assert [s.name for s in out.shops] == ["Tapioca Lab"]
+    assert "kept the nearest 1 of 2 shops" in out.search_errors
+
+
+def test_discover_defaults_to_food_and_drink_terms():
+    req = DiscoverRequest(lat=CENTER[0], lng=CENTER[1])
+    _, apify, _ = discover({}, req=req)
+    assert search_terms(req) == ["restaurant", "fast food", "pizza", "dessert", "boba", "coffee shop", "juice bar"]
+    assert sorted(c[0][0] for c in apify.calls["maps_near"]) == sorted(search_terms(req))  # 3 at a time, any order
+
+
+def test_discover_survives_one_term_failing():
+    out, apify, _ = discover({"pizza": [MID]}, fail={"boba": ApifyTimeout("slow")})
+    assert [s.name for s in out.shops] == ["Enzos Pizzeria"]
+    assert any(e.startswith("maps: boba failed") for e in out.search_errors)
+    assert len([c for c in apify.calls["maps_near"] if c[0] == ["boba"]]) == 1  # timeouts aren't retried
+
+
+def test_discover_retries_a_transient_failure_once():
+    class Flaky(FakeApify):
+        def find_shops(self, terms, *a, **kw):
+            if terms == ["boba"] and not self.calls.get("flaked"):
+                self.calls["flaked"] = [1]
+                raise ApifyError("502")
+            return super().find_shops(terms, *a, **kw)
+
+    apify = Flaky(by_term={"boba": [NEAR]})
+    pipeline = ShopPipeline(apify=apify, anthropic_client=FakeClient([]), model="test-model", cache=ShopCache(None))
+    out = pipeline.discover(DiscoverRequest(lat=CENTER[0], lng=CENTER[1], search_terms=["boba"]))
+    assert [s.name for s in out.shops] == ["Tapioca Lab"] and out.search_errors == []
+
+
+def test_discover_fails_when_every_term_fails_or_the_token_is_bad():
+    with pytest.raises(ApifyError, match="every Google Maps search failed"):
+        discover({}, fail={"boba": ApifyTimeout("slow"), "pizza": ApifyTimeout("slow")})
+    with pytest.raises(ApifyAuthError):
+        discover({}, fail={"boba": ApifyAuthError("bad token")})
+
+
+def test_distance_km():
+    assert distance_km(*CENTER, *CENTER) == 0
+    assert distance_km(*CENTER, 34.0095, -118.4973) == pytest.approx(7.6, abs=0.3)

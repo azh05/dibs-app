@@ -1,5 +1,6 @@
 """FastAPI app: verified deal JSON from Claude web search (/extract/search), Bright Data (/extract/serp,
 /extract/instagram), Apify shop scraping (/extract/shops), or a user's photo of an in-store deal (/extract/photo).
+/discover/shops lists every shop in a circle from Google Maps (no deals) for Convex's per-area shop list.
 With ELASTIC_URL set, every result is indexed in Elastic for /search/deals and the /agent/ask agent."""
 from __future__ import annotations
 
@@ -30,6 +31,7 @@ from .schemas import (
     AskResponse,
     DealSearchRequest,
     DealSearchResponse,
+    DiscoverRequest,
     InstagramRequest,
     JobCreated,
     JobStatus,
@@ -207,6 +209,24 @@ def extract_shops(
 
 @app.get("/extract/shops/{job_id}", response_model=JobStatus)
 def shops_job(job_id: str, jobs: JobStore = Depends(get_jobs)) -> JobStatus:
+    return _job(jobs, job_id)
+
+
+@app.post("/discover/shops", status_code=202, response_model=JobCreated)
+def discover_shops(
+    req: DiscoverRequest,
+    pipeline: ShopPipeline = Depends(get_shop_pipeline),
+    jobs: JobStore = Depends(get_jobs),
+) -> JobCreated:
+    """Start a background job: every shop within radius_miles of (lat, lng) on Google Maps, nearest first, with the
+    social links from each listing. No posts, no deals. Poll status_url (1 to 10 min)."""
+    _call(pipeline.check_ready)
+    job_id = jobs.submit(lambda on_progress: pipeline.discover(req, on_progress=on_progress))
+    return JobCreated(job_id=job_id, status_url=f"/discover/shops/{job_id}")
+
+
+@app.get("/discover/shops/{job_id}", response_model=JobStatus)
+def discover_job(job_id: str, jobs: JobStore = Depends(get_jobs)) -> JobStatus:
     return _job(jobs, job_id)
 
 
