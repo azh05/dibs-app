@@ -51,6 +51,8 @@ Stateless: it fetches, has Claude extract deals as JSON, verifies them, and retu
 | `POST /extract/shops` (job) | Shops found on Google Maps, then their Instagram, TikTok, Facebook and websites, plus a hashtag and TikTok sweep of the area |
 | `POST /extract/photo` | A user's photo of an in-store poster or menu |
 
+With an Elastic Serverless project configured, every verified deal is also indexed with Jina embeddings. `POST /search/deals` searches them by meaning in any language, plus distance. `POST /agent/ask` talks to an Elastic Agent Builder agent that answers from that index, and through Elastic Workflows can watch for new deals (with a push alert) or scan an area. See [api/README.md, "Elastic"](api/README.md#elastic-search-agent-and-workflows).
+
 Every deal must cite a source the API actually fetched, with a word-for-word quote. For scraped pages and photos, that quote must also appear in the fetched text. Each deal gets a status (`live`, `needs_check`, `stale`, `expired`) and is marked as the shop's own post or second-hand. Every endpoint returns shop records and deals with stable ids, so Convex upserts them without duplicates. With `DIBS_API_KEY` set, `/extract/*` calls need the `X-Dibs-Key` header; without it the API is open and must stay on 127.0.0.1.
 
 ### app/ (built)

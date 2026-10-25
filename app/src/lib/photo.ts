@@ -1,12 +1,14 @@
 // A user's photo of an in-store deal → what the result screen shows. In backend mode the photo is uploaded to
 // Convex storage and photos.submit hands it to the API (/extract/photo); the screen subscribes to the submission.
-// In mock mode the check returns the Figma example (an expired Chipotle poster).
+// Without the backend, the check posts to the API directly when EXPO_PUBLIC_API_URL is set, and otherwise returns
+// the Figma example (an expired Chipotle poster).
 // The wording follows the API's own demo page (api/demo/index.html).
 import { useMutation } from 'convex/react';
 import * as ImagePicker from 'expo-image-picker';
 
 import { api } from '@convex/_generated/api';
 import type { Id } from '@convex/_generated/dataModel';
+import { API_URL, apiHeaders } from '@/lib/api';
 import type { ApiDeal, ApiSearchResponse } from '@/lib/types';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -78,10 +80,22 @@ function mockResponse(photoDate: string): ApiSearchResponse {
   };
 }
 
-/** Mock mode: read the deal off a photo (the Figma example). */
+/** Without the backend: read the deal off a photo through the API (5 to 20 s), or the Figma example. */
 export async function checkPhoto(photo: Photo): Promise<ApiSearchResponse> {
-  await new Promise((r) => setTimeout(r, 1500));
-  return mockResponse(photo.date);
+  if (!API_URL) {
+    await new Promise((r) => setTimeout(r, 1500));
+    return mockResponse(photo.date);
+  }
+  const form = new FormData();
+  const ext = photo.mimeType.split('/')[1] ?? 'jpg';
+  // React Native's FormData takes a { uri, name, type } file part.
+  form.append('image', { uri: photo.uri, name: `photo.${ext}`, type: photo.mimeType } as unknown as Blob);
+  form.append('photo_date', photo.date);
+  form.append('timezone', Intl.DateTimeFormat().resolvedOptions().timeZone || 'America/Los_Angeles');
+  const res = await fetch(`${API_URL}/extract/photo`, { method: 'POST', body: form, headers: apiHeaders(false) });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(typeof body.detail === 'string' ? body.detail : `Request failed (${res.status})`);
+  return body as ApiSearchResponse;
 }
 
 /** Backend mode: upload the photo to Convex storage and submit it. Returns the submission to watch. */

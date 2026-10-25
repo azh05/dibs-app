@@ -1,6 +1,6 @@
 import { router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -16,12 +16,13 @@ import { InterestChip } from '@/components/interest-chip';
 import { SearchBar } from '@/components/search-bar';
 import { SectionHeader } from '@/components/section-header';
 import { Text } from '@/components/text';
-import { useDeals, useSpotsWatched } from '@/lib/api';
+import { searchIndexedDeals, useDeals, useSpotsWatched, usingLiveApi } from '@/lib/api';
 import { usingBackend } from '@/lib/backend';
 import { UPCOMING_EVENTS, applyEventFilters, applyFilters, quickFilters } from '@/lib/filters';
 import { DEAL_TYPES, STORE_TYPES } from '@/lib/interests';
 import { combinedLine } from '@/lib/line-check';
 import { useStore } from '@/lib/store';
+import type { Deal } from '@/lib/types';
 import { colors, gutter } from '@/theme';
 
 // 07 · Deals (Figma 4:73)
@@ -36,6 +37,20 @@ export default function DealsScreen() {
   const [pickedTypes, setPickedTypes] = useState(new Set<string>());
   const [upcomingOnly, setUpcomingOnly] = useState(false);
   const [query, setQuery] = useState('');
+  // With the live API, a search goes to the Elastic index (every deal ever found, by meaning and distance).
+  const [indexed, setIndexed] = useState<{ query: string; deals: Deal[] } | null>(null);
+  const q = query.trim();
+
+  useEffect(() => {
+    if (!usingLiveApi || !q) return;
+    const id = setTimeout(() => {
+      searchIndexedDeals(q, place.coords, filters.radiusMi).then(
+        (found) => setIndexed({ query: q, deals: found }),
+        () => setIndexed({ query: q, deals: [] }),
+      );
+    }, 400);
+    return () => clearTimeout(id);
+  }, [q, filters.radiusMi, place.coords]);
 
   const toggle = (set: Set<string>, label: string) => {
     const next = new Set(set);
@@ -46,15 +61,19 @@ export default function DealsScreen() {
   const quick = quickFilters(filters, pickedStores, pickedTypes);
   // "See all" on Coming up, or the Upcoming events chip on its own, shows events only.
   const eventsOnly = upcomingOnly || (pickedTypes.size === 1 && pickedTypes.has(UPCOMING_EVENTS));
-  const shownDeals = eventsOnly ? [] : applyFilters(applyFilters(deals, filters, query, topics), quick, '', topics);
+  const searchedDeals = usingLiveApi && q ? (indexed?.query === q ? indexed.deals : []) : null;
+  const shownDeals = eventsOnly
+    ? []
+    : (searchedDeals ?? applyFilters(applyFilters(deals, filters, query, topics), quick, '', topics));
   const shownEvents = applyEventFilters(applyEventFilters(events, filters, query), quick);
   const allOn = pickedStores.size === 0 && pickedTypes.size === 0 && !upcomingOnly;
   const unread = activity.some((a) => a.unread);
 
   let agentStatus = spots ? `Watching ${spots.toLocaleString()} spots near you` : 'Your agent is learning this area';
-  if (loading) agentStatus = 'Loading deals near you…';
+  if (loading) agentStatus = usingBackend ? 'Loading deals near you…' : 'Your agent is scanning Instagram and the web near you…';
   else if (error) agentStatus = `Couldn't reach your agent: ${error}`;
   else if (usingBackend && !place.areaKey) agentStatus = 'Set your location so your agent knows where to look';
+  else if (!usingBackend && usingLiveApi) agentStatus = `Your agent found ${deals.length} verified deals on the web just now`;
 
   return (
     <View style={[styles.screen, { paddingTop: insets.top }]}>
@@ -72,13 +91,18 @@ export default function DealsScreen() {
             </Text>
             <Caret width={16} height={16} color={colors.ink} />
           </Pressable>
-          <CircleButton icon="bell" tone="muted" accessibilityLabel="Alerts" onPress={() => router.navigate('/alerts')}>
+          <View style={styles.headerButtons}>
+            {usingLiveApi && (
+              <CircleButton icon="sparkles" tone="muted" accessibilityLabel="Ask dibs" onPress={() => router.push('/ask')} />
+            )}
+            <CircleButton icon="bell" tone="muted" accessibilityLabel="Alerts" onPress={() => router.navigate('/alerts')}>
             {unread && (
               <View style={styles.badge}>
                 <Badge width={10} height={10} />
               </View>
             )}
           </CircleButton>
+          </View>
         </View>
 
         <View style={styles.pad}>
@@ -207,6 +231,7 @@ const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.surface },
   content: { paddingTop: 8, paddingBottom: 24, gap: 20 },
   pad: { paddingHorizontal: gutter },
+  headerButtons: { flexDirection: 'row', gap: 10 },
   header: {
     flexDirection: 'row',
     alignItems: 'center',

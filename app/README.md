@@ -44,6 +44,10 @@ Welcome → Sign in → (email: Create account) → Pick interests → Live aler
 
 - **Deal alerts**: with the backend, Convex pushes new matching deals near your saved place and scheduled reminders through Expo (`src/lib/push.ts` registers the token after sign-in; needs an EAS `projectId` from `npx eas-cli@latest init`, and a development build on Android). Locally: notifications (`src/lib/notifications.ts`) with Get Directions / Save / Remind Me actions; the body is the deal, then when it ends ("Ends Oct 24, 6 PM"). "Turn on live alerts" asks for permission and sends one for your best-matching deal; tapping an alert opens the deal. Store logos as the notification icon need iOS communication notifications, which Expo can't send. The poster image in the expanded notification needs an image URL the API doesn't return yet.
 - **Line check**: with location allowed, staying inside a store's geofence (75 m by default) for 2 minutes while the Map is open asks how long the line is, once per visit (`src/lib/line-check.ts`). With the backend, reports go to Convex; only reports inside the geofence count, and they earn 10 XP up to 5 times a day. The blended estimate shows on deal cards and the deal page. On the simulator, `xcrun simctl location booted set 34.0644,-118.4419` puts you at Tapioca Lab.
+- **Search and Ask dibs** (needs `EXPO_PUBLIC_API_URL` and the API's Elastic setup; works alongside backend mode):
+  - Typing in Deals search queries `/search/deals`, which searches every indexed deal by meaning (any language) and distance.
+  - The sparkles button next to the bell opens Ask dibs (`src/app/ask.tsx`, not in Figma yet), a chat with the Elastic agent that shows the deals it found as cards. It can also watch for new deals; that needs a push token, so a development build with an EAS project id.
+  - Set `EXPO_PUBLIC_DIBS_API_KEY` when the API has `DIBS_API_KEY`. That key ships inside the app bundle, so it's for development; in production these calls should go through Convex.
 - **Filters**: sort (best deals, relevance, distance), distance, store types, deal types, open now (on by default), community verified and hide likely expired. They apply across Deals and Map.
 
 In mock mode nothing persists: the account, saves, likes, interests, line reports, credits and XP reset on restart, and friends, ranks and leaderboards are mock data. In backend mode they all live in Convex.
@@ -51,7 +55,7 @@ In mock mode nothing persists: the account, saves, likes, interests, line report
 ## Layout
 
 ```
-src/app/            routes: index (Welcome), onboarding/sign-in|phone|verify|finish|log-in|create-account|interests|alerts,
+src/app/            routes: index (Welcome), onboarding/sign-in|phone|verify|finish|log-in|create-account|interests|alerts, ask (modal),
                     (tabs)/deals|map|friends|earn|alerts|profile, plus (tabs)/saved|leaderboard (hidden tabs),
                     filters and location (modals), deal/[id], event/[id], submission, find-friends, invite/[code]
 src/components/     one component per Figma component (DealCard, StoreLogo, CategoryWheel, TabBar, LineCheckCard, ...)

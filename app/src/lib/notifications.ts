@@ -1,6 +1,7 @@
 // Live deal alerts as real local notifications (Figma "6 · Notifications": lock screen, banner,
 // expanded with Get Directions / Save / Remind Me). Store logos as the notification icon need
 // iOS communication notifications, which Expo can't send, so the dibs icon stays.
+import Constants from 'expo-constants';
 import * as Notifications from 'expo-notifications';
 import { Linking } from 'react-native';
 
@@ -87,4 +88,18 @@ export function openDirections(deal: Deal) {
     ? `daddr=${deal.coords.latitude},${deal.coords.longitude}`
     : `daddr=${encodeURIComponent(deal.address ?? deal.store)}`;
   return Linking.openURL(`https://maps.apple.com/?${q}&dirflg=w`);
+}
+
+/** This device's Expo push token, so the agent's watches can alert it. Null in Expo Go, without permission,
+ * or without an EAS project id (push needs a development build). */
+export async function getPushToken(): Promise<string | null> {
+  const projectId = Constants.expoConfig?.extra?.eas?.projectId ?? Constants.easConfig?.projectId;
+  if (!projectId) return null;
+  try {
+    const { granted } = await Notifications.getPermissionsAsync();
+    if (!granted) return null;
+    return (await Notifications.getExpoPushTokenAsync({ projectId })).data;
+  } catch {
+    return null;
+  }
 }

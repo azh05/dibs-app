@@ -44,6 +44,7 @@ function AppStack() {
       <Stack.Screen name="(tabs)" options={{ animation: 'fade', gestureEnabled: false }} />
       <Stack.Screen name="filters" options={{ presentation: 'modal' }} />
       <Stack.Screen name="location" options={{ presentation: 'modal' }} />
+      <Stack.Screen name="ask" options={{ presentation: 'modal' }} />
     </Stack>
   );
 }
