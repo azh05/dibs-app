@@ -121,21 +121,22 @@ export const RANK_CARDS: { scope: Exclude<Scope, 'Friends'>; icon: IconName }[] 
 ];
 
 /** A few of your friends with their rank in each area, for the Friends tab list ("You" sits among them). */
-export type RankedFriend = Friend & { rank: number; saved: number; you?: boolean };
+/** `rank` is null for a friend who isn't on that board this month. */
+export type RankedFriend = Friend & { rank: number | null; credits: number; you?: boolean };
 export const FRIEND_RANKS: Record<Exclude<Scope, 'Friends'>, RankedFriend[]> = {
   Westwood: [
-    { name: 'Kevin T.', initials: 'KT', tone: 'orange', rank: 3, saved: 486 },
-    { name: 'Ana N.', initials: 'AN', tone: 'muted', rank: 9, saved: 402 },
-    { name: 'Jess L.', initials: 'JL', tone: 'ink', rank: 11, saved: 377 },
-    { name: 'You', initials: 'MR', tone: 'orange', rank: 14, saved: 312, you: true },
-    { name: 'Daniel K.', initials: 'DK', tone: 'soft', rank: 17, saved: 288 },
+    { name: 'Kevin T.', initials: 'KT', tone: 'orange', rank: 3, credits: 5_000 },
+    { name: 'Ana N.', initials: 'AN', tone: 'muted', rank: 9, credits: 4_000 },
+    { name: 'Jess L.', initials: 'JL', tone: 'ink', rank: 11, credits: 3_500 },
+    { name: 'You', initials: 'MR', tone: 'orange', rank: 14, credits: 1_500, you: true },
+    { name: 'Daniel K.', initials: 'DK', tone: 'soft', rank: 17, credits: 1_000 },
   ],
   UCLA: [
-    { name: 'Kevin T.', initials: 'KT', tone: 'orange', rank: 2, saved: 486 },
-    { name: 'Ana N.', initials: 'AN', tone: 'muted', rank: 21, saved: 402 },
-    { name: 'Jess L.', initials: 'JL', tone: 'ink', rank: 29, saved: 377 },
-    { name: 'You', initials: 'MR', tone: 'orange', rank: 38, saved: 312, you: true },
-    { name: 'Daniel K.', initials: 'DK', tone: 'soft', rank: 44, saved: 288 },
+    { name: 'Kevin T.', initials: 'KT', tone: 'orange', rank: 2, credits: 5_000 },
+    { name: 'Ana N.', initials: 'AN', tone: 'muted', rank: 21, credits: 4_000 },
+    { name: 'Jess L.', initials: 'JL', tone: 'ink', rank: 29, credits: 3_500 },
+    { name: 'You', initials: 'MR', tone: 'orange', rank: 38, credits: 1_500, you: true },
+    { name: 'Daniel K.', initials: 'DK', tone: 'soft', rank: 44, credits: 1_000 },
   ],
 };
 
@@ -150,47 +151,48 @@ export const PROFILE_FRIENDS: Friend[] = [
   { name: 'Ria', initials: 'RB', tone: 'muted' },
 ];
 
-export type Ranked = { name: string; initials: string; saved: number; change: number };
+export type Ranked = { name: string; initials: string; credits: number; change: number };
 
-/** `toNext` is how many dollars short of the person one rank above you are; `top` is your percentile. */
+/** Ranked by credits posted this month. `toNext` is how many credits short of the person one rank above you are; `top`
+ * is your percentile. */
 export const LEADERBOARDS: Record<
   Scope,
-  { ranked: Ranked[]; you: { rank: number; change: number; toNext: number; top: number } }
+  { ranked: Ranked[]; you: { rank: number; change: number; credits: number; toNext: number; top: number } }
 > = {
   Westwood: {
     ranked: [
-      { name: 'Kevin T.', initials: 'KT', saved: 486, change: 0 },
-      { name: 'Sofia M.', initials: 'SM', saved: 451, change: 1 },
-      { name: 'Jordan P.', initials: 'JP', saved: 430, change: -1 },
-      { name: 'Ana N.', initials: 'AN', saved: 402, change: 2 },
-      { name: 'Leo G.', initials: 'LG', saved: 398, change: 0 },
-      { name: 'Grace L.', initials: 'GL', saved: 391, change: 3 },
-      { name: 'Chris W.', initials: 'CW', saved: 371, change: -2 },
-      { name: 'Hana K.', initials: 'HK', saved: 360, change: 1 },
-      { name: 'Omar R.', initials: 'OR', saved: 344, change: 0 },
-      { name: 'Ben S.', initials: 'BS', saved: 330, change: -1 },
+      { name: 'Kevin T.', initials: 'KT', credits: 5_000, change: 0 },
+      { name: 'Sofia M.', initials: 'SM', credits: 4_500, change: 1 },
+      { name: 'Jordan P.', initials: 'JP', credits: 4_000, change: -1 },
+      { name: 'Ana N.', initials: 'AN', credits: 4_000, change: 2 },
+      { name: 'Leo G.', initials: 'LG', credits: 3_500, change: 0 },
+      { name: 'Grace L.', initials: 'GL', credits: 3_500, change: 3 },
+      { name: 'Chris W.', initials: 'CW', credits: 3_000, change: -2 },
+      { name: 'Hana K.', initials: 'HK', credits: 3_000, change: 1 },
+      { name: 'Omar R.', initials: 'OR', credits: 2_500, change: 0 },
+      { name: 'Ben S.', initials: 'BS', credits: 2_500, change: -1 },
     ],
-    you: { rank: 14, change: 3, toNext: 90, top: 3 },
+    you: { rank: 14, change: 3, credits: 1_500, toNext: 500, top: 3 },
   },
   Friends: {
     ranked: [
-      { name: 'Jess L.', initials: 'JL', saved: 341, change: 1 },
-      { name: 'Daniel K.', initials: 'DK', saved: 298, change: 0 },
-      { name: 'Priya S.', initials: 'PS', saved: 276, change: 2 },
-      { name: 'Tom H.', initials: 'TH', saved: 205, change: -1 },
-      { name: 'Ivy C.', initials: 'IC', saved: 188, change: 0 },
+      { name: 'Jess L.', initials: 'JL', credits: 3_000, change: 1 },
+      { name: 'Daniel K.', initials: 'DK', credits: 2_500, change: 0 },
+      { name: 'Priya S.', initials: 'PS', credits: 2_000, change: 2 },
+      { name: 'Tom H.', initials: 'TH', credits: 1_500, change: -1 },
+      { name: 'Ivy C.', initials: 'IC', credits: 1_000, change: 0 },
     ],
-    you: { rank: 2, change: 1, toNext: 29, top: 2 },
+    you: { rank: 2, change: 1, credits: 2_500, toNext: 500, top: 2 },
   },
   UCLA: {
     ranked: [
-      { name: 'Riley A.', initials: 'RA', saved: 612, change: 0 },
-      { name: 'Kevin T.', initials: 'KT', saved: 486, change: 1 },
-      { name: 'Sam P.', initials: 'SP', saved: 470, change: -1 },
-      { name: 'Sofia M.', initials: 'SM', saved: 451, change: 2 },
-      { name: 'Jordan P.', initials: 'JP', saved: 430, change: 0 },
+      { name: 'Riley A.', initials: 'RA', credits: 6_500, change: 0 },
+      { name: 'Kevin T.', initials: 'KT', credits: 5_000, change: 1 },
+      { name: 'Sam P.', initials: 'SP', credits: 4_500, change: -1 },
+      { name: 'Sofia M.', initials: 'SM', credits: 4_500, change: 2 },
+      { name: 'Jordan P.', initials: 'JP', credits: 4_000, change: 0 },
     ],
-    you: { rank: 38, change: 5, toNext: 12, top: 5 },
+    you: { rank: 38, change: 5, credits: 1_500, toNext: 500, top: 5 },
   },
 };
 

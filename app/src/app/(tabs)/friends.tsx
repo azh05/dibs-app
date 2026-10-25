@@ -18,8 +18,10 @@ import { useStore } from '@/lib/store';
 import { colors, gutter, radii } from '@/theme';
 
 const CARD_BUTTON = { deal: ['Save', 'Saved'], event: ['I’m in', 'You’re in'] } as const;
+/** Friends shown before "Show all" (your own row always shows). */
+const COLLAPSED_ROWS = 5;
 
-// 17 · Friends · scroll (Figma 102:2466): your ranks, friends ranked by $ saved in your neighbourhood or at
+// 17 · Friends · scroll (Figma 102:2466): your ranks, friends ranked by credits earned in your neighbourhood or at
 // your school, and friends' activity. Live from Convex (src/lib/social-data.ts), or mock data.
 export default function FriendsScreen() {
   const insets = useSafeAreaInsets();
@@ -27,6 +29,7 @@ export default function FriendsScreen() {
   const social = useSocial();
   const [scope, setScope] = useState<AreaKey>('neighborhood');
   const ranks = useFriendRanks(scope);
+  const [expanded, setExpanded] = useState(false);
   const search = () =>
     usingBackend
       ? router.push('/find-friends')
@@ -34,7 +37,9 @@ export default function FriendsScreen() {
   // With the backend, "Add friends" searches by @username (Find friends also has the invite link).
   const addFriends = () =>
     usingBackend ? router.push('/find-friends') : inviteFriends(social.invites.code, social.invites.reward);
-  const noFriends = usingBackend && social.stats.friends === 0;
+  const visible = expanded ? ranks : ranks.filter((f, i) => i < COLLAPSED_ROWS || f.you);
+  const hidden = ranks.length - visible.length;
+  const friendCount = ranks.filter((f) => !f.you).length;
 
   return (
     <View style={[styles.screen, { paddingTop: insets.top }]}>
@@ -83,42 +88,48 @@ export default function FriendsScreen() {
               ))}
             </View>
           </View>
-          {ranks.length === 0 && (
+          {!ranks.some((f) => f.rank != null) && (
             <Text size={13} color={colors.inkTertiary} style={{ paddingVertical: 8 }}>
-              No one is ranked here yet this month. Mark a deal “Used it” to get on the board.
+              No one is ranked here yet this month. Snap an in-store deal on Earn to get on the board.
             </Text>
           )}
-          {ranks.map((f) => (
-            <View key={f.name} style={[styles.friendRow, f.you && styles.youRow]}>
+          {visible.map((f, i) => (
+            <View key={`${f.name}-${i}`} style={[styles.friendRow, f.you && styles.youRow]}>
               <Text
                 weight="extrabold"
                 size={13}
                 color={f.you ? colors.orange : colors.inkTertiary}
                 style={styles.rankNumber}>
-                #{f.rank}
+                {f.rank != null ? `#${f.rank}` : '–'}
               </Text>
               <Avatar initials={f.you && account ? initials(account.name) : f.initials} size={36} tone={f.tone} />
               <Text weight="bold" size={14} style={{ flex: 1 }}>
                 {f.name}
               </Text>
               <Text weight="extrabold" size={14}>
-                ${f.saved}
+                {f.credits.toLocaleString()}
               </Text>
             </View>
           ))}
-          <Pressable
-            onPress={() =>
-              noFriends ? search() : router.navigate({ pathname: '/leaderboard', params: { scope: 'Friends' } })
-            }
-            accessibilityRole="button"
-            style={styles.showAll}>
-            <Text weight="bold" size={13}>
-              {noFriends ? 'Find friends by @username' : `Show all ${social.stats.friends} friends`}
-            </Text>
-            <View style={{ transform: [{ rotate: '90deg' }] }}>
-              <Icon name="chevron" size={14} />
-            </View>
-          </Pressable>
+          {hidden > 0 || expanded ? (
+            <Pressable onPress={() => setExpanded((e) => !e)} accessibilityRole="button" style={styles.showAll}>
+              <Text weight="bold" size={13}>
+                {expanded ? 'Show less' : `Show all ${friendCount} friends`}
+              </Text>
+              <View style={{ transform: [{ rotate: expanded ? '-90deg' : '90deg' }] }}>
+                <Icon name="chevron" size={14} />
+              </View>
+            </Pressable>
+          ) : (
+            usingBackend && (
+              <Pressable onPress={search} accessibilityRole="button" style={styles.showAll}>
+                <Text weight="bold" size={13}>
+                  Find friends by @username
+                </Text>
+                <Icon name="chevron" size={14} />
+              </Pressable>
+            )
+          )}
         </View>
 
         <View style={[styles.pad, { gap: 12 }]}>

@@ -39,7 +39,14 @@ export function toneFor(id: string): AvatarTone {
 
 /** The two area boards: your neighbourhood and your school ("Westwood" and "UCLA" in the design). */
 export type AreaKey = 'neighborhood' | 'school';
-export type RankCard = { key: AreaKey; label: string; icon: IconName; rank: number | null; change: number; top: number | null };
+export type RankCard = {
+  key: AreaKey;
+  label: string;
+  icon: IconName;
+  rank: number | null;
+  change: number;
+  top: number | null;
+};
 
 export type SocialData = {
   stats: { savedDollars: number; joinedMonth: string; weeklySaved: number[]; dealsUsed: number; friends: number };
@@ -134,7 +141,7 @@ function useBackendFriendRanks(key: AreaKey): RankedFriend[] {
     initials: r.initials,
     tone: r.you ? 'orange' : toneFor(r.id),
     rank: r.rank,
-    saved: Math.round(r.saved_cents / 100),
+    credits: r.credits,
     you: r.you || undefined,
   }));
 }
@@ -143,7 +150,9 @@ function useMockFriendRanks(key: AreaKey): RankedFriend[] {
   return FRIEND_RANKS[key === 'neighborhood' ? 'Westwood' : 'UCLA'];
 }
 
-export const useFriendRanks: (key: AreaKey) => RankedFriend[] = usingBackend ? useBackendFriendRanks : useMockFriendRanks;
+export const useFriendRanks: (key: AreaKey) => RankedFriend[] = usingBackend
+  ? useBackendFriendRanks
+  : useMockFriendRanks;
 
 // ---------------------------------------------------------------- leaderboard
 
@@ -154,7 +163,7 @@ export type BoardData = {
   /** Labels for the segmented control, in BOARD_SCOPES order. */
   labels: string[];
   ranked: Ranked[];
-  you: { rank: number; change: number; saved: number; toNext: number; top: number } | null;
+  you: { rank: number; change: number; credits: number; toNext: number; top: number } | null;
 };
 
 function useBackendBoard(scope: BoardScope): BoardData {
@@ -162,13 +171,18 @@ function useBackendBoard(scope: BoardScope): BoardData {
   const board = useQuery(api.leaderboards.board, { scope });
   return {
     labels: ['Friends', me?.home_neighborhood ?? 'Your area', me?.school ? schoolName(me.school) : 'Your school'],
-    ranked: (board?.ranked ?? []).map((r) => ({ name: r.name, initials: r.initials, saved: Math.round(r.saved_cents / 100), change: r.change })),
+    ranked: (board?.ranked ?? []).map((r) => ({
+      name: r.name,
+      initials: r.initials,
+      credits: r.credits,
+      change: r.change,
+    })),
     you: board?.you
       ? {
           rank: board.you.rank,
           change: board.you.change,
-          saved: Math.round(board.you.saved_cents / 100),
-          toNext: Math.round(board.you.to_next_cents / 100),
+          credits: board.you.credits,
+          toNext: board.you.to_next_credits,
           top: board.you.percentile,
         }
       : null,
@@ -182,7 +196,7 @@ function useMockBoard(scope: BoardScope): BoardData {
   return {
     labels: ['Friends', 'Westwood', 'UCLA'],
     ranked: board.ranked,
-    you: { ...board.you, saved: PROFILE_STATS.savedDollars },
+    you: board.you,
   };
 }
 

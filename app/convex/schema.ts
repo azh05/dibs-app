@@ -418,7 +418,9 @@ export default defineSchema({
     .index("by_user_created", ["user_id", "created_at"])
     .index("by_submission", ["submission_id"])
     .index("by_deal_status", ["deal_id", "status"])
-    .index("by_status_created", ["status", "created_at"]),
+    .index("by_status_created", ["status", "created_at"])
+    .index("by_status_posted", ["status", "posted_at"]) // leaderboards: credits posted this month
+    .index("by_user_status_posted", ["user_id", "status", "posted_at"]),
 
   // ---------------------------------------------------------------- community signals
 
@@ -574,7 +576,7 @@ export default defineSchema({
     scope_key: v.string(),
     period_start: v.string(), // YYYY-MM-01; boards reset monthly ("Resets on the 1st" in the app)
     user_id: v.id("users"),
-    saved_cents: v.number(),
+    credits: v.number(), // credits posted this month
     rank: v.number(),
     rank_week_ago: v.optional(v.number()), // for "▲ 3 this week"
     week_marked_at: v.number(),

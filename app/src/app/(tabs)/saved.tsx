@@ -28,7 +28,7 @@ const LIST_TONES = [
   { bg: colors.muted, title: colors.ink, sub: colors.inkSecondary },
 ] as const;
 
-/** "Used it": what did it save? Defaults to the deal's estimate; the amount feeds $ saved and leaderboards. */
+/** "Used it": what did it save? Defaults to the deal's estimate; the amount feeds $ saved on Profile. */
 function askSaved(deal: Deal, markUsed: (id: string, cents?: number) => void) {
   const guess = deal.estSavingsCents ? (deal.estSavingsCents / 100).toFixed(2) : '';
   if (Platform.OS !== 'ios' || !Alert.prompt) {
@@ -37,7 +37,7 @@ function askSaved(deal: Deal, markUsed: (id: string, cents?: number) => void) {
   }
   Alert.prompt(
     'Nice! How much did you save?',
-    'Counts toward your $ saved and the leaderboard.',
+    'Counts toward your $ saved.',
     [
       { text: 'Skip', style: 'cancel', onPress: () => markUsed(deal.id) },
       {

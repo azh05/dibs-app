@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
 import { api, internal } from "./_generated/api";
+import type { Id } from "./_generated/dataModel";
 import { identity, json, makeTest, shopsResponse, stubFetch, type T } from "./test.setup";
 
 let restore: () => void = () => {};
@@ -96,22 +97,37 @@ test("friends: request, accept, feed and cheers", async () => {
   expect((await maya.as.query(api.social.feed, {})).find((f) => f.id === used.id)).toMatchObject({ cheered: true, likes: 1 });
 });
 
-test("leaderboards rank $ saved this month by neighbourhood and among friends", async () => {
+test("leaderboards rank credits posted this month by neighbourhood and among friends", async () => {
   const t = makeTest();
-  const { boba, wings } = await seed(t);
+  const { boba } = await seed(t);
   const maya = await signIn(t, 1, "maya");
   const jess = await signIn(t, 2, "jess");
   const sam = await signIn(t, 3, "sam", "Sawtelle");
-  await maya.as.mutation(api.saves.markUsed, { dealId: boba }); // $6.50
-  await jess.as.mutation(api.saves.markUsed, { dealId: wings, saved_cents: 1200 });
-  await sam.as.mutation(api.saves.markUsed, { dealId: wings, saved_cents: 5000 });
+  const credit = (userId: Id<"users">, amount: number, status: "posted" | "pending", type: "submission" | "spend" = "submission") =>
+    t.run((ctx) =>
+      ctx.db.insert("credit_ledger", {
+        user_id: userId,
+        amount,
+        type,
+        status,
+        created_at: Date.now(),
+        posted_at: status === "posted" ? Date.now() : undefined,
+      }),
+    );
+  await credit(maya.userId, 500, "posted");
+  await credit(maya.userId, 500, "pending"); // not counted until it posts
+  await credit(jess.userId, 500, "posted");
+  await credit(jess.userId, 500, "posted");
+  await credit(jess.userId, -300, "posted", "spend"); // spending doesn't lower your rank
+  await credit(sam.userId, 2500, "posted");
+  await maya.as.mutation(api.saves.markUsed, { dealId: boba }); // $6.50 on Profile, not the board
   await t.mutation(internal.leaderboards.rebuild, {});
 
   const westwood = (await maya.as.query(api.leaderboards.board, { scope: "neighborhood" }))!;
   expect(westwood.label).toBe("Westwood");
-  expect(westwood.ranked.map((r) => [r.username, r.saved_cents, r.rank])).toEqual([
-    ["jess", 1200, 1],
-    ["maya", 650, 2],
+  expect(westwood.ranked.map((r) => [r.username, r.credits, r.rank])).toEqual([
+    ["jess", 1000, 1],
+    ["maya", 500, 2],
   ]);
   expect(westwood.you).toMatchObject({ rank: 2, percentile: 100 });
 
@@ -119,21 +135,23 @@ test("leaderboards rank $ saved this month by neighbourhood and among friends", 
   await sam.as.mutation(api.social.respond, { userId: maya.userId, accept: true });
   const friends = (await maya.as.query(api.leaderboards.board, { scope: "friends" }))!;
   expect(friends.ranked.map((r) => r.username)).toEqual(["sam", "maya"]);
-  expect(friends.you).toMatchObject({ rank: 2, to_next_cents: 5000 - 650 });
-  expect(westwood.you!.to_next_cents).toBe(1200 - 650);
+  expect(friends.you).toMatchObject({ rank: 2, to_next_credits: 2500 - 500 });
+  expect(westwood.you!.to_next_credits).toBe(1000 - 500);
   const stats = (await maya.as.query(api.profile.stats, {}))!;
   expect(stats.friends).toBe(1);
   expect(stats.friend_faces.map((f) => f.username)).toEqual(["sam"]);
   expect(stats.weekly_saved_cents).toHaveLength(7);
   expect(stats.weekly_saved_cents[6]).toBe(650); // this week's bar
 
-  // Friends tab: you and your friends with your ranks on the area board (Sam is on Sawtelle's board).
+  // Friends tab: you and every friend, ranked on the area board first; Sam is on Sawtelle's board, so he comes last
+  // without a Westwood rank but with his credits.
   await maya.as.mutation(api.social.request, { userId: jess.userId });
   await jess.as.mutation(api.social.respond, { userId: maya.userId, accept: true });
   const ranks = await maya.as.query(api.leaderboards.friendRanks, { scope: "neighborhood" });
-  expect(ranks.map((r) => [r.username, r.rank, r.you])).toEqual([
-    ["jess", 1, false],
-    ["maya", 2, true],
+  expect(ranks.map((r) => [r.username, r.rank, r.credits, r.you])).toEqual([
+    ["jess", 1, 1000, false],
+    ["maya", 2, 500, true],
+    ["sam", null, 2500, false],
   ]);
 });
 
