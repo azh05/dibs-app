@@ -130,8 +130,10 @@ export function useSubmitPhoto() {
   const submit = useMutation(api.photos.submit);
   return async (photo: Photo): Promise<Id<'photo_submissions'>> => {
     const uploadUrl = await generateUploadUrl({});
-    const blob = await (await fetch(photo.uri)).blob();
-    const res = await fetch(uploadUrl, { method: 'POST', headers: { 'Content-Type': photo.mimeType }, body: blob });
+    // Bytes, not a Blob: expo/fetch replaces Content-Type with a Blob's own type, which is empty for a local
+    // file, and Convex rejects an empty Content-Type with a 400.
+    const bytes = await (await fetch(photo.uri)).arrayBuffer();
+    const res = await fetch(uploadUrl, { method: 'POST', headers: { 'Content-Type': photo.mimeType }, body: bytes });
     if (!res.ok) throw new Error(`Upload failed (${res.status})`);
     const { storageId } = (await res.json()) as { storageId: Id<'_storage'> };
     return submit({
