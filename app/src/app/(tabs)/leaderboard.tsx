@@ -6,12 +6,11 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Avatar } from '@/components/avatar';
 import { Icon } from '@/components/icon';
-import { ProgressBar } from '@/components/progress-bar';
 import { Segmented } from '@/components/segmented';
 import { Text } from '@/components/text';
 import { initials, shortName } from '@/lib/account';
 import { daysUntilReset, type AvatarTone, type Ranked } from '@/lib/social';
-import { useBoard } from '@/lib/social-data';
+import { BOARD_SCOPES, scopeFromParam, useBoard, type BoardScope } from '@/lib/social-data';
 import { useStore } from '@/lib/store';
 import { colors, gutter, radii } from '@/theme';
 
@@ -28,15 +27,21 @@ function change(delta: number) {
   return { text: '— no change', color: colors.inkTertiary };
 }
 
-// 17 · Leaderboard (Figma 51:1657): ranked by dollars saved this month (Convex leaderboards, or mock data).
+// 19 · Leaderboard (Figma 51:1657): ranked by dollars saved this month (Convex boards, or mock data).
 export default function LeaderboardScreen() {
   const insets = useSafeAreaInsets();
   const params = useLocalSearchParams<{ scope?: string }>();
   const { account } = useStore();
-  const [scope, setScope] = useState(params.scope === 'Friends' ? 0 : 1);
+  const [scope, setScope] = useState<BoardScope>(() => scopeFromParam(params.scope, []));
   const board = useBoard(scope);
-  const you = board.you;
+  // The tab stays mounted, so a rank card opening another scope switches it here, while rendering.
+  const [lastParam, setLastParam] = useState(params.scope);
+  if (params.scope !== lastParam) {
+    setLastParam(params.scope);
+    if (params.scope) setScope(scopeFromParam(params.scope, board.labels));
+  }
 
+  const you = board.you;
   const myLabel = account ? `You · ${shortName(account.name)}` : 'You';
   const tenth = board.ranked[9]?.saved;
   const myChange = change(you?.change ?? 0);
@@ -45,12 +50,11 @@ export default function LeaderboardScreen() {
     : you.rank <= 10 || tenth == null
       ? 'in the top 10'
       : `$${tenth - you.saved} to top 10`;
-  const challenge = board.challenge;
 
   return (
     <View style={[styles.screen, { paddingTop: insets.top }]}>
       <StatusBar style="dark" />
-      <ScrollView contentContainerStyle={[styles.content, { paddingBottom: 110 + insets.bottom }]}>
+      <ScrollView contentContainerStyle={[styles.content, { paddingBottom: 90 }]}>
         <View style={styles.header}>
           <Pressable onPress={() => router.back()} hitSlop={10} accessibilityRole="button" accessibilityLabel="Back">
             <Icon name="back" size={22} />
@@ -63,7 +67,11 @@ export default function LeaderboardScreen() {
           </Text>
         </View>
 
-        <Segmented options={board.scopes.map((s, i) => ({ value: i, label: s }))} value={scope} onChange={setScope} />
+        <Segmented
+          options={BOARD_SCOPES.map((s, i) => ({ value: s, label: board.labels[i] ?? s }))}
+          value={scope}
+          onChange={setScope}
+        />
 
         <View style={styles.metric}>
           <Text size={13} color={colors.inkTertiary}>
@@ -106,51 +114,30 @@ export default function LeaderboardScreen() {
 
         <View>
           {board.ranked.slice(3).map((person, i) => (
-            <RankRow key={person.name} rank={i + 4} person={person} />
+            <RankRow key={`${person.name}-${i}`} rank={i + 4} person={person} />
           ))}
         </View>
-
         {board.ranked.length === 0 && (
           <Text size={14} color={colors.inkTertiary}>
             No one has saved anything here this month yet. Mark a deal “Used it” to start.
           </Text>
         )}
-
-        {challenge && (
-        <View style={styles.challenge}>
-          <View style={styles.challengeHeader}>
-            <Icon name="zap" size={20} color={colors.orange} />
-            <View style={{ flex: 1, gap: 1 }}>
-              <Text weight="extrabold" size={10} tracking={0.8} color={colors.orange}>
-                WEEKLY CHALLENGE
-              </Text>
-              <Text weight="extrabold" size={14} tracking={-0.14}>
-                {challenge.title} · +{challenge.reward} XP
-              </Text>
-            </View>
-            <Text weight="extrabold" size={15} color={colors.orange}>
-              {challenge.done}/{challenge.goal}
-            </Text>
-          </View>
-          <ProgressBar value={challenge.done / challenge.goal} track={colors.surface} />
-        </View>
-        )}
       </ScrollView>
 
-      <View style={[styles.you, { bottom: Math.max(insets.bottom, 16) }]}>
+      <View style={[styles.you, { bottom: 12 }]}>
         <Text weight="extrabold" size={15} color={colors.orange}>
           {you?.rank ?? '–'}
         </Text>
         <Avatar initials={account ? initials(account.name) : 'ME'} size={36} tone="orange" />
         <View style={{ flex: 1, gap: 1 }}>
-          <Text weight="bold" size={14} color={colors.surface}>
+          <Text weight="bold" size={14}>
             {myLabel}
           </Text>
           <Text weight="semibold" size={11} color={myChange.color}>
             {myChange.text} · {toTopTen}
           </Text>
         </View>
-        <Text weight="extrabold" size={15} color={colors.surface}>
+        <Text weight="extrabold" size={15}>
           ${you?.saved ?? 0}
         </Text>
       </View>
@@ -199,8 +186,6 @@ const styles = StyleSheet.create({
   },
   rankRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 4, paddingVertical: 10 },
   rankNumber: { minWidth: 18 },
-  challenge: { gap: 10, padding: 14, borderRadius: radii.card, backgroundColor: colors.orangeSoft },
-  challengeHeader: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   you: {
     position: 'absolute',
     left: gutter,
@@ -211,9 +196,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 10,
     borderRadius: 18,
-    backgroundColor: colors.ink,
+    backgroundColor: colors.orangeSoft,
     shadowColor: '#17171A',
-    shadowOpacity: 0.2,
+    shadowOpacity: 0.08,
     shadowRadius: 10,
     shadowOffset: { width: 0, height: 8 },
   },

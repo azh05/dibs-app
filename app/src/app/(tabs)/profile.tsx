@@ -1,41 +1,32 @@
 import { router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useState } from 'react';
-import { Alert, Pressable, ScrollView, Share, StyleSheet, View } from 'react-native';
+import { Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Avatar } from '@/components/avatar';
 import { Button } from '@/components/button';
 import { Icon, type IconName } from '@/components/icon';
 import { ProgressBar } from '@/components/progress-bar';
+import { RankCards } from '@/components/rank-cards';
 import { StudentVerify } from '@/components/student-verify';
 import { Text } from '@/components/text';
 import { initials, schoolName, shortName } from '@/lib/account';
-import { usingBackend } from '@/lib/backend';
-import { levelFor } from '@/lib/social';
-import { useProfile } from '@/lib/social-data';
+import { inviteFriends, levelFor } from '@/lib/social';
+import { useSocial, type SocialData } from '@/lib/social-data';
 import { useStore } from '@/lib/store';
 import { colors, gutter, radii } from '@/theme';
 
-function inviteMessage(code: string | null, reward: string) {
-  const link = code ? ` dibs://invite/${code} (code ${code})` : '';
-  return `Join me on dibs: it finds the best deals near you before they’re gone. We both get ${reward}.${link}`;
-}
-
-const ACTIVITY_BUTTON = { save: ['Save', 'Saved'], cheer: ['Cheer', 'Cheered'] } as const;
-
 const editInterests = () => router.push({ pathname: '/onboarding/interests', params: { edit: '1' } });
 
-// 16 · Profile (Figma 50:1552). Stats, badges, friends and ranks come from Convex (src/lib/social-data.ts), or
-// mock data without a backend.
+// 18 · Profile (Figma 50:1552). Savings, ranks and friends come from Convex (src/lib/social-data.ts), or mock
+// data without a backend.
 export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
   const store = useStore();
-  const { account, studentDomain, xp, saved, topics, instant, alertRadiusMi, cheered, lists, place } = store;
-  const profile = useProfile();
+  const { account, studentDomain, xp, saved, topics, instant, alertRadiusMi, lists, place } = store;
+  const social = useSocial();
   const [verifying, setVerifying] = useState(false);
-  const invite = () => Share.share({ message: inviteMessage(profile.invites.code, profile.rewardLabel) }).catch(() => undefined);
-  const findFriends = () => (usingBackend ? router.push('/friends') : invite());
 
   if (!account) {
     return (
@@ -49,10 +40,10 @@ export default function ProfileScreen() {
   }
 
   const level = levelFor(xp);
-  const { rank, where, percentile } = profile.rank;
   const school = studentDomain ? schoolName(studentDomain) : null;
-  const dealsUsed = profile.stats.dealsUsed;
+  const dealsUsed = social.stats.dealsUsed;
   const area = place.label.split(',')[0];
+  const invite = () => inviteFriends(social.invites.code, social.invites.reward);
 
   const openSettings = () =>
     Alert.alert('Settings', undefined, [
@@ -79,7 +70,7 @@ export default function ProfileScreen() {
           </Text>
           <View style={styles.topIcons}>
             <Pressable
-              onPress={() => router.push({ pathname: '/leaderboard', params: { scope: 'Friends' } })}
+              onPress={() => router.navigate('/friends')}
               hitSlop={8}
               accessibilityRole="button"
               accessibilityLabel="Friends">
@@ -115,7 +106,7 @@ export default function ProfileScreen() {
                 </View>
               )}
               <Text weight="bold" size={12} color={colors.inkSecondary}>
-                {profile.stats.friends} friends
+                {social.stats.friends} friends
               </Text>
             </View>
           </View>
@@ -150,66 +141,19 @@ export default function ProfileScreen() {
           </View>
         </View>
 
-        <View style={styles.stats}>
-          <Stat value={`$${profile.stats.savedDollars}`} label="saved so far" highlight />
-          <Stat value={String(dealsUsed)} label="deals used" />
-          <Stat value={String(profile.stats.weekStreak)} label="week streak" icon="flame" />
-        </View>
+        <Savings stats={social.stats} />
 
-        <View style={styles.rank}>
-          <View style={{ flex: 1 }}>
-            <Text weight="extrabold" size={22} tracking={-0.44} color={colors.surface}>
-              {rank ? `#${rank} in ${where}` : `Not ranked in ${where} yet`}
-            </Text>
-            <Text weight="semibold" size={13} color={colors.orangeSoft}>
-              {rank && percentile ? `Top ${percentile}% this month` : 'Use a deal to get on the board'}
-            </Text>
-          </View>
-          <Pressable onPress={() => router.push('/leaderboard')} accessibilityRole="button" style={styles.rankButton}>
-            <Text weight="bold" size={13}>
-              Leaderboard
-            </Text>
-            <Icon name="chevron" size={14} />
-          </Pressable>
-        </View>
-
-        <View style={{ gap: 12 }}>
-          <SectionTitle title="Badges" meta={`${profile.badgesEarned} of ${profile.badgeTotal}`} />
-          <View style={styles.badges}>
-            {profile.badges.map((b) => (
-              <View key={b.name} style={styles.badge}>
-                <View
-                  style={[
-                    styles.badgeCircle,
-                    b.featured ? styles.badgeFeatured : b.earned ? styles.badgeEarned : styles.badgeLocked,
-                  ]}>
-                  <Icon
-                    name={b.icon}
-                    size={b.earned ? 24 : 20}
-                    color={b.featured ? colors.surface : b.earned ? colors.orange : colors.inkTertiary}
-                  />
-                </View>
-                <Text
-                  weight="bold"
-                  size={11}
-                  color={b.earned ? colors.ink : colors.inkTertiary}
-                  style={{ textAlign: 'center' }}>
-                  {b.name}
-                </Text>
-              </View>
-            ))}
-          </View>
-        </View>
+        <RankCards />
 
         <View style={styles.dna}>
           <SectionTitle title="Your deal DNA" meta="This month" />
           <View style={styles.dnaBar}>
-            {profile.dealDna.slices.map((s) => (
+            {social.dealDna.slices.map((s) => (
               <View key={s.label} style={[styles.dnaSlice, { flex: s.percent, backgroundColor: s.color }]} />
             ))}
           </View>
           <View style={styles.legend}>
-            {profile.dealDna.slices.map((s) => (
+            {social.dealDna.slices.map((s) => (
               <View key={s.label} style={styles.legendItem}>
                 <View style={[styles.legendDot, { backgroundColor: s.color }]} />
                 <Text weight="semibold" size={12} color={colors.inkSecondary}>
@@ -219,7 +163,7 @@ export default function ProfileScreen() {
             ))}
           </View>
           <Text weight="semibold" size={13}>
-            {profile.dealDna.summary}
+            {social.dealDna.summary}
           </Text>
         </View>
 
@@ -238,54 +182,41 @@ export default function ProfileScreen() {
           </View>
         </View>
 
-        <View style={{ gap: 4 }}>
-          <SectionTitle title="Friends" action="Find friends" onAction={findFriends} />
-          {profile.friendActivity.length === 0 && (
-            <Text size={13} color={colors.inkTertiary}>
-              Add friends to see the deals they use.
-            </Text>
-          )}
-          {profile.friendActivity.map((a) => {
-            const done = a.savesId ? saved.has(a.savesId) : cheered.has(a.id);
-            return (
-              <View key={a.id} style={styles.activity}>
-                <Avatar initials={a.friend.initials} size={40} tone={a.friend.tone} />
-                <View style={{ flex: 1, gap: 2 }}>
-                  <Text size={13} color={colors.inkSecondary}>
-                    <Text weight="bold" size={13}>
-                      {a.friend.name}
-                    </Text>{' '}
-                    {a.verb}{' '}
-                    <Text weight="bold" size={13}>
-                      {a.subject}
-                    </Text>
-                    {a.place ? ` at ${a.place}` : ''}
-                  </Text>
-                  <Text size={11} color={colors.inkTertiary}>
-                    {a.ago}
-                  </Text>
-                </View>
-                <Pressable
-                  onPress={() => (a.savesId ? store.toggleSaved(a.savesId) : store.toggleCheer(a.id))}
-                  accessibilityRole="button"
-                  style={[styles.smallButton, done && styles.smallButtonDone]}>
-                  <Text weight="bold" size={12} color={done ? colors.orange : colors.ink}>
-                    {ACTIVITY_BUTTON[a.action][done ? 1 : 0]}
-                  </Text>
-                </Pressable>
+        <View style={{ gap: 12 }}>
+          <SectionTitle
+            title={`Friends · ${social.stats.friends}`}
+            action="See all"
+            onAction={() => router.navigate('/friends')}
+          />
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            style={{ marginHorizontal: -gutter }}
+            contentContainerStyle={styles.friends}>
+            {social.friendFaces.length === 0 && (
+              <Text size={13} color={colors.inkTertiary}>
+                Add friends from the Friends tab.
+              </Text>
+            )}
+            {social.friendFaces.map((f) => (
+              <View key={f.name} style={styles.friend}>
+                <Avatar initials={f.initials} size={52} tone={f.tone} />
+                <Text weight="semibold" size={12} color={colors.inkSecondary}>
+                  {f.name}
+                </Text>
               </View>
-            );
-          })}
+            ))}
+          </ScrollView>
         </View>
 
         <View style={styles.invite}>
           <Icon name="gift" size={26} color={colors.orange} />
           <View style={{ flex: 1, gap: 2 }}>
             <Text weight="extrabold" size={14} tracking={-0.14}>
-              Invite friends, you both get {profile.rewardLabel}
+              Invite friends, you both get {social.invites.reward} credits
             </Text>
             <Text size={12} color={colors.inkSecondary}>
-              {profile.invites.joined} friends joined · {profile.invites.earned.toLocaleString()} credits earned
+              {social.invites.joined} friends joined · {social.invites.earned.toLocaleString()} credits earned
             </Text>
           </View>
           <Pressable onPress={invite} accessibilityRole="button" style={styles.inviteButton}>
@@ -318,6 +249,43 @@ export default function ProfileScreen() {
   );
 }
 
+// Figma "Savings" (119:2524): total saved, this week's gain and a bar per week.
+function Savings({ stats }: { stats: SocialData['stats'] }) {
+  const weeks = stats.weeklySaved;
+  const max = Math.max(1, ...weeks);
+  const thisWeek = weeks[weeks.length - 1];
+  return (
+    <View style={styles.savings}>
+      <View style={{ flex: 1, gap: 2 }}>
+        <Text weight="extrabold" size={11} tracking={1.1} color={colors.orange}>
+          SAVED SO FAR
+        </Text>
+        <Text weight="extrabold" size={30} tracking={-0.9}>
+          ${stats.savedDollars}
+        </Text>
+        <Text weight="semibold" size={12} color={colors.inkSecondary}>
+          {stats.joinedMonth ? `Since you joined in ${stats.joinedMonth}` : 'Since you joined'}
+        </Text>
+      </View>
+      <View style={{ alignItems: 'flex-end', gap: 6 }}>
+        <View style={styles.weekPill}>
+          <Text weight="bold" size={12} color={colors.success}>
+            ▲ ${thisWeek} this week
+          </Text>
+        </View>
+        <View style={styles.bars}>
+          {weeks.map((w, i) => (
+            <View
+              key={i}
+              style={[styles.bar, { height: Math.max(4, (w / max) * 30), opacity: i === weeks.length - 1 ? 1 : 0.35 }]}
+            />
+          ))}
+        </View>
+      </View>
+    </View>
+  );
+}
+
 function SectionTitle({ title, meta, action, onAction }: { title: string; meta?: string; action?: string; onAction?: () => void }) {
   return (
     <View style={styles.rowBetween}>
@@ -336,22 +304,6 @@ function SectionTitle({ title, meta, action, onAction }: { title: string; meta?:
           </Text>
         </Pressable>
       )}
-    </View>
-  );
-}
-
-function Stat({ value, label, icon, highlight = false }: { value: string; label: string; icon?: IconName; highlight?: boolean }) {
-  return (
-    <View style={[styles.stat, { backgroundColor: highlight ? colors.orangeSoft : colors.muted }]}>
-      <View style={styles.statValue}>
-        {icon && <Icon name={icon} size={18} color={colors.orange} />}
-        <Text weight="extrabold" size={24} tracking={-0.72} color={highlight ? colors.orange : colors.ink}>
-          {value}
-        </Text>
-      </View>
-      <Text weight="semibold" size={12} color={colors.inkSecondary}>
-        {label}
-      </Text>
     </View>
   );
 }
@@ -446,26 +398,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  stats: { flexDirection: 'row', gap: 10 },
-  stat: { flex: 1, gap: 2, padding: 14, borderRadius: radii.card },
-  statValue: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  rank: { flexDirection: 'row', alignItems: 'center', gap: 14, padding: 16, borderRadius: 22, backgroundColor: colors.orange },
-  rankButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingLeft: 14,
-    paddingRight: 10,
-    paddingVertical: 9,
-    borderRadius: radii.pill,
-    backgroundColor: colors.surface,
-  },
-  badges: { flexDirection: 'row', gap: 10 },
-  badge: { flex: 1, alignItems: 'center', gap: 6 },
-  badgeCircle: { width: 58, height: 58, borderRadius: 29, alignItems: 'center', justifyContent: 'center' },
-  badgeFeatured: { backgroundColor: colors.orange, borderWidth: 3, borderColor: colors.orangeSoft },
-  badgeEarned: { backgroundColor: colors.orangeSoft, borderWidth: 1.5, borderColor: colors.orange },
-  badgeLocked: { backgroundColor: colors.muted, borderWidth: 1.5, borderColor: colors.border, borderStyle: 'dashed' },
+  savings: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 16, borderRadius: 22, backgroundColor: colors.orangeSoft },
+  weekPill: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: radii.pill, backgroundColor: colors.surface },
+  bars: { flexDirection: 'row', alignItems: 'flex-end', gap: 4 },
+  bar: { width: 7, borderRadius: 2, backgroundColor: colors.orange },
+  friends: { gap: 14, paddingHorizontal: gutter },
+  friend: { alignItems: 'center', gap: 6 },
   dna: { gap: 12, padding: 16, borderRadius: 22, backgroundColor: colors.muted },
   dnaBar: { flexDirection: 'row', gap: 3 },
   dnaSlice: { height: 14, borderRadius: 4 },
@@ -474,15 +412,6 @@ const styles = StyleSheet.create({
   legendDot: { width: 8, height: 8, borderRadius: 4 },
   lists: { flexDirection: 'row', gap: 10 },
   listTile: { flex: 1, gap: 2, padding: 12, borderRadius: 18 },
-  activity: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 10 },
-  smallButton: {
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderRadius: radii.pill,
-    borderWidth: 1.5,
-    borderColor: colors.border,
-  },
-  smallButtonDone: { borderColor: colors.orange, backgroundColor: colors.orangeSoft },
   invite: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 16, borderRadius: 22, backgroundColor: colors.orangeSoft },
   inviteButton: { paddingHorizontal: 14, paddingVertical: 9, borderRadius: radii.pill, backgroundColor: colors.orange },
   settings: { borderWidth: 1, borderColor: colors.border, borderRadius: radii.card, overflow: 'hidden' },

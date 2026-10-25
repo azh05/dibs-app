@@ -1,4 +1,4 @@
-import { router } from 'expo-router';
+import { Redirect, router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native';
@@ -26,6 +26,8 @@ const PROVIDERS: Provider[] = [
 // 02 · Sign in (Figma 49:1450). With the backend: Apple and Google through Clerk, phone by text code, email
 // through Create account. Without it, everything signs in as the demo account.
 export default function SignIn() {
+  const { signedIn } = useStore();
+  if (usingBackend && signedIn) return <Redirect href="/deals" />;
   return usingBackend ? <ClerkSignIn /> : <DemoSignIn />;
 }
 
@@ -107,7 +109,10 @@ function SignInLayout({
     <View style={styles.screen}>
       <StatusBar style="light" />
       <View style={[styles.hero, { paddingTop: insets.top + 14 }]}>
-        <Wordmark height={52.92} color={colors.surface} dot="ink" />
+        <Wordmark height={113.4} color={colors.surface} dot="ink" />
+        <Text weight="extrabold" size={36} tracking={-1.08} color={colors.surface} style={{ lineHeight: 40 }}>
+          Never miss out on a deal again.
+        </Text>
       </View>
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         {PROVIDERS.map((p) => (
@@ -150,7 +155,7 @@ function SignInLayout({
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.surface },
-  hero: { paddingHorizontal: 28, paddingBottom: 28, backgroundColor: colors.orange },
+  hero: { gap: 14, paddingHorizontal: 28, paddingBottom: 32, backgroundColor: colors.orange },
   content: { gap: 12, paddingTop: 24, paddingHorizontal: 24, paddingBottom: 40 },
   divider: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   rule: { flex: 1, height: 1, backgroundColor: colors.border },

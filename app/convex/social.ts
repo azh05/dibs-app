@@ -138,6 +138,12 @@ export const feed = query({
           .query("activity_reactions")
           .withIndex("by_activity_user_kind", (q) => q.eq("activity_id", a._id).eq("user_id", me._id).eq("kind", "cheer"))
           .unique();
+        const likes = (
+          await ctx.db
+            .query("activity_reactions")
+            .withIndex("by_activity_user_kind", (q) => q.eq("activity_id", a._id))
+            .collect()
+        ).filter((r) => r.kind === "cheer").length;
         const badge = a.badge_id ? BADGES.find((b) => b.id === a.badge_id) : undefined;
         return {
           id: a._id,
@@ -149,6 +155,16 @@ export const feed = query({
           deal_id: a.deal_id ?? null,
           created_at: a.created_at,
           cheered: Boolean(cheered),
+          likes,
+          // The deal or event a post is about, for its card (Figma "Friends" activity).
+          card: deal
+            ? {
+                id: deal._id,
+                kind: deal.kind === "event" || deal.status === "upcoming" ? ("event" as const) : ("deal" as const),
+                title: deal.title ?? deal.offer,
+                subtitle: store?.name ?? "",
+              }
+            : null,
         };
       }),
     );

@@ -7,7 +7,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Button } from '@/components/button';
 import { Text } from '@/components/text';
 import { TextField } from '@/components/text-field';
-import { clerkError, useCodeAuth } from '@/lib/clerk-auth';
+import { alreadySignedIn, clerkError, useCodeAuth } from '@/lib/clerk-auth';
 import { colors, gutter } from '@/theme';
 
 /** "(310) 555-0100" → "+13105550100"; numbers already in +country form pass through. */
@@ -33,6 +33,11 @@ export default function PhoneSignIn() {
       const mode = await sendPhoneCode(e164(phone));
       router.push({ pathname: '/onboarding/verify', params: { mode, to: phone } });
     } catch (e) {
+      if (alreadySignedIn(e)) {
+        router.dismissAll();
+        router.replace('/deals');
+        return;
+      }
       setError(clerkError(e));
     } finally {
       setBusy(false);

@@ -7,7 +7,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Button } from '@/components/button';
 import { Text } from '@/components/text';
 import { TextField } from '@/components/text-field';
-import { clerkError, useCodeAuth } from '@/lib/clerk-auth';
+import { alreadySignedIn, clerkError, useCodeAuth } from '@/lib/clerk-auth';
 import { colors, gutter } from '@/theme';
 
 // "Already have an account? Log in": email and password.
@@ -27,6 +27,11 @@ export default function LogIn() {
       router.dismissAll();
       router.replace('/deals');
     } catch (e) {
+      if (alreadySignedIn(e)) {
+        router.dismissAll();
+        router.replace('/deals');
+        return;
+      }
       setError(clerkError(e));
     } finally {
       setBusy(false);

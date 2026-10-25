@@ -4,16 +4,24 @@
 import * as Notifications from 'expo-notifications';
 import { Linking } from 'react-native';
 
-import { clock } from '@/lib/format';
+import { clock, dayAndTime, shortAgo } from '@/lib/format';
 import type { Deal, DealEvent } from '@/lib/types';
 
 export const ACTIONS = { directions: 'directions', save: 'save', remind: 'remind' } as const;
 
-const SOURCE_NAMES = { instagram: 'Instagram', website: 'website', community: 'the dibs community' } as const;
+/** "Ends Oct 24, 6 PM", or when it was posted if the end isn't known (Figma notifications' last line). */
+export function dealWhen(deal: Deal) {
+  return deal.endsAt ? `Ends ${dayAndTime(deal.endsAt)}` : `Posted ${shortAgo(deal.postedHoursAgo)} ago`;
+}
 
-/** "BOGO milk tea · via Instagram", the notification body and in-app previews. */
+/** The notification body and in-app previews: the deal, then when it ends ("BOGO milk tea\nEnds Oct 24, 6 PM"). */
 export function alertBody(deal: Deal) {
-  return `${deal.shortOffer} · via ${SOURCE_NAMES[deal.source.kind]}`;
+  return `${deal.shortOffer}\n${dealWhen(deal)}`;
+}
+
+/** "KDA × Chicha pop-up\nStarts Oct 31, 12 PM" */
+export function eventAlertBody(event: DealEvent) {
+  return `${event.title}\nStarts ${dayAndTime(event.startsAt)}`;
 }
 
 /** Half an hour before the deal ends, or an hour from now when the end isn't known. */

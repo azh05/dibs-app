@@ -68,7 +68,7 @@ function pillLabel(deal: Deal, kind: Kind, now: Date) {
   return day ? `Live · ends ${day}` : 'Live';
 }
 
-// 13 · Saved (Figma 49:1503), opened from Profile → My lists.
+// 14 · Saved (Figma 49:1503), opened from Profile → My lists.
 export default function SavedScreen() {
   const insets = useSafeAreaInsets();
   const now = useNow();
@@ -135,11 +135,6 @@ export default function SavedScreen() {
       <ScrollView contentContainerStyle={styles.content}>
         {tab === 'Deals' && (
           <>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.lists}>
-              {lists.map((l, i) => (
-                <ListTile key={l.id} list={l} index={i} />
-              ))}
-            </ScrollView>
             {endingSoon.length > 0 && (
               <View style={styles.pad}>
                 <View style={styles.nudge}>
@@ -341,7 +336,6 @@ const styles = StyleSheet.create({
   underline: { width: 28, height: 3, borderRadius: 2 },
   content: { gap: 18, paddingTop: 18, paddingBottom: 32 },
   pad: { paddingHorizontal: gutter },
-  lists: { gap: 10, paddingHorizontal: gutter },
   listGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   listTile: { width: 116, height: 116, justifyContent: 'space-between', padding: 12, borderRadius: radii.card },
   nudge: {

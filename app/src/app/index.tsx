@@ -1,19 +1,37 @@
-import { router } from 'expo-router';
+import * as Location from 'expo-location';
+import { Redirect, router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { Animated, Pressable, StyleSheet, useAnimatedValue, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import DotWelcome from '@/assets/shapes/dot-welcome.svg';
+import { CategoryWheel } from '@/components/category-wheel';
 import { Icon } from '@/components/icon';
 import { Text } from '@/components/text';
 import { Wordmark } from '@/components/wordmark';
+import { useStore } from '@/lib/store';
 import { colors } from '@/theme';
 
-// 01 · Welcome (Figma 3:97). Both buttons lead to Sign in, as in the prototype.
+// 01 · Welcome (Figma 91:2223, location off) and 02 · Welcome · location on (3:97). Without
+// location the pill asks for it; "Find deals near me" asks too (the iOS prompt), then both
+// buttons lead to Sign in, as in the prototype. Already signed in: straight to Deals.
 export default function Welcome() {
   const insets = useSafeAreaInsets();
+  const { signedIn } = useStore();
   const pulse = useAnimatedValue(1);
+  const [located, setLocated] = useState(false);
+
+  useEffect(() => {
+    Location.getForegroundPermissionsAsync()
+      .then(({ granted }) => setLocated(granted))
+      .catch(() => undefined);
+  }, []);
+
+  const askLocation = async () => {
+    const { granted } = await Location.requestForegroundPermissionsAsync().catch(() => ({ granted: false }));
+    setLocated(granted);
+  };
 
   useEffect(() => {
     const loop = Animated.loop(
@@ -26,7 +44,13 @@ export default function Welcome() {
     return () => loop.stop();
   }, [pulse]);
 
-  const signIn = () => router.push('/onboarding/sign-in');
+  const signIn = () => (signedIn ? router.replace('/deals') : router.push('/onboarding/sign-in'));
+  const findDeals = async () => {
+    if (!located) await askLocation();
+    signIn();
+  };
+
+  if (signedIn) return <Redirect href="/deals" />;
 
   return (
     <View style={[styles.screen, { paddingTop: insets.top, paddingBottom: Math.max(insets.bottom, 24) + 24 }]}>
@@ -37,20 +61,36 @@ export default function Welcome() {
           Never miss out on a deal again.
         </Text>
         <Text weight="semibold" size={17} color={colors.orangeSoft} style={{ lineHeight: 24 }}>
-          Your personal AI agent that runs 24/7 and pings you the second a deal drops.
+          Your personal AI agent that runs 24/7 and pings you the second something drops.
         </Text>
-        <View style={styles.scanning}>
-          <Animated.View style={{ opacity: pulse }}>
-            <DotWelcome width={8} height={8} />
-          </Animated.View>
-          <Text weight="semibold" size={13} color={colors.surface}>
-            Watching 1,284 spots near you
-          </Text>
-        </View>
+      </View>
+      <View style={styles.wheelZone}>
+        <CategoryWheel />
       </View>
       <View style={styles.actions}>
+        {located ? (
+          <View style={styles.scanning}>
+            <Animated.View style={{ opacity: pulse }}>
+              <DotWelcome width={8} height={8} />
+            </Animated.View>
+            <Text weight="semibold" size={13} color={colors.surface}>
+              Watching{' '}
+              <Text weight="extrabold" size={13} color={colors.surface}>
+                1,284
+              </Text>{' '}
+              spots near you
+            </Text>
+          </View>
+        ) : (
+          <Pressable onPress={askLocation} accessibilityRole="button" style={styles.scanning}>
+            <Icon name="pin" size={14} color={colors.surface} />
+            <Text weight="semibold" size={13} color={colors.surface}>
+              Turn on location to see spots near you
+            </Text>
+          </Pressable>
+        )}
         <Pressable
-          onPress={signIn}
+          onPress={findDeals}
           accessibilityRole="button"
           style={({ pressed }) => [styles.primary, pressed && { opacity: 0.9 }]}>
           <Icon name="navigation" size={20} color={colors.orange} />
@@ -74,17 +114,19 @@ export default function Welcome() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.orange, paddingHorizontal: 28 },
-  hero: { flex: 1, justifyContent: 'center', alignItems: 'flex-start', gap: 20 },
+  hero: { paddingTop: 68, alignItems: 'flex-start', gap: 20 },
+  wheelZone: { flex: 1, justifyContent: 'center' },
   scanning: {
+    alignSelf: 'flex-start',
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 5,
     paddingHorizontal: 14,
     paddingVertical: 8,
     borderRadius: 999,
     backgroundColor: 'rgba(255,255,255,0.16)',
   },
-  actions: { gap: 12 },
+  actions: { gap: 14 },
   primary: {
     flexDirection: 'row',
     alignItems: 'center',

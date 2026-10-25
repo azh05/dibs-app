@@ -136,7 +136,7 @@ export function BackendStoreProvider({ children }: { children: ReactNode }) {
   const used = useOptimisticSet(saves?.filter((s) => s.used_at).map((s) => s.id));
   const followed = useOptimisticSet(followedStores?.map((s) => s.id));
   const reminders = useOptimisticSet(reminderRows?.map((r) => r.deal_id));
-  const cheered = useOptimisticSet(friendFeed?.filter((f) => f.cheered).map((f) => f.id));
+  const liked = useOptimisticSet(friendFeed?.filter((f) => f.cheered).map((f) => f.id));
   const [confirmedToday, setConfirmedToday] = useState(() => new Set<string>());
 
   const serverTopicLabels = useMemo(
@@ -227,6 +227,7 @@ export function BackendStoreProvider({ children }: { children: ReactNode }) {
   }));
 
   const value: Store = {
+    signedIn: isAuthenticated,
     account: me
       ? {
           name: me.display_name ?? me.username ?? 'dibs user',
@@ -280,9 +281,9 @@ export function BackendStoreProvider({ children }: { children: ReactNode }) {
         on ? setReminder({ dealId: id as Id<'deals'> }) : cancelReminder({ dealId: id as Id<'deals'> }),
       );
     },
-    cheered: cheered.set,
-    toggleCheer: (id) =>
-      optimistic(cheered, id, !cheered.set.has(id), () => react({ activityId: id as Id<'activity'>, kind: 'cheer' })),
+    liked: liked.set,
+    toggleLiked: (id) =>
+      optimistic(liked, id, !liked.set.has(id), () => react({ activityId: id as Id<'activity'>, kind: 'cheer' })),
 
     instant,
     setInstant: (on) => {

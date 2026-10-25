@@ -54,8 +54,10 @@ import Gift from '@/assets/icons/gift.svg';
 import Glasses from '@/assets/icons/glasses.svg';
 import Globe from '@/assets/icons/globe.svg';
 import Hair from '@/assets/icons/hair.svg';
+import Heart from '@/assets/icons/heart.svg';
 import Hookah from '@/assets/icons/hookah.svg';
 import Icecream from '@/assets/icons/icecream.svg';
+import Info from '@/assets/icons/info.svg';
 import Instagram from '@/assets/icons/instagram.svg';
 import Joystick from '@/assets/icons/joystick.svg';
 import Juice from '@/assets/icons/juice.svg';
@@ -69,6 +71,7 @@ import Lock from '@/assets/icons/lock.svg';
 import Mail from '@/assets/icons/mail.svg';
 import MapIcon from '@/assets/icons/map.svg';
 import Masks from '@/assets/icons/masks.svg';
+import Message from '@/assets/icons/message.svg';
 import Mic from '@/assets/icons/mic.svg';
 import Monitor from '@/assets/icons/monitor.svg';
 import Moon from '@/assets/icons/moon.svg';
@@ -107,6 +110,7 @@ import Tattoo from '@/assets/icons/tattoo.svg';
 import Tooth from '@/assets/icons/tooth.svg';
 import Truck from '@/assets/icons/truck.svg';
 import User from '@/assets/icons/user.svg';
+import UserPlus from '@/assets/icons/user-plus.svg';
 import Users from '@/assets/icons/users.svg';
 import Verified from '@/assets/icons/verified.svg';
 import Waves from '@/assets/icons/waves.svg';
@@ -171,8 +175,10 @@ const icons = {
   glasses: Glasses,
   globe: Globe,
   hair: Hair,
+  heart: Heart,
   hookah: Hookah,
   icecream: Icecream,
+  info: Info,
   instagram: Instagram,
   joystick: Joystick,
   juice: Juice,
@@ -186,6 +192,7 @@ const icons = {
   mail: Mail,
   map: MapIcon,
   masks: Masks,
+  message: Message,
   mic: Mic,
   monitor: Monitor,
   moon: Moon,
@@ -224,6 +231,7 @@ const icons = {
   tooth: Tooth,
   truck: Truck,
   user: User,
+  'user-plus': UserPlus,
   users: Users,
   verified: Verified,
   waves: Waves,

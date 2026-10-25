@@ -12,36 +12,43 @@ import { Chip } from '@/components/chip';
 import { DealCard } from '@/components/deal-card';
 import { EventCard } from '@/components/event-card';
 import { Icon } from '@/components/icon';
+import { InterestChip } from '@/components/interest-chip';
 import { SearchBar } from '@/components/search-bar';
 import { SectionHeader } from '@/components/section-header';
 import { Text } from '@/components/text';
 import { useDeals, useSpotsWatched } from '@/lib/api';
 import { usingBackend } from '@/lib/backend';
-import {
-  ALL_DEALS,
-  QUICK_FILTERS,
-  UPCOMING_ONLY,
-  applyEventFilters,
-  applyFilters,
-  quickFilterDeals,
-  quickFilterEvents,
-  type QuickFilter,
-} from '@/lib/filters';
+import { UPCOMING_EVENTS, applyEventFilters, applyFilters, quickFilters } from '@/lib/filters';
+import { DEAL_TYPES, STORE_TYPES } from '@/lib/interests';
 import { combinedLine } from '@/lib/line-check';
 import { useStore } from '@/lib/store';
 import { colors, gutter } from '@/theme';
 
-// 06 · Deals (Figma 4:73)
+// 07 · Deals (Figma 4:73)
 export default function DealsScreen() {
   const insets = useSafeAreaInsets();
   const { deals, events, loading, error } = useDeals();
-  const { saved, toggleSaved, activity, filters, lineReports, place } = useStore();
+  const { saved, toggleSaved, activity, filters, lineReports, topics, place } = useStore();
   const spots = useSpotsWatched();
-  const [quick, setQuick] = useState<QuickFilter>(ALL_DEALS);
+  // Quick chips: "All" (on at first), your store-type interests, then every deal type.
+  const interests = STORE_TYPES.filter((t) => topics.has(t.label));
+  const [pickedStores, setPickedStores] = useState(new Set<string>());
+  const [pickedTypes, setPickedTypes] = useState(new Set<string>());
+  const [upcomingOnly, setUpcomingOnly] = useState(false);
   const [query, setQuery] = useState('');
 
-  const shownDeals = quickFilterDeals(applyFilters(deals, filters, query), quick);
-  const shownEvents = quickFilterEvents(applyEventFilters(events, filters, query), quick);
+  const toggle = (set: Set<string>, label: string) => {
+    const next = new Set(set);
+    if (next.has(label)) next.delete(label);
+    else next.add(label);
+    return next;
+  };
+  const quick = quickFilters(filters, pickedStores, pickedTypes);
+  // "See all" on Coming up, or the Upcoming events chip on its own, shows events only.
+  const eventsOnly = upcomingOnly || (pickedTypes.size === 1 && pickedTypes.has(UPCOMING_EVENTS));
+  const shownDeals = eventsOnly ? [] : applyFilters(applyFilters(deals, filters, query, topics), quick, '', topics);
+  const shownEvents = applyEventFilters(applyEventFilters(events, filters, query), quick);
+  const allOn = pickedStores.size === 0 && pickedTypes.size === 0 && !upcomingOnly;
   const unread = activity.some((a) => a.unread);
 
   let agentStatus = spots ? `Watching ${spots.toLocaleString()} spots near you` : 'Your agent is learning this area';
@@ -81,9 +88,19 @@ export default function DealsScreen() {
             </Text>{' '}
             live deals
           </Text>
-          <Text size={15} color={colors.inkTertiary} style={{ marginTop: 4 }}>
-            {events.length} upcoming this week · within {filters.radiusMi} mi
-          </Text>
+          <View style={styles.agents}>
+            <Text weight="bold" size={15}>
+              Agents searching{' '}
+              <Text weight="extrabold" size={15} color={colors.orange}>
+                24/7
+              </Text>
+            </Text>
+            <View style={styles.sources}>
+              <Icon name="instagram" size={16} color={colors.inkTertiary} />
+              <Icon name="globe" size={16} color={colors.inkTertiary} />
+              <Icon name="users" size={16} color={colors.inkTertiary} />
+            </View>
+          </View>
         </View>
 
         <View style={styles.pad}>
@@ -96,9 +113,39 @@ export default function DealsScreen() {
         </View>
 
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips}>
-          {QUICK_FILTERS.map((f) => (
-            <Chip key={f.label} label={f.label} active={f === quick} onPress={() => setQuick(f)} />
+          <Chip
+            label="All"
+            tone="orange"
+            active={allOn}
+            onPress={() => {
+              setPickedStores(new Set());
+              setPickedTypes(new Set());
+              setUpcomingOnly(false);
+            }}
+          />
+          {interests.map((t) => (
+            <InterestChip
+              key={t.label}
+              label={t.label}
+              icon={t.icon}
+              selected={pickedStores.has(t.label)}
+              onPress={() => setPickedStores((s) => toggle(s, t.label))}
+            />
           ))}
+          <View style={styles.divider} />
+          {DEAL_TYPES.map((t) => (
+            <InterestChip
+              key={t.label}
+              label={t.label}
+              icon={t.icon}
+              selected={pickedTypes.has(t.label)}
+              onPress={() => setPickedTypes((s) => toggle(s, t.label))}
+            />
+          ))}
+          <Chip
+            label="+ Edit"
+            onPress={() => router.push({ pathname: '/onboarding/interests', params: { edit: '1' } })}
+          />
         </ScrollView>
 
         <View style={styles.pad}>
@@ -115,7 +162,7 @@ export default function DealsScreen() {
             <SectionHeader
               leading={<Icon name="calendar" size={16} color={colors.orange} />}
               title="Coming up"
-              onSeeAll={() => setQuick(UPCOMING_ONLY)}
+              onSeeAll={() => setUpcomingOnly(true)}
             />
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.carousel}>
               {shownEvents.map((e) => (
@@ -125,12 +172,12 @@ export default function DealsScreen() {
           </View>
         )}
 
-        {quick !== UPCOMING_ONLY && (
+        {!eventsOnly && (
           <View style={{ gap: 20 }}>
             <SectionHeader
               leading={<DotSection width={8} height={8} />}
               title="Live now"
-              onSeeAll={() => setQuick(ALL_DEALS)}
+              onSeeAll={() => setUpcomingOnly(false)}
             />
             <View style={[styles.pad, { gap: 12 }]}>
               {shownDeals.map((d) => (
@@ -168,7 +215,10 @@ const styles = StyleSheet.create({
   },
   location: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   badge: { position: 'absolute', left: 24, top: 9 },
-  chips: { gap: 8, paddingHorizontal: gutter },
+  chips: { gap: 8, paddingHorizontal: gutter, alignItems: 'center' },
+  divider: { width: 1.5, height: 24, borderRadius: 1, backgroundColor: colors.border },
+  agents: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 4 },
+  sources: { flexDirection: 'row', alignItems: 'center', gap: 7 },
   agent: {
     flexDirection: 'row',
     alignItems: 'center',

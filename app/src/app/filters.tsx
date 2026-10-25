@@ -4,18 +4,36 @@ import { useState, type ReactNode } from 'react';
 import { Pressable, ScrollView, StyleSheet, Switch, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { AdultNote } from '@/components/adult-note';
 import { Button } from '@/components/button';
 import { Icon } from '@/components/icon';
 import { InterestChip } from '@/components/interest-chip';
 import { Segmented } from '@/components/segmented';
 import { Text } from '@/components/text';
 import { useDeals } from '@/lib/api';
-import { DEFAULT_FILTERS, SORTS, SOURCES, applyFilters, type Filters } from '@/lib/filters';
+import { DEFAULT_FILTERS, SORTS, applyFilters, type Filters } from '@/lib/filters';
 import { plural } from '@/lib/format';
 import { DEAL_TYPES, RADIUS_OPTIONS, STORE_SECTIONS, type InterestSection } from '@/lib/interests';
 import { verifyAge } from '@/lib/age-gate';
 import { useStore } from '@/lib/store';
 import { colors, gutter, radii } from '@/theme';
+
+/** Store-type groups in the Filters order, which differs from Pick interests (Figma 09 · Filters). */
+const GROUP_ORDER = [
+  'Food & drink',
+  'Nightlife',
+  'Beauty & self-care',
+  'Health',
+  'Fitness',
+  'Shopping',
+  'Fun',
+  'Everyday',
+  'Auto',
+  'Pets',
+  '21+ shops',
+  'Stays',
+];
+const GROUPS = [...STORE_SECTIONS].sort((a, b) => GROUP_ORDER.indexOf(a.title) - GROUP_ORDER.indexOf(b.title));
 
 const TOGGLES: { key: 'openNow' | 'communityVerified' | 'hideExpired'; title: string; subtitle: string }[] = [
   { key: 'openNow', title: 'Open now', subtitle: 'Only stores open right now' },
@@ -30,7 +48,7 @@ function toggled<T>(set: Set<T>, value: T) {
   return next;
 }
 
-// 08 · Filters (Figma 39:1241): edits a draft; "Show N deals" applies it, Close throws it away.
+// 09 · Filters (Figma 39:1241): edits a draft; "Show N deals" applies it, Close throws it away.
 export default function FiltersScreen() {
   const insets = useSafeAreaInsets();
   const { deals } = useDeals();
@@ -39,7 +57,7 @@ export default function FiltersScreen() {
   const [openGroup, setOpenGroup] = useState<string | null>(null);
 
   const update = (patch: Partial<Filters>) => setDraft((d) => ({ ...d, ...patch }));
-  const count = applyFilters(deals, draft).length;
+  const count = applyFilters(deals, draft, '', store.topics).length;
   const allDealTypes = DEAL_TYPES.map((t) => t.label);
   const allDealTypesOn = allDealTypes.every((t) => draft.dealTypes.has(t));
 
@@ -87,31 +105,14 @@ export default function FiltersScreen() {
           />
         </Section>
 
-        <Section
-          title="Deal type"
-          action={allDealTypesOn ? 'Clear' : 'Select all'}
-          onAction={() => update({ dealTypes: new Set(allDealTypesOn ? [] : allDealTypes) })}>
-          <View style={styles.chips}>
-            {DEAL_TYPES.map((t) => (
-              <InterestChip
-                key={t.label}
-                label={t.label}
-                icon={t.icon}
-                selected={draft.dealTypes.has(t.label)}
-                onPress={() => update({ dealTypes: toggled(draft.dealTypes, t.label) })}
-              />
-            ))}
-          </View>
-        </Section>
-
         <Section title="Store type" action="Clear" onAction={() => update({ storeTypes: new Set() })}>
           <View style={styles.groups}>
-            {STORE_SECTIONS.map((section, i) => {
+            {GROUPS.map((section, i) => {
               const picked = section.interests.filter((t) => draft.storeTypes.has(t.label)).length;
               const locked = section.adult && !store.adultUnlocked;
               const open = openGroup === section.title;
               return (
-                <View key={section.title} style={i < STORE_SECTIONS.length - 1 && styles.groupDivider}>
+                <View key={section.title} style={i < GROUPS.length - 1 && styles.groupDivider}>
                   <Pressable onPress={() => toggleGroup(section)} accessibilityRole="button" style={styles.groupRow}>
                     <View style={[styles.groupIcon, picked > 0 && { backgroundColor: colors.orangeSoft }]}>
                       <Icon name={section.icon} size={18} color={picked > 0 ? colors.orange : colors.ink} />
@@ -136,21 +137,41 @@ export default function FiltersScreen() {
                     </View>
                   </Pressable>
                   {open && (
-                    <View style={[styles.chips, styles.groupChips]}>
-                      {section.interests.map((t) => (
-                        <InterestChip
-                          key={t.label}
-                          label={t.label}
-                          icon={t.icon}
-                          selected={draft.storeTypes.has(t.label)}
-                          onPress={() => update({ storeTypes: toggled(draft.storeTypes, t.label) })}
-                        />
-                      ))}
+                    <View style={styles.groupChips}>
+                      <View style={styles.chips}>
+                        {section.interests.map((t) => (
+                          <InterestChip
+                            key={t.label}
+                            label={t.label}
+                            icon={t.icon}
+                            selected={draft.storeTypes.has(t.label)}
+                            onPress={() => update({ storeTypes: toggled(draft.storeTypes, t.label) })}
+                          />
+                        ))}
+                      </View>
+                      {section.title === 'Nightlife' && <AdultNote />}
                     </View>
                   )}
                 </View>
               );
             })}
+          </View>
+        </Section>
+
+        <Section
+          title="Deal type"
+          action={allDealTypesOn ? 'Clear' : 'Select all'}
+          onAction={() => update({ dealTypes: new Set(allDealTypesOn ? [] : allDealTypes) })}>
+          <View style={styles.chips}>
+            {DEAL_TYPES.map((t) => (
+              <InterestChip
+                key={t.label}
+                label={t.label}
+                icon={t.icon}
+                selected={draft.dealTypes.has(t.label)}
+                onPress={() => update({ dealTypes: toggled(draft.dealTypes, t.label) })}
+              />
+            ))}
           </View>
         </Section>
 
@@ -177,19 +198,6 @@ export default function FiltersScreen() {
           </View>
         </Section>
 
-        <Section title="Found on">
-          <View style={styles.chips}>
-            {SOURCES.map((s) => (
-              <InterestChip
-                key={s.kind}
-                label={s.label}
-                icon={s.icon}
-                selected={draft.sources.has(s.kind)}
-                onPress={() => update({ sources: toggled(draft.sources, s.kind) })}
-              />
-            ))}
-          </View>
-        </Section>
       </ScrollView>
 
       <View style={[styles.cta, { paddingBottom: Math.max(insets.bottom, 20) }]}>
@@ -252,7 +260,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  groupChips: { paddingHorizontal: 14, paddingBottom: 14 },
+  groupChips: { gap: 10, paddingHorizontal: 14, paddingBottom: 14 },
   lock: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   toggles: { borderRadius: radii.card, backgroundColor: colors.muted, overflow: 'hidden' },
   toggleRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, paddingVertical: 14 },

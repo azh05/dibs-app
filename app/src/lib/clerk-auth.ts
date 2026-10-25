@@ -20,6 +20,11 @@ export type SignUpOutcome =
   | { done: false; verify: CodeMode; to: string }
   | { done: false; missing: FinishField[] };
 
+/** Clerk refuses a new sign-in when a session already exists; the user is in, so carry on. */
+export function alreadySignedIn(e: unknown): boolean {
+  return isClerkAPIResponseError(e) && e.errors.some((x) => x.code === 'session_exists');
+}
+
 export function clerkError(e: unknown): string {
   if (isClerkAPIResponseError(e)) return e.errors[0]?.longMessage ?? e.errors[0]?.message ?? 'Sign-in failed';
   return e instanceof Error ? e.message : String(e);

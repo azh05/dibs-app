@@ -97,7 +97,17 @@ export const board = query({
       rows.sort((a, b) => b.cents - a.cents);
       const ranked = rows.map((r, i) => ({ ...publicProfile(r.user), saved_cents: r.cents, rank: i + 1, change: 0 }));
       const you = ranked.find((r) => r.id === me._id)!;
-      return { label: "Friends", period, ranked: ranked.slice(0, 50), you: { ...you, percentile: Math.round((100 * you.rank) / ranked.length) } };
+      const above = ranked[you.rank - 2];
+      return {
+        label: "Friends",
+        period,
+        ranked: ranked.slice(0, 50),
+        you: {
+          ...you,
+          percentile: Math.round((100 * you.rank) / ranked.length),
+          to_next_cents: above ? Math.max(0, above.saved_cents - you.saved_cents) : 0,
+        },
+      };
     }
     const key = scope === "neighborhood" ? me.home_neighborhood : me.school;
     if (!key) return { label: null, period, ranked: [], you: null };
@@ -123,6 +133,14 @@ export const board = query({
         .withIndex("by_board_rank", (q) => q.eq("scope", scope).eq("scope_key", key).eq("period_start", period))
         .collect()
     ).length;
+    const above = mine
+      ? await ctx.db
+          .query("leaderboard_snapshots")
+          .withIndex("by_board_rank", (q) =>
+            q.eq("scope", scope).eq("scope_key", key).eq("period_start", period).eq("rank", mine.rank - 1),
+          )
+          .first()
+      : null;
     return {
       label: key,
       period,
@@ -134,8 +152,32 @@ export const board = query({
             rank: mine.rank,
             change: mine.rank_week_ago ? mine.rank_week_ago - mine.rank : 0,
             percentile: Math.max(1, Math.round((100 * mine.rank) / size)),
+            to_next_cents: above ? Math.max(0, above.saved_cents - mine.saved_cents) : 0,
           }
         : null,
     };
+  },
+});
+
+/** Your friends (and you) with each one's rank on the neighbourhood or school board: the Friends tab list. */
+export const friendRanks = query({
+  args: { scope: v.union(v.literal("neighborhood"), v.literal("school")) },
+  handler: async (ctx, { scope }) => {
+    const me = await getUser(ctx);
+    if (!me) return [];
+    const key = scope === "neighborhood" ? me.home_neighborhood : me.school;
+    if (!key) return [];
+    const period = monthStart(Date.now());
+    const rows = [];
+    for (const id of [me._id, ...(await friendIds(ctx, me._id))]) {
+      const user = await ctx.db.get("users", id);
+      if (!user || user.deleted_at) continue;
+      const snap = await ctx.db
+        .query("leaderboard_snapshots")
+        .withIndex("by_board_user", (q) => q.eq("scope", scope).eq("scope_key", key).eq("period_start", period).eq("user_id", id))
+        .unique();
+      if (snap) rows.push({ ...publicProfile(user), rank: snap.rank, saved_cents: snap.saved_cents, you: id === me._id });
+    }
+    return rows.sort((a, b) => a.rank - b.rank);
   },
 });

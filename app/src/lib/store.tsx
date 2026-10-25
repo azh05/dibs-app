@@ -7,7 +7,7 @@ import { ageOn, type Account } from '@/lib/account';
 import { DEFAULT_FILTERS, type Filters } from '@/lib/filters';
 import { DEFAULT_INTERESTS } from '@/lib/interests';
 import { REPORT_XP, type LineReport } from '@/lib/line-check';
-import { HOME, MOCK_ACTIVITY, MOCK_EARNED, MOCK_SUBMISSIONS } from '@/lib/mock';
+import { HOME, MOCK_ACTIVITY, MOCK_CREDITS, MOCK_SUBMISSIONS } from '@/lib/mock';
 import { SAVED_LISTS, STARTING_XP } from '@/lib/social';
 import type { Activity, Deal, LatLng, Submission } from '@/lib/types';
 
@@ -28,6 +28,8 @@ export type SavedList = { id: string; name: string; icon: string | null; spots: 
 
 export type Store = {
   account: Account | null;
+  /** Signed in (backend: Clerk session; mock: the demo account). Welcome and Sign in skip ahead when true. */
+  signedIn: boolean;
   signIn: (account: Account) => void;
   signOut: () => void;
   /** Verified .edu domain, from Sign in, Create account or Profile. */
@@ -50,8 +52,9 @@ export type Store = {
   toggleFollowed: (key: string) => void;
   reminders: Set<string>;
   toggleReminder: (id: string) => void;
-  cheered: Set<string>;
-  toggleCheer: (activityId: string) => void;
+  /** Friends posts you liked. */
+  liked: Set<string>;
+  toggleLiked: (postId: string) => void;
 
   instant: boolean;
   setInstant: (on: boolean) => void;
@@ -137,7 +140,7 @@ export function MockStoreProvider({ children }: { children: ReactNode }) {
   const [used, , setUsed] = useToggleSet();
   const [followed, toggleFollowed] = useToggleSet(['Tapioca Lab', 'Polish Bar']);
   const [reminders, toggleReminder] = useToggleSet(['kda-chicha-popup']);
-  const [cheered, toggleCheer] = useToggleSet();
+  const [liked, toggleLiked] = useToggleSet();
   const [confirmedToday, , setConfirmed] = useToggleSet();
   const [instant, setInstant] = useState(true);
   const [topics, toggleTopic, setTopicsOn] = useToggleSet(DEFAULT_INTERESTS);
@@ -154,6 +157,7 @@ export function MockStoreProvider({ children }: { children: ReactNode }) {
 
   const value: Store = {
     account,
+    signedIn: account !== null,
     signIn: (a) => {
       setAccount(a);
       if (a.studentDomain) setStudentDomain(a.studentDomain);
@@ -186,8 +190,8 @@ export function MockStoreProvider({ children }: { children: ReactNode }) {
     toggleFollowed,
     reminders,
     toggleReminder,
-    cheered,
-    toggleCheer,
+    liked,
+    toggleLiked,
     instant,
     setInstant,
     topics,
@@ -203,7 +207,7 @@ export function MockStoreProvider({ children }: { children: ReactNode }) {
     markRead: (id) => setActivity((list) => list.map((a) => (a.id === id ? { ...a, unread: false } : a))),
     submissions,
     addSubmission: (s) => setSubmissions((list) => [s, ...list]),
-    credits: { balance: MOCK_EARNED * 100, pending: 500 },
+    credits: { balance: MOCK_CREDITS, pending: 500 },
     lineReports,
     reportLine: (deal, minutes) => {
       const report = { dealId: deal.id, minutes, at: Date.now() };

@@ -82,10 +82,11 @@ test("friends: request, accept, feed and cheers", async () => {
   await jess.as.mutation(api.saves.markUsed, { dealId: boba });
   const feed = await maya.as.query(api.social.feed, {});
   const used = feed.find((f) => f.type === "used_deal")!;
-  expect(used).toMatchObject({ verb: "used", subject: "BOGO milk tea", place: "Tapioca Lab", cheered: false });
+  expect(used).toMatchObject({ verb: "used", subject: "BOGO milk tea", place: "Tapioca Lab", cheered: false, likes: 0 });
+  expect(used.card).toMatchObject({ id: boba, kind: "deal", title: "BOGO milk tea", subtitle: "Tapioca Lab" });
   expect(feed.some((f) => f.verb === "unlocked" && f.subject === "First Dibs")).toBe(true);
   expect(await maya.as.mutation(api.social.react, { activityId: used.id, kind: "cheer" })).toBe(true);
-  expect((await maya.as.query(api.social.feed, {})).find((f) => f.id === used.id)!.cheered).toBe(true);
+  expect((await maya.as.query(api.social.feed, {})).find((f) => f.id === used.id)).toMatchObject({ cheered: true, likes: 1 });
 });
 
 test("leaderboards rank $ saved this month by neighbourhood and among friends", async () => {
@@ -111,7 +112,22 @@ test("leaderboards rank $ saved this month by neighbourhood and among friends", 
   await sam.as.mutation(api.social.respond, { userId: maya.userId, accept: true });
   const friends = (await maya.as.query(api.leaderboards.board, { scope: "friends" }))!;
   expect(friends.ranked.map((r) => r.username)).toEqual(["sam", "maya"]);
-  expect((await maya.as.query(api.profile.stats, {}))!.friends).toBe(1);
+  expect(friends.you).toMatchObject({ rank: 2, to_next_cents: 5000 - 650 });
+  expect(westwood.you!.to_next_cents).toBe(1200 - 650);
+  const stats = (await maya.as.query(api.profile.stats, {}))!;
+  expect(stats.friends).toBe(1);
+  expect(stats.friend_faces.map((f) => f.username)).toEqual(["sam"]);
+  expect(stats.weekly_saved_cents).toHaveLength(7);
+  expect(stats.weekly_saved_cents[6]).toBe(650); // this week's bar
+
+  // Friends tab: you and your friends with your ranks on the area board (Sam is on Sawtelle's board).
+  await maya.as.mutation(api.social.request, { userId: jess.userId });
+  await jess.as.mutation(api.social.respond, { userId: maya.userId, accept: true });
+  const ranks = await maya.as.query(api.leaderboards.friendRanks, { scope: "neighborhood" });
+  expect(ranks.map((r) => [r.username, r.rank, r.you])).toEqual([
+    ["jess", 1, false],
+    ["maya", 2, true],
+  ]);
 });
 
 test("lists hold deals and stores", async () => {

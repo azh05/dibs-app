@@ -8,23 +8,29 @@ import { colors } from '@/theme';
 const TABS: Record<string, { label: string; icon: IconName }> = {
   deals: { label: 'Deals', icon: 'tag' },
   map: { label: 'Map', icon: 'map' },
+  friends: { label: 'Friends', icon: 'users' },
   earn: { label: 'Earn', icon: 'camera' },
   alerts: { label: 'Alerts', icon: 'bell' },
   profile: { label: 'Profile', icon: 'user' },
 };
 
+/** Screens without their own tab light up the tab they're opened from. */
+const PARENT_TAB: Record<string, string> = { saved: 'profile', leaderboard: 'profile' };
+
 // Figma "Tab Bar" (2:193): active tab is orange, the rest tertiary grey.
 export function TabBar({ state, emitter, navigateToTab, insets }: BottomTabBarProps) {
+  const current = state.routes[state.index].name;
+  const active = PARENT_TAB[current] ?? current;
   return (
     <View style={[styles.bar, { paddingBottom: Math.max(insets.bottom, 12) }]}>
-      {state.routes.map((route, index) => {
+      {state.routes.map((route) => {
         const tab = TABS[route.name];
         if (!tab) return null;
-        const focused = index === state.index;
+        const focused = route.name === active;
         const color = focused ? colors.orange : colors.inkTertiary;
         const onPress = () => {
           const event = emitter.emit({ type: 'tabPress', target: route.key, canPreventDefault: true });
-          if (!focused && !event.defaultPrevented) navigateToTab(route.key);
+          if (route.name !== current && !event.defaultPrevented) navigateToTab(route.key);
         };
         return (
           <Pressable
@@ -50,10 +56,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     paddingTop: 10,
-    paddingHorizontal: 16,
+    paddingHorizontal: 12,
     backgroundColor: colors.surface,
     borderTopWidth: 1,
     borderTopColor: colors.border,
   },
-  item: { width: 64, alignItems: 'center', gap: 4 },
+  item: { width: 58, alignItems: 'center', gap: 4 },
 });

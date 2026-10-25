@@ -5,7 +5,10 @@ import { getUser } from "./lib/auth";
 import { REFERRAL_CREDITS } from "./lib/credits";
 import { BADGES, BADGE_TOTAL } from "./lib/gamify";
 import { DEFAULT_TIMEZONE, localToEpoch, monthStart } from "./lib/time";
-import { friendIds } from "./social";
+import { friendIds, publicProfile } from "./social";
+import { DAY } from "./lib/time";
+
+const WEEKS_SHOWN = 7;
 
 /** "You're a certified boba fan. 15 boba deals this month." */
 function dnaSummary(top: { label: string; count: number } | undefined): string {
@@ -50,11 +53,26 @@ export const stats = query({
       .take(500);
     const joined = referred.filter((u) => u.referral_rewarded_at).length;
 
+    // $ saved per week for the last 7 weeks, oldest first (the Profile bar chart); the last bar is this week.
+    const now = Date.now();
+    const weekly_saved_cents = Array.from({ length: WEEKS_SHOWN }, () => 0);
+    for (const row of used) {
+      const weeksAgo = Math.floor((now - row.used_at!) / (7 * DAY));
+      if (weeksAgo < WEEKS_SHOWN) weekly_saved_cents[WEEKS_SHOWN - 1 - weeksAgo]! += row.saved_cents ?? 0;
+    }
+    const friendList = await friendIds(ctx, user._id);
+    const friendRows = (await Promise.all(friendList.slice(0, 7).map((id) => ctx.db.get("users", id)))).filter(
+      (u): u is NonNullable<typeof u> => Boolean(u && !u.deleted_at),
+    );
+
     return {
       saved_cents: used.reduce((t, r) => t + (r.saved_cents ?? 0), 0),
+      weekly_saved_cents,
+      joined_at: user.created_at,
       deals_used: used.length,
       week_streak: user.streak_weeks,
-      friends: (await friendIds(ctx, user._id)).length,
+      friends: friendList.length,
+      friend_faces: friendRows.map(publicProfile),
       xp: user.xp,
       credit_balance: user.credit_balance,
       badges: BADGES.map((b) => ({ id: b.id, name: b.name, icon: b.icon, description: b.description, earned: earnedIds.has(b.id), featured: b.id === user.featured_badge_id })),

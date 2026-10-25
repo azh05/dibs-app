@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { AdultNote } from '@/components/adult-note';
 import { Button } from '@/components/button';
 import { Icon } from '@/components/icon';
 import { InterestChip } from '@/components/interest-chip';
@@ -129,6 +130,7 @@ export default function PickInterests() {
                 )}
               </View>
               {section.title === 'Stays' && !adultUnlocked && !q && <AgeGate onVerify={verifyAge} />}
+              {section.title === 'Nightlife' && <AdultNote />}
             </View>
           );
         })}

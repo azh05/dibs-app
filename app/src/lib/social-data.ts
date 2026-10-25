@@ -1,26 +1,26 @@
-// Profile, leaderboard and friends numbers in the shapes the screens already use (src/lib/social.ts):
-// live from Convex in backend mode, the mock constants otherwise.
+// Profile, Friends and Leaderboard numbers in the shapes the screens use (src/lib/social.ts): live from Convex
+// in backend mode, the mock constants otherwise.
 import { useQuery } from 'convex/react';
 
 import { api } from '@convex/_generated/api';
-import { iconOr } from '@/components/icon';
+import type { IconName } from '@/components/icon';
 import { schoolName } from '@/lib/account';
 import { usingBackend } from '@/lib/backend';
 import { shortAgo } from '@/lib/format';
 import {
-  BADGE_TOTAL,
-  BADGES,
-  BADGES_EARNED,
   DEAL_DNA,
-  FRIEND_ACTIVITY,
+  FRIEND_POSTS,
+  FRIEND_RANKS,
   INVITES,
   LEADERBOARDS,
+  PROFILE_FRIENDS,
   PROFILE_STATS,
-  WEEKLY_CHALLENGE,
+  RANK_CARDS,
   type AvatarTone,
-  type Badge,
-  type FriendActivity,
+  type Friend,
+  type FriendPost,
   type Ranked,
+  type RankedFriend,
 } from '@/lib/social';
 import { useStore } from '@/lib/store';
 import { useNow } from '@/lib/use-now';
@@ -28,125 +28,171 @@ import { colors } from '@/theme';
 
 const DNA_COLORS = [colors.orange, colors.orangeDeep, colors.pinDay, colors.pinWeek];
 const TONES: AvatarTone[] = ['ink', 'soft', 'muted', 'orange'];
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
-export type ProfileData = {
-  stats: { savedDollars: number; dealsUsed: number; weekStreak: number; friends: number };
-  badges: Badge[];
-  badgesEarned: number;
-  badgeTotal: number;
-  dealDna: { slices: { label: string; percent: number; color: string }[]; summary: string };
-  friendActivity: FriendActivity[];
-  invites: { joined: number; earned: number; reward: number; code: string | null };
-  rank: { rank: number | null; where: string; percentile: number | null };
-  /** Credits, for the invite card ("you both get 500 credits"). */
-  rewardLabel: string;
-};
-
-function tone(id: string) {
+/** Stable avatar colour per person. */
+export function toneFor(id: string): AvatarTone {
   let h = 0;
   for (const c of id) h = (h * 31 + c.charCodeAt(0)) >>> 0;
   return TONES[h % TONES.length];
 }
 
-function useBackendProfile(): ProfileData {
+/** The two area boards: your neighbourhood and your school ("Westwood" and "UCLA" in the design). */
+export type AreaKey = 'neighborhood' | 'school';
+export type RankCard = { key: AreaKey; label: string; icon: IconName; rank: number | null; change: number; top: number | null };
+
+export type SocialData = {
+  stats: { savedDollars: number; joinedMonth: string; weeklySaved: number[]; dealsUsed: number; friends: number };
+  dealDna: { slices: { label: string; percent: number; color: string }[]; summary: string };
+  posts: FriendPost[];
+  invites: { joined: number; earned: number; reward: number; code: string | null };
+  rankCards: RankCard[];
+  friendFaces: Friend[];
+};
+
+function useBackendSocial(): SocialData {
   const stats = useQuery(api.profile.stats);
   const feed = useQuery(api.social.feed);
-  const board = useQuery(api.leaderboards.board, { scope: 'neighborhood' });
+  const area = useQuery(api.leaderboards.board, { scope: 'neighborhood' });
+  const school = useQuery(api.leaderboards.board, { scope: 'school' });
+  const me = useQuery(api.users.me);
   const { used } = useStore();
   const now = useNow(60_000).getTime();
-  const slices = (stats?.deal_dna.slices ?? []).map((s, i) => ({
-    label: s.label,
-    percent: s.percent,
-    color: s.label === 'Other' ? colors.border : DNA_COLORS[i % DNA_COLORS.length],
-  }));
+  const joined = stats ? new Date(stats.joined_at) : null;
+  const card = (key: AreaKey, label: string, icon: IconName, board: typeof area): RankCard => ({
+    key,
+    label,
+    icon,
+    rank: board?.you?.rank ?? null,
+    change: board?.you?.change ?? 0,
+    top: board?.you?.percentile ?? null,
+  });
   return {
     stats: {
       savedDollars: Math.round((stats?.saved_cents ?? 0) / 100),
+      joinedMonth: joined ? MONTHS[joined.getMonth()] : '',
+      weeklySaved: (stats?.weekly_saved_cents ?? [0, 0, 0, 0, 0, 0, 0]).map((c) => Math.round(c / 100)),
       dealsUsed: Math.max(stats?.deals_used ?? 0, used.size),
-      weekStreak: stats?.week_streak ?? 0,
       friends: stats?.friends ?? 0,
     },
-    badges: (stats?.badges ?? [])
-      .slice()
-      .sort((a, b) => Number(b.featured) - Number(a.featured) || Number(b.earned) - Number(a.earned))
-      .slice(0, 5)
-      .map((b) => ({ name: b.name, icon: iconOr(b.icon), earned: b.earned, featured: b.featured })),
-    badgesEarned: stats?.badges_earned ?? 0,
-    badgeTotal: stats?.badge_total ?? BADGE_TOTAL,
-    dealDna: { slices, summary: stats?.deal_dna.summary ?? '' },
-    friendActivity: (feed ?? []).map((a) => ({
+    dealDna: {
+      slices: (stats?.deal_dna.slices ?? []).map((s, i) => ({
+        label: s.label,
+        percent: s.percent,
+        color: s.label === 'Other' ? colors.border : DNA_COLORS[i % DNA_COLORS.length],
+      })),
+      summary: stats?.deal_dna.summary ?? '',
+    },
+    posts: (feed ?? []).map((a) => ({
       id: a.id,
-      friend: { name: a.friend.name, initials: a.friend.initials, tone: tone(a.friend.id) },
+      friend: { name: a.friend.name, initials: a.friend.initials, tone: toneFor(a.friend.id) },
       verb: a.verb,
       subject: a.subject,
-      place: a.place ?? undefined,
       ago: shortAgo(Math.max(0, (now - a.created_at) / 3_600_000)),
-      savesId: a.type === 'earned_badge' ? undefined : (a.deal_id ?? undefined),
-      action: a.type === 'earned_badge' ? 'cheer' : 'save',
+      // The screen adds one for your own like, so the count here leaves it out.
+      likes: a.likes - (a.cheered ? 1 : 0),
+      comments: 0,
+      card: a.card ?? undefined,
     })),
     invites: {
       joined: stats?.invites.joined ?? 0,
       earned: stats?.invites.earned ?? 0,
-      reward: stats?.invites.reward ?? 500,
+      reward: stats?.invites.reward ?? INVITES.reward,
       code: stats?.invites.code ?? null,
     },
-    rank: { rank: board?.you?.rank ?? null, where: board?.label ?? 'your area', percentile: board?.you?.percentile ?? null },
-    rewardLabel: `${stats?.invites.reward ?? 500} credits`,
+    rankCards: [
+      card('neighborhood', me?.home_neighborhood ?? 'Your area', 'pin', area),
+      card('school', me?.school ? schoolName(me.school) : 'Your school', 'student', school),
+    ],
+    friendFaces: (stats?.friend_faces ?? []).map((f) => ({ name: f.name, initials: f.initials, tone: toneFor(f.id) })),
   };
 }
 
-function useMockProfile(): ProfileData {
+function useMockSocial(): SocialData {
   const { used } = useStore();
   return {
     stats: { ...PROFILE_STATS, dealsUsed: PROFILE_STATS.dealsUsed + used.size },
-    badges: BADGES,
-    badgesEarned: BADGES_EARNED,
-    badgeTotal: BADGE_TOTAL,
     dealDna: DEAL_DNA,
-    friendActivity: FRIEND_ACTIVITY,
-    invites: { ...INVITES, reward: 500, earned: INVITES.joined * 500, code: null },
-    rank: { rank: LEADERBOARDS.Westwood.you.rank, where: 'Westwood', percentile: 3 },
-    rewardLabel: '500 credits',
+    posts: FRIEND_POSTS,
+    invites: { ...INVITES, code: null },
+    rankCards: RANK_CARDS.map(({ scope, icon }, i) => {
+      const { rank, change, top } = LEADERBOARDS[scope].you;
+      return { key: i === 0 ? 'neighborhood' : 'school', label: scope, icon, rank, change, top };
+    }),
+    friendFaces: PROFILE_FRIENDS,
   };
 }
 
-export const useProfile: () => ProfileData = usingBackend ? useBackendProfile : useMockProfile;
+export const useSocial: () => SocialData = usingBackend ? useBackendSocial : useMockSocial;
+
+// ---------------------------------------------------------------- friends' ranks (Friends tab list)
+
+function useBackendFriendRanks(key: AreaKey): RankedFriend[] {
+  const rows = useQuery(api.leaderboards.friendRanks, { scope: key });
+  return (rows ?? []).map((r) => ({
+    name: r.you ? 'You' : r.name,
+    initials: r.initials,
+    tone: r.you ? 'orange' : toneFor(r.id),
+    rank: r.rank,
+    saved: Math.round(r.saved_cents / 100),
+    you: r.you || undefined,
+  }));
+}
+
+function useMockFriendRanks(key: AreaKey): RankedFriend[] {
+  return FRIEND_RANKS[key === 'neighborhood' ? 'Westwood' : 'UCLA'];
+}
+
+export const useFriendRanks: (key: AreaKey) => RankedFriend[] = usingBackend ? useBackendFriendRanks : useMockFriendRanks;
 
 // ---------------------------------------------------------------- leaderboard
 
+export type BoardScope = 'friends' | AreaKey;
+export const BOARD_SCOPES: BoardScope[] = ['friends', 'neighborhood', 'school'];
+
 export type BoardData = {
-  scopes: string[];
+  /** Labels for the segmented control, in BOARD_SCOPES order. */
+  labels: string[];
   ranked: Ranked[];
-  you: { rank: number; change: number; saved: number } | null;
-  challenge: { title: string; reward: number; done: number; goal: number } | null;
+  you: { rank: number; change: number; saved: number; toNext: number; top: number } | null;
 };
 
-const SCOPE_KEYS = ['friends', 'neighborhood', 'school'] as const;
-
-function useBackendBoard(scopeIndex: number): BoardData {
+function useBackendBoard(scope: BoardScope): BoardData {
   const me = useQuery(api.users.me);
-  const scope = SCOPE_KEYS[scopeIndex] ?? 'friends';
   const board = useQuery(api.leaderboards.board, { scope });
-  const challenges = useQuery(api.challenges.current);
-  const scopes = ['Friends', me?.home_neighborhood ?? 'Neighborhood', me?.school ? schoolName(me.school) : 'School'];
-  const c = challenges?.[0];
   return {
-    scopes,
+    labels: ['Friends', me?.home_neighborhood ?? 'Your area', me?.school ? schoolName(me.school) : 'Your school'],
     ranked: (board?.ranked ?? []).map((r) => ({ name: r.name, initials: r.initials, saved: Math.round(r.saved_cents / 100), change: r.change })),
-    you: board?.you ? { rank: board.you.rank, change: board.you.change, saved: Math.round(board.you.saved_cents / 100) } : null,
-    challenge: c ? { title: c.title, reward: c.reward, done: c.done, goal: c.goal } : null,
+    you: board?.you
+      ? {
+          rank: board.you.rank,
+          change: board.you.change,
+          saved: Math.round(board.you.saved_cents / 100),
+          toNext: Math.round(board.you.to_next_cents / 100),
+          top: board.you.percentile,
+        }
+      : null,
   };
 }
 
-function useMockBoard(scopeIndex: number): BoardData {
-  const scopes = ['Friends', 'Westwood', 'UCLA'] as const;
-  const board = LEADERBOARDS[scopes[scopeIndex] ?? 'Westwood'];
+const MOCK_SCOPE = { friends: 'Friends', neighborhood: 'Westwood', school: 'UCLA' } as const;
+
+function useMockBoard(scope: BoardScope): BoardData {
+  const board = LEADERBOARDS[MOCK_SCOPE[scope]];
   return {
-    scopes: [...scopes],
+    labels: ['Friends', 'Westwood', 'UCLA'],
     ranked: board.ranked,
     you: { ...board.you, saved: PROFILE_STATS.savedDollars },
-    challenge: WEEKLY_CHALLENGE,
   };
 }
 
-export const useBoard: (scopeIndex: number) => BoardData = usingBackend ? useBackendBoard : useMockBoard;
+export const useBoard: (scope: BoardScope) => BoardData = usingBackend ? useBackendBoard : useMockBoard;
+
+/** Leaderboard links pass a scope as a label ("Westwood", "UCLA", "Friends") or a key; map it to a key. */
+export function scopeFromParam(param: string | undefined, labels: string[]): BoardScope {
+  if (!param) return 'neighborhood';
+  if ((BOARD_SCOPES as string[]).includes(param)) return param as BoardScope;
+  const i = labels.findIndex((l) => l.toLowerCase() === param.toLowerCase());
+  if (i >= 0) return BOARD_SCOPES[i]!;
+  return param === 'Friends' ? 'friends' : param === 'UCLA' ? 'school' : 'neighborhood';
+}
