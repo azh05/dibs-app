@@ -5,6 +5,7 @@
 // The wording follows the API's own demo page (api/demo/index.html).
 import { useMutation } from 'convex/react';
 import * as ImagePicker from 'expo-image-picker';
+import { ActionSheetIOS, Alert, Platform } from 'react-native';
 
 import { api } from '@convex/_generated/api';
 import type { Id } from '@convex/_generated/dataModel';
@@ -28,12 +29,37 @@ function exifDate(exif: Record<string, unknown> | null | undefined) {
   return m ? `${m[1]}-${m[2]}-${m[3]}` : null;
 }
 
-/** Camera first; the library when there is no camera (simulator) or camera access is denied. */
+/** Asks "Take photo / Choose from library"; null when cancelled. */
+function chooseSource(): Promise<'camera' | 'library' | null> {
+  return new Promise((resolve) => {
+    if (Platform.OS === 'ios') {
+      ActionSheetIOS.showActionSheetWithOptions(
+        { options: ['Take photo', 'Choose from library', 'Cancel'], cancelButtonIndex: 2 },
+        (i) => resolve(i === 0 ? 'camera' : i === 1 ? 'library' : null),
+      );
+      return;
+    }
+    Alert.alert(
+      'Add a photo',
+      undefined,
+      [
+        { text: 'Take photo', onPress: () => resolve('camera') },
+        { text: 'Choose from library', onPress: () => resolve('library') },
+        { text: 'Cancel', style: 'cancel', onPress: () => resolve(null) },
+      ],
+      { cancelable: true, onDismiss: () => resolve(null) },
+    );
+  });
+}
+
+/** The camera or the library, as the user picks; "Take photo" falls back to the library when there is no
+ * camera (simulator) or camera access is denied. */
 export async function pickPhoto(): Promise<Photo | null> {
+  const source = await chooseSource();
+  if (!source) return null;
   const options: ImagePicker.ImagePickerOptions = { mediaTypes: ['images'], quality: 0.7, exif: true };
   let result: ImagePicker.ImagePickerResult | null = null;
-  const camera = await ImagePicker.requestCameraPermissionsAsync();
-  if (camera.granted) {
+  if (source === 'camera' && (await ImagePicker.requestCameraPermissionsAsync()).granted) {
     try {
       result = await ImagePicker.launchCameraAsync(options);
     } catch {
