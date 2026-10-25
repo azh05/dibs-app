@@ -178,6 +178,21 @@ npx convex run areas:startDiscovery '{"areaId":"<scan_areas _id>","force":true}'
 npx convex run areas:storesInArea '{"areaId":"<scan_areas _id>","paginationOpts":{"numItems":20,"cursor":null}}'
 ```
 
+## Filling areas with deals (`scripts/batch-scan.sh`)
+
+Run from `app/` on a machine logged in to the deployment. Each scan covers up to 25 shops through `scans:startShops` (Apify, plus Bright Data's Google lookups when the API has its key), takes 1 to 5 minutes, and costs about $0.05 a shop. Scans start 6 minutes apart (`GAP=<seconds>` to change) so they don't queue on Apify's 16 GB memory cap past the 10-minute polling limit. `scripts/batch-scan.sh --help` prints this.
+
+| Command | Scans | Cost, time |
+| --- | --- | --- |
+| `scripts/batch-scan.sh '<area JSON>' ...` | 4 scans by search term (drinks, fast food, restaurants, non-food), about 95 shops | ~$5, ~20 min per area |
+| `scripts/batch-scan.sh --all <area id> ...` | every shop discovery stored for the area (up to 250), 25 per scan | ~$12, ~1 h per 250 shops |
+| `scripts/batch-scan.sh --place "Mission District, San Francisco, California" ...` | the same 4 scans for a place with no scan area yet | ~$5, ~20 min per place |
+
+- Area JSON and ids: `npx convex data scan_areas` (the JSON fields are `scan_area_key`, `neighborhood`, `city`, `region`, `timezone`, `lat`, `lng`, `radius_miles`).
+- `--all` needs the area's discovery to have finished; it says so when the list is empty.
+- `--place` takes `"Neighborhood, City, State[, Timezone]"` (timezone defaults to `America/Los_Angeles`). Its deals appear in the app for anyone whose location or saved place is nearby; saving a place there also makes it a scan area for the regular schedule.
+- Progress: `npx convex data agent_runs --limit 10 --order desc`.
+
 ## Layout
 
 ```
