@@ -1,4 +1,5 @@
-// Deals come from the dibs API when EXPO_PUBLIC_API_URL is set, otherwise from mock data.
+// Deals come from the dibs API when EXPO_PUBLIC_API_URL is set, otherwise from mock data. With the API's Elastic
+// index set up, search and "Ask dibs" go through /search/deals and /agent/ask.
 import { useEffect, useState } from 'react';
 
 import type { IconName } from '@/components/icon';
@@ -9,6 +10,19 @@ import { colors } from '@/theme';
 export const API_URL = process.env.EXPO_PUBLIC_API_URL?.replace(/\/$/, '');
 
 export const usingLiveApi = Boolean(API_URL);
+
+/** The API's shared key (DIBS_API_KEY), when it's set: sent as X-Dibs-Key on every call. */
+const API_KEY = process.env.EXPO_PUBLIC_DIBS_API_KEY;
+
+export function apiHeaders(json = true): Record<string, string> {
+  return { ...(json ? { 'content-type': 'application/json' } : {}), ...(API_KEY ? { 'x-dibs-key': API_KEY } : {}) };
+}
+
+async function postJson<T>(path: string, body: unknown): Promise<T> {
+  const res = await fetch(`${API_URL}${path}`, { method: 'POST', headers: apiHeaders(), body: JSON.stringify(body) });
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  return (await res.json()) as T;
+}
 
 /** The API's coarse categories, placed on the closest store type in the interest catalog. */
 export const CATEGORY: Record<ApiDeal['category'], { storeType: string; label: string; icon: IconName }> = {
@@ -57,7 +71,7 @@ export function fromApiDeal(d: ApiDeal, index: number): Deal {
   const endsAt = d.end_date ? new Date(`${d.end_date}T23:59:00`) : null;
   const postedHoursAgo = daysSince(d.source_post_date);
   return {
-    id: `api-${index}-${d.shop_name.toLowerCase().replace(/\W+/g, '-')}`,
+    id: d.id ?? `api-${index}-${d.shop_name.toLowerCase().replace(/\W+/g, '-')}`,
     store: d.shop_name,
     storeType: cat.storeType,
     typeLabel: cat.label,
@@ -99,18 +113,52 @@ export function fromApiDeal(d: ApiDeal, index: number): Deal {
 }
 
 async function searchDeals(): Promise<Deal[]> {
-  const res = await fetch(`${API_URL}/extract/search`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({
-      location: { neighborhood: HOME.label.split(',')[0], city: 'Los Angeles', region: 'California' },
-      radius_miles: 1,
-      max_searches: 5,
-    }),
+  const body = await postJson<ApiSearchResponse>('/extract/search', {
+    location: { neighborhood: HOME.label.split(',')[0], city: 'Los Angeles', region: 'California' },
+    radius_miles: 1,
+    max_searches: 5,
   });
-  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
-  const body = (await res.json()) as ApiSearchResponse;
   return body.deals.filter((d) => d.status !== 'expired').map(fromApiDeal);
+}
+
+/** Deals that came from Elastic search or the agent, so their detail pages can find them. */
+const seen = new Map<string, Deal>();
+
+function remember(deals: Deal[]) {
+  for (const d of deals) seen.set(d.id, d);
+  return deals;
+}
+
+type Coords = { latitude: number; longitude: number };
+
+/** Hybrid search over every indexed deal (meaning in any language + keywords + distance). */
+export async function searchIndexedDeals(query: string, at: Coords, radiusMi: number): Promise<Deal[]> {
+  const body = await postJson<{ deals: ApiDeal[] }>('/search/deals', {
+    query,
+    lat: at.latitude,
+    lng: at.longitude,
+    radius_miles: radiusMi,
+  });
+  return remember(body.deals.map(fromApiDeal));
+}
+
+export type AgentAnswer = { answer: string; conversationId: string | null; deals: Deal[] };
+
+/** Ask the dibs agent (Elastic Agent Builder). It answers from the deal index and can watch for deals or scan an area. */
+export async function askDibs(
+  question: string,
+  conversationId: string | null,
+  at: Coords,
+  pushToken: string | null,
+): Promise<AgentAnswer> {
+  const body = await postJson<{ answer: string; conversation_id: string | null; deals: ApiDeal[] }>('/agent/ask', {
+    question,
+    conversation_id: conversationId,
+    lat: at.latitude,
+    lng: at.longitude,
+    push_token: pushToken,
+  });
+  return { answer: body.answer, conversationId: body.conversation_id, deals: remember(body.deals.map(fromApiDeal)) };
 }
 
 type DealsState = { deals: Deal[]; events: DealEvent[]; loading: boolean; error: string | null };
@@ -146,7 +194,7 @@ export function useDeals(): DealsState {
 }
 
 export function findDeal(deals: Deal[], id: string) {
-  return deals.find((d) => d.id === id) ?? MOCK_DEALS.find((d) => d.id === id);
+  return deals.find((d) => d.id === id) ?? seen.get(id) ?? MOCK_DEALS.find((d) => d.id === id);
 }
 
 export function findEvent(id: string) {

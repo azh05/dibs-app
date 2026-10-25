@@ -3,7 +3,7 @@
 // The wording follows the API's own demo page (api/demo/index.html).
 import * as ImagePicker from 'expo-image-picker';
 
-import { API_URL } from '@/lib/api';
+import { API_URL, apiHeaders } from '@/lib/api';
 import type { ApiDeal, ApiSearchResponse } from '@/lib/types';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -87,7 +87,7 @@ export async function checkPhoto(photo: Photo): Promise<ApiSearchResponse> {
   form.append('image', { uri: photo.uri, name: `photo.${ext}`, type: photo.mimeType } as unknown as Blob);
   form.append('photo_date', photo.date);
   form.append('timezone', Intl.DateTimeFormat().resolvedOptions().timeZone || 'America/Los_Angeles');
-  const res = await fetch(`${API_URL}/extract/photo`, { method: 'POST', body: form });
+  const res = await fetch(`${API_URL}/extract/photo`, { method: 'POST', body: form, headers: apiHeaders(false) });
   const body = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(typeof body.detail === 'string' ? body.detail : `Request failed (${res.status})`);
   return body as ApiSearchResponse;

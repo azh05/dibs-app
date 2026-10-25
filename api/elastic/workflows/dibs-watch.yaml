@@ -1,0 +1,47 @@
+# Agent tool dibs.watch_deals: "tell me when ramen deals show up near me".
+# Saves a watch; the hourly dibs-watch-matcher workflow pushes new matching deals to the device.
+name: dibs-watch
+description: Save a deal watch (what to look for, where, and which phone to alert).
+enabled: true
+tags: [dibs]
+
+inputs:
+  - name: query
+    type: string
+    required: true
+    description: What to watch for, in the user's words, e.g. "ramen deals"
+  - name: lat
+    type: number
+    required: true
+    description: Latitude from "User is at lat,lng" in the question
+  - name: lng
+    type: number
+    required: true
+    description: Longitude from "User is at lat,lng" in the question
+  - name: radius_m
+    type: number
+    required: false
+    default: 1600
+    description: How far away to look, in meters (1 mile is about 1600)
+  - name: push_token
+    type: string
+    required: true
+    description: The push_token given in the question context
+
+triggers:
+  - type: manual
+
+steps:
+  - name: save_watch
+    type: elasticsearch.request
+    with:
+      method: POST
+      path: /dibs-watches/_doc
+      body:
+        query: "{{ inputs.query }}"
+        query_text: "{{ inputs.query }}"
+        location:
+          lat: "{{ inputs.lat }}"
+          lon: "{{ inputs.lng }}"
+        radius_m: "{{ inputs.radius_m }}"
+        push_token: "{{ inputs.push_token }}"

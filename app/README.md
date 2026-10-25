@@ -33,6 +33,10 @@ Welcome → Sign in → (email: Create account) → Pick interests → Live aler
 
 - **Deal alerts**: local notifications (`src/lib/notifications.ts`) with Get Directions / Save / Remind Me actions; the body is the deal, then when it ends ("Ends Oct 24, 6 PM"). "Turn on live alerts" asks for permission and sends one for your best-matching deal; tapping an alert opens the deal. Store logos as the notification icon need iOS communication notifications, which Expo can't send. The poster image in the expanded notification needs an image URL the API doesn't return yet.
 - **Line check**: with location allowed, staying within 60 m of a store for 2 minutes while the Map is open asks how long the line is, once per visit (`src/lib/line-check.ts`). Reports blend into the line shown on deal cards and the deal page and add 10 XP. On the simulator, `xcrun simctl location booted set 34.0644,-118.4419` puts you at Tapioca Lab.
+- **Search and Ask dibs** (live API with Elastic only):
+  - Typing in Deals search queries `/search/deals`, which searches every indexed deal by meaning (any language) and distance.
+  - The sparkles button next to the bell opens Ask dibs (`src/app/ask.tsx`, not in Figma yet), a chat with the Elastic agent that shows the deals it found as cards. It can also watch for new deals; that needs a push token, so a development build with an EAS project id.
+  - Set `EXPO_PUBLIC_DIBS_API_KEY` when the API has `DIBS_API_KEY`.
 - **Filters**: sort (best deals, relevance, distance), distance, store types, deal types, open now (on by default), community verified and hide likely expired. They apply across Deals and Map.
 
 Nothing is persisted yet: the account, saves, likes, interests, line reports, credits and XP reset on restart. Friends, ranks and leaderboards are mock data.
@@ -40,7 +44,7 @@ Nothing is persisted yet: the account, saves, likes, interests, line reports, cr
 ## Layout
 
 ```
-src/app/            routes: index (Welcome), onboarding/sign-in|create-account|interests|alerts,
+src/app/            routes: index (Welcome), onboarding/sign-in|create-account|interests|alerts, ask (modal),
                     (tabs)/deals|map|friends|earn|alerts|profile, plus (tabs)/saved|leaderboard (hidden tabs),
                     filters (modal), deal/[id], event/[id], submission
 src/components/     one component per Figma component (DealCard, StoreLogo, CategoryWheel, TabBar, LineCheckCard, ...)
