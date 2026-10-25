@@ -13,7 +13,9 @@ import { SearchBar } from '@/components/search-bar';
 import { Overline } from '@/components/section-header';
 import { Text } from '@/components/text';
 import { errorText } from '@/lib/backend';
-import { colors, gutter } from '@/theme';
+import { inviteFriends } from '@/lib/social';
+import { useSocial } from '@/lib/social-data';
+import { colors, gutter, radii } from '@/theme';
 
 type Person = { id: Id<'users'>; name: string; username: string | null; initials: string };
 
@@ -26,6 +28,7 @@ export default function FriendsScreen() {
   const lists = useQuery(api.social.friends);
   const request = useMutation(api.social.request);
   const respond = useMutation(api.social.respond);
+  const { invites } = useSocial();
   const [sent, setSent] = useState(new Set<string>());
 
   const known = new Set(
@@ -109,10 +112,25 @@ export default function FriendsScreen() {
           ))}
           {lists && lists.friends.length === 0 && lists.outgoing.length === 0 && (
             <Text size={14} color={colors.inkTertiary}>
-              Search for friends above, or invite them from your profile.
+              Search for friends above by name or @username.
             </Text>
           )}
         </View>
+
+        <Pressable
+          onPress={() => inviteFriends(invites.code, invites.reward)}
+          accessibilityRole="button"
+          style={styles.invite}>
+          <Icon name="user-plus" size={20} />
+          <View style={{ flex: 1, gap: 2 }}>
+            <Text weight="bold" size={14}>
+              Invite friends
+            </Text>
+            <Text size={12} color={colors.inkTertiary}>
+              Not on dibs yet? You both get {invites.reward} credits.
+            </Text>
+          </View>
+        </Pressable>
       </ScrollView>
     </View>
   );
@@ -154,4 +172,12 @@ const styles = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 10 },
   button: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 999, borderWidth: 1, borderColor: colors.border },
   primary: { backgroundColor: colors.orange, borderColor: colors.orange },
+  invite: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    padding: 14,
+    borderRadius: radii.button,
+    backgroundColor: colors.muted,
+  },
 });

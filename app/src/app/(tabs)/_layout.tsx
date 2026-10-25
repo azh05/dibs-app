@@ -5,7 +5,8 @@ import { TabBar } from '@/components/tab-bar';
 import { useStore } from '@/lib/store';
 import { colors } from '@/theme';
 
-// Saved and Leaderboard open from Profile but keep the tab bar (Profile stays active), as in Figma. An account
+// Saved and Leaderboard open from Profile but keep the tab bar (Profile stays active), as in Figma. TabBar only draws
+// the six real tabs, so they need no `href: null` (which now hides a tab *and* redirects away from it). An account
 // without a username picks one first, so friends can find it.
 export default function TabsLayout() {
   const { needsUsername } = useStore();
@@ -21,8 +22,8 @@ export default function TabsLayout() {
       <Tabs.Screen name="earn" />
       <Tabs.Screen name="alerts" />
       <Tabs.Screen name="profile" />
-      <Tabs.Screen name="saved" options={{ href: null }} />
-      <Tabs.Screen name="leaderboard" options={{ href: null }} />
+      <Tabs.Screen name="saved" />
+      <Tabs.Screen name="leaderboard" />
     </Tabs>
   );
 }

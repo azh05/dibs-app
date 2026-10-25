@@ -31,6 +31,10 @@ export default function FriendsScreen() {
     usingBackend
       ? router.push('/find-friends')
       : Alert.alert('Find friends', 'Searching by name or @username works once the app is signed in to dibs.');
+  // With the backend, "Add friends" searches by @username (Find friends also has the invite link).
+  const addFriends = () =>
+    usingBackend ? router.push('/find-friends') : inviteFriends(social.invites.code, social.invites.reward);
+  const noFriends = usingBackend && social.stats.friends === 0;
 
   return (
     <View style={[styles.screen, { paddingTop: insets.top }]}>
@@ -41,18 +45,10 @@ export default function FriendsScreen() {
             Friends
           </Text>
           <View style={styles.headerIcons}>
-            <Pressable
-              onPress={() => inviteFriends(social.invites.code, social.invites.reward)}
-              hitSlop={8}
-              accessibilityRole="button"
-              accessibilityLabel="Add friends">
+            <Pressable onPress={addFriends} hitSlop={8} accessibilityRole="button" accessibilityLabel="Add friends">
               <Icon name="user-plus" size={22} />
             </Pressable>
-            <Pressable
-              onPress={search}
-              hitSlop={8}
-              accessibilityRole="button"
-              accessibilityLabel="Search friends">
+            <Pressable onPress={search} hitSlop={8} accessibilityRole="button" accessibilityLabel="Search friends">
               <Icon name="search" size={22} />
             </Pressable>
           </View>
@@ -111,11 +107,13 @@ export default function FriendsScreen() {
             </View>
           ))}
           <Pressable
-            onPress={() => router.navigate({ pathname: '/leaderboard', params: { scope: 'Friends' } })}
+            onPress={() =>
+              noFriends ? search() : router.navigate({ pathname: '/leaderboard', params: { scope: 'Friends' } })
+            }
             accessibilityRole="button"
             style={styles.showAll}>
             <Text weight="bold" size={13}>
-              Show all {social.stats.friends} friends
+              {noFriends ? 'Find friends by @username' : `Show all ${social.stats.friends} friends`}
             </Text>
             <View style={{ transform: [{ rotate: '90deg' }] }}>
               <Icon name="chevron" size={14} />
