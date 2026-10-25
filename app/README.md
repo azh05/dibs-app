@@ -20,22 +20,22 @@ Welcome → Sign in → (email: Create account) → Pick interests → Live aler
 
 ## Screens
 
-- **Welcome**: store types cycle through a wheel (each holds 0.5 s, then slides up), over "Find deals near me".
+- **Welcome**: store types cycle through a wheel (each holds 0.5 s, then slides up). Without location, the pill says "Turn on location to see spots near you", and "Find deals near me" shows the iOS location prompt before Sign in; with it, the pill shows the spots being watched.
 - **Pick interests**: 72 store types in sections, plus 8 deal types and an alert distance. Nightlife and 21+ shops unlock once the birthday on the account shows 21+, and then carry a 21+ note.
-- **Deals**: "All" plus your store-type interests as chips (several can be on), upcoming events and the live feed.
-- **Map**: recency pins that fold together when they'd overlap. A bottom sheet shows the selected or top deal, and **List** switches to a list view.
-- **Friends**: your rank, friends out using deals right now, and an activity feed. Save or "I'm in" on a card adds its deal or event to Saved.
+- **Deals**: "Agents searching 24/7" with its sources, then chips: "All" (on at first), your store-type interests, every deal type and "+ Edit". Several chips can be on at once. Below them: upcoming events and the live feed.
+- **Map**: recency pins that fold together when they'd overlap. A bottom sheet shows the selected or top deal; **Edit** opens Filters.
+- **Friends**: rank cards for Westwood and your school (each opens the leaderboard), friends ranked by money saved with a Westwood/school switch, and an activity feed. Save or "I'm in" on a card adds its deal or event to Saved.
 - **Earn**: snap an in-store deal and earn 500 credits once it's verified (`CREDITS_PER_DEAL` in `src/lib/photo.ts`). Rewards are always credits, never money.
 - **Alerts**: the Instant toggle, your interests (tap an unpicked store type to add it), the alert distance, and recent alerts.
-- **Profile**: level and XP, savings stats, badges, deal DNA, lists, friends' activity and invites (both people get 500 credits).
+- **Profile**: level and XP, money saved with a weekly bar chart, rank cards, deal DNA, lists, a row of friends and invites (both people get 500 credits).
 
 ## What runs for real
 
-- **Deal alerts**: local notifications (`src/lib/notifications.ts`) with Get Directions / Save / Remind Me actions. "Turn on live alerts" asks for permission and sends one for your best-matching deal; tapping an alert opens the deal. Store logos as the notification icon need iOS communication notifications, which Expo can't send. The poster image in the expanded notification needs an image URL the API doesn't return yet.
+- **Deal alerts**: local notifications (`src/lib/notifications.ts`) with Get Directions / Save / Remind Me actions; the body is the deal, then when it ends ("Ends Oct 24, 6 PM"). "Turn on live alerts" asks for permission and sends one for your best-matching deal; tapping an alert opens the deal. Store logos as the notification icon need iOS communication notifications, which Expo can't send. The poster image in the expanded notification needs an image URL the API doesn't return yet.
 - **Line check**: with location allowed, staying within 60 m of a store for 2 minutes while the Map is open asks how long the line is, once per visit (`src/lib/line-check.ts`). Reports blend into the line shown on deal cards and the deal page and add 10 XP. On the simulator, `xcrun simctl location booted set 34.0644,-118.4419` puts you at Tapioca Lab.
-- **Filters**: sort, distance, deal types, store types, open now (on by default), community verified, hide likely expired, and sources. They apply across Deals and Map.
+- **Filters**: sort (best deals, relevance, distance), distance, store types, deal types, open now (on by default), community verified and hide likely expired. They apply across Deals and Map.
 
-Nothing is persisted yet: the account, saves, likes, interests, line reports, credits and XP reset on restart. Friends, leaderboards and badges are mock data.
+Nothing is persisted yet: the account, saves, likes, interests, line reports, credits and XP reset on restart. Friends, ranks and leaderboards are mock data.
 
 ## Layout
 

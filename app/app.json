@@ -47,7 +47,7 @@
       [
         "expo-location",
         {
-          "locationWhenInUsePermission": "dibs uses your location to show deals near you and to ask about line lengths while you are at a store."
+          "locationWhenInUsePermission": "dibs uses your location to find deals and events near you."
         }
       ]
     ],

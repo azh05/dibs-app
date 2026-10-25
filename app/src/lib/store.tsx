@@ -29,8 +29,6 @@ type Store = {
   toggleFollowed: (store: string) => void;
   reminders: Set<string>;
   toggleReminder: (eventId: string) => void;
-  cheered: Set<string>;
-  toggleCheer: (activityId: string) => void;
   liked: Set<string>;
   toggleLiked: (postId: string) => void;
 
@@ -100,7 +98,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [used, , setUsed] = useToggleSet();
   const [followed, toggleFollowed] = useToggleSet(['Tapioca Lab', 'Polish Bar']);
   const [reminders, toggleReminder] = useToggleSet(['kda-chicha-popup']);
-  const [cheered, toggleCheer] = useToggleSet();
   const [liked, toggleLiked] = useToggleSet();
   const [instant, setInstant] = useState(true);
   const [topics, toggleTopic, setTopicsOn] = useToggleSet(DEFAULT_INTERESTS);
@@ -139,8 +136,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     toggleFollowed,
     reminders,
     toggleReminder,
-    cheered,
-    toggleCheer,
     liked,
     toggleLiked,
     instant,

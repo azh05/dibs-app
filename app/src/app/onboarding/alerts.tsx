@@ -9,14 +9,13 @@ import GlowTop from '@/assets/shapes/glow-top.svg';
 import { NotificationCard } from '@/components/notification-card';
 import { Text } from '@/components/text';
 import { findDeal, findEvent } from '@/lib/api';
-import { clock } from '@/lib/format';
 import { MOCK_DEALS } from '@/lib/mock';
-import { alertBody } from '@/lib/notifications';
+import { alertBody, eventAlertBody } from '@/lib/notifications';
 import { useNow } from '@/lib/use-now';
 import { colors } from '@/theme';
 
 // The lock screen preview: what alerts for the interests you picked look like, in the
-// iOS notification format the app sends (store · deal · via source · store logo).
+// iOS notification format the app sends (store, deal, when it ends or starts, store logo).
 const NOTIFICATIONS = [
   ...[
     { id: 'tapioca-lab-bogo', time: 'now' },
@@ -31,7 +30,7 @@ const NOTIFICATIONS = [
       ? [
           {
             title: e.store,
-            body: `${e.title} ${e.startsAt.toLocaleDateString('en-US', { weekday: 'short' })} ${clock(e.startsAt)} · via Instagram`,
+            body: eventAlertBody(e),
             time: '1h ago',
             logo: e.logo,
             icon: e.icon,

@@ -6,7 +6,6 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Avatar } from '@/components/avatar';
 import { Icon } from '@/components/icon';
-import { ProgressBar } from '@/components/progress-bar';
 import { Segmented } from '@/components/segmented';
 import { Text } from '@/components/text';
 import { initials, shortName } from '@/lib/account';
@@ -14,7 +13,6 @@ import {
   LEADERBOARDS,
   PROFILE_STATS,
   SCOPES,
-  WEEKLY_CHALLENGE,
   daysUntilReset,
   type AvatarTone,
   type Ranked,
@@ -42,6 +40,12 @@ export default function LeaderboardScreen() {
   const params = useLocalSearchParams<{ scope?: Scope }>();
   const { account } = useStore();
   const [scope, setScope] = useState<Scope>(params.scope && SCOPES.includes(params.scope) ? params.scope : 'Westwood');
+  // The tab stays mounted, so a rank card opening another scope switches it here, while rendering.
+  const [lastParam, setLastParam] = useState(params.scope);
+  if (params.scope !== lastParam) {
+    setLastParam(params.scope);
+    if (params.scope && SCOPES.includes(params.scope)) setScope(params.scope);
+  }
 
   const board = LEADERBOARDS[scope];
   const myLabel = account ? `You · ${shortName(account.name)}` : 'You';
@@ -111,24 +115,6 @@ export default function LeaderboardScreen() {
             <RankRow key={person.name} rank={i + 4} person={person} />
           ))}
         </View>
-
-        <View style={styles.challenge}>
-          <View style={styles.challengeHeader}>
-            <Icon name="zap" size={20} color={colors.orange} />
-            <View style={{ flex: 1, gap: 1 }}>
-              <Text weight="extrabold" size={10} tracking={0.8} color={colors.orange}>
-                WEEKLY CHALLENGE
-              </Text>
-              <Text weight="extrabold" size={14} tracking={-0.14}>
-                {WEEKLY_CHALLENGE.title} · +{WEEKLY_CHALLENGE.reward} XP
-              </Text>
-            </View>
-            <Text weight="extrabold" size={15} color={colors.orange}>
-              {WEEKLY_CHALLENGE.done}/{WEEKLY_CHALLENGE.goal}
-            </Text>
-          </View>
-          <ProgressBar value={WEEKLY_CHALLENGE.done / WEEKLY_CHALLENGE.goal} track={colors.surface} />
-        </View>
       </ScrollView>
 
       <View style={[styles.you, { bottom: 12 }]}>
@@ -137,14 +123,14 @@ export default function LeaderboardScreen() {
         </Text>
         <Avatar initials={account ? initials(account.name) : 'ME'} size={36} tone="orange" />
         <View style={{ flex: 1, gap: 1 }}>
-          <Text weight="bold" size={14} color={colors.surface}>
+          <Text weight="bold" size={14}>
             {myLabel}
           </Text>
           <Text weight="semibold" size={11} color={myChange.color}>
             {myChange.text} · {toTopTen}
           </Text>
         </View>
-        <Text weight="extrabold" size={15} color={colors.surface}>
+        <Text weight="extrabold" size={15}>
           ${PROFILE_STATS.savedDollars}
         </Text>
       </View>
@@ -193,8 +179,6 @@ const styles = StyleSheet.create({
   },
   rankRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 4, paddingVertical: 10 },
   rankNumber: { minWidth: 18 },
-  challenge: { gap: 10, padding: 14, borderRadius: radii.card, backgroundColor: colors.orangeSoft },
-  challengeHeader: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   you: {
     position: 'absolute',
     left: gutter,
@@ -205,9 +189,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 10,
     borderRadius: 18,
-    backgroundColor: colors.ink,
+    backgroundColor: colors.orangeSoft,
     shadowColor: '#17171A',
-    shadowOpacity: 0.2,
+    shadowOpacity: 0.08,
     shadowRadius: 10,
     shadowOffset: { width: 0, height: 8 },
   },

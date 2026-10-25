@@ -32,20 +32,14 @@ export function levelFor(xp: number) {
   };
 }
 
-export const PROFILE_STATS = { savedDollars: 312, dealsUsed: 48, weekStreak: 6, friends: 128 };
-
-export type Badge = { name: string; icon: IconName; earned: boolean; featured?: boolean };
-
-export const BADGES: Badge[] = [
-  { name: 'Boba Boss', icon: 'boba', earned: true, featured: true },
-  { name: 'Early Bird', icon: 'zap', earned: true },
-  { name: 'Scout', icon: 'camera', earned: true },
-  { name: 'Glow Getter', icon: 'nails', earned: true },
-  { name: 'Night Owl', icon: 'lock', earned: false },
-];
-
-export const BADGE_TOTAL = 24;
-export const BADGES_EARNED = 5;
+export const PROFILE_STATS = {
+  savedDollars: 312,
+  joinedMonth: 'Sep',
+  /** Dollars saved in each of the last 7 weeks, oldest first; the last bar is this week. */
+  weeklySaved: [16, 26, 19, 35, 29, 42, 48],
+  dealsUsed: 48,
+  friends: 128,
+};
 
 /** This month's mix of deals used, largest first; "Other" sits last in grey. */
 export const DEAL_DNA = {
@@ -61,57 +55,6 @@ export const DEAL_DNA = {
 
 export type Friend = { name: string; initials: string; tone: AvatarTone };
 export type AvatarTone = 'ink' | 'orange' | 'soft' | 'muted';
-
-export type FriendActivity = {
-  id: string;
-  friend: Friend;
-  verb: string;
-  subject: string;
-  place?: string;
-  ago: string;
-  /** Saving it adds this deal or event to your own saved list. */
-  savesId?: string;
-  action: 'save' | 'cheer';
-};
-
-export const FRIEND_ACTIVITY: FriendActivity[] = [
-  {
-    id: 'f1',
-    friend: { name: 'Jess', initials: 'JL', tone: 'ink' },
-    verb: 'used',
-    subject: 'BOGO milk tea',
-    place: 'Tapioca Lab',
-    ago: '2h',
-    savesId: 'tapioca-lab-bogo',
-    action: 'save',
-  },
-  {
-    id: 'f2',
-    friend: { name: 'Daniel', initials: 'DK', tone: 'soft' },
-    verb: 'saved',
-    subject: 'KDA × Chicha pop-up',
-    ago: '5h',
-    savesId: 'kda-chicha-popup',
-    action: 'save',
-  },
-  {
-    id: 'f3',
-    friend: { name: 'Priya', initials: 'PS', tone: 'muted' },
-    verb: 'unlocked',
-    subject: 'Boba Boss',
-    ago: '1d',
-    action: 'cheer',
-  },
-];
-
-/** Friends tab (Figma "17 · Friends"): who's out using a deal right now (ringed) and who isn't. */
-export const FRIENDS_OUT: (Friend & { out: boolean })[] = [
-  { name: 'Jess', initials: 'JL', tone: 'ink', out: true },
-  { name: 'Daniel', initials: 'DK', tone: 'soft', out: true },
-  { name: 'Priya', initials: 'PS', tone: 'muted', out: true },
-  { name: 'Kevin', initials: 'KT', tone: 'orange', out: true },
-  { name: 'Ana', initials: 'AN', tone: 'muted', out: false },
-];
 
 export type FriendPost = {
   id: string;
@@ -169,12 +112,48 @@ export function inviteFriends() {
 export type Scope = 'Friends' | 'Westwood' | 'UCLA';
 export const SCOPES: Scope[] = ['Friends', 'Westwood', 'UCLA'];
 
+/** The two rank cards on Friends and Profile (Figma "Rankings", 115:2598). */
+export const RANK_CARDS: { scope: Exclude<Scope, 'Friends'>; icon: IconName }[] = [
+  { scope: 'Westwood', icon: 'pin' },
+  { scope: 'UCLA', icon: 'student' },
+];
+
+/** A few of your friends with their rank in each area, for the Friends tab list ("You" sits among them). */
+export type RankedFriend = Friend & { rank: number; saved: number; you?: boolean };
+export const FRIEND_RANKS: Record<Exclude<Scope, 'Friends'>, RankedFriend[]> = {
+  Westwood: [
+    { name: 'Kevin T.', initials: 'KT', tone: 'orange', rank: 3, saved: 486 },
+    { name: 'Ana N.', initials: 'AN', tone: 'muted', rank: 9, saved: 402 },
+    { name: 'Jess L.', initials: 'JL', tone: 'ink', rank: 11, saved: 377 },
+    { name: 'You', initials: 'MR', tone: 'orange', rank: 14, saved: 312, you: true },
+    { name: 'Daniel K.', initials: 'DK', tone: 'soft', rank: 17, saved: 288 },
+  ],
+  UCLA: [
+    { name: 'Kevin T.', initials: 'KT', tone: 'orange', rank: 2, saved: 486 },
+    { name: 'Ana N.', initials: 'AN', tone: 'muted', rank: 21, saved: 402 },
+    { name: 'Jess L.', initials: 'JL', tone: 'ink', rank: 29, saved: 377 },
+    { name: 'You', initials: 'MR', tone: 'orange', rank: 38, saved: 312, you: true },
+    { name: 'Daniel K.', initials: 'DK', tone: 'soft', rank: 44, saved: 288 },
+  ],
+};
+
+/** Profile's "Friends · 128" avatar row (Figma 115:2569). */
+export const PROFILE_FRIENDS: Friend[] = [
+  { name: 'Jess', initials: 'JL', tone: 'ink' },
+  { name: 'Daniel', initials: 'DK', tone: 'soft' },
+  { name: 'Priya', initials: 'PS', tone: 'muted' },
+  { name: 'Kevin', initials: 'KT', tone: 'orange' },
+  { name: 'Ana', initials: 'AN', tone: 'muted' },
+  { name: 'Leo', initials: 'LG', tone: 'soft' },
+  { name: 'Ria', initials: 'RB', tone: 'muted' },
+];
+
 export type Ranked = { name: string; initials: string; saved: number; change: number };
 
-/** `toNext` is how many dollars short of the person one rank above you are. */
+/** `toNext` is how many dollars short of the person one rank above you are; `top` is your percentile. */
 export const LEADERBOARDS: Record<
   Scope,
-  { ranked: Ranked[]; you: { rank: number; change: number; toNext: number } }
+  { ranked: Ranked[]; you: { rank: number; change: number; toNext: number; top: number } }
 > = {
   Westwood: {
     ranked: [
@@ -189,7 +168,7 @@ export const LEADERBOARDS: Record<
       { name: 'Omar R.', initials: 'OR', saved: 344, change: 0 },
       { name: 'Ben S.', initials: 'BS', saved: 330, change: -1 },
     ],
-    you: { rank: 14, change: 3, toNext: 90 },
+    you: { rank: 14, change: 3, toNext: 90, top: 3 },
   },
   Friends: {
     ranked: [
@@ -199,7 +178,7 @@ export const LEADERBOARDS: Record<
       { name: 'Tom H.', initials: 'TH', saved: 205, change: -1 },
       { name: 'Ivy C.', initials: 'IC', saved: 188, change: 0 },
     ],
-    you: { rank: 2, change: 1, toNext: 29 },
+    you: { rank: 2, change: 1, toNext: 29, top: 2 },
   },
   UCLA: {
     ranked: [
@@ -209,11 +188,9 @@ export const LEADERBOARDS: Record<
       { name: 'Sofia M.', initials: 'SM', saved: 451, change: 2 },
       { name: 'Jordan P.', initials: 'JP', saved: 430, change: 0 },
     ],
-    you: { rank: 37, change: 5, toNext: 12 },
+    you: { rank: 38, change: 5, toNext: 12, top: 5 },
   },
 };
-
-export const WEEKLY_CHALLENGE = { title: 'Use 3 boba deals', reward: 150, done: 2, goal: 3 };
 
 /** Days until the leaderboard resets on the 1st of next month. */
 export function daysUntilReset(now = new Date()) {
