@@ -21,7 +21,8 @@
 # queue on Apify's 16 GB memory cap past Convex's 10-minute polling limit. Uses Apify, plus Bright Data's Google
 # lookups when BRIGHTDATA_API_KEY is set on the API.
 set -euo pipefail
-[ $# -ge 1 ] || { sed -n 2,22p "$0"; exit 1; }
+usage() { sed -n 2,22p "$0" | sed 's/^# \{0,1\}//'; }
+case "${1:-}" in -h|--help) usage; exit 0;; "") usage; exit 1;; esac
 GAP="${GAP:-360}"
 BATCH_SIZE=25
 
