@@ -40,9 +40,9 @@ function detailFor(latitudeDelta: number): PinDetail {
   return 'icon';
 }
 
-// 08 · Map (Figma 4:298) and 12 · Line check (52:1759). The map fills the screen with a sheet for
-// the top or tapped deal; "Edit" opens Filters. A floating "View List" / "View Map" pill (after
-// Beli) swaps the map for a list of the same deals, under the same sheet header and filter chips.
+// 08 · Map (Figma 4:298) and 12 · Line check (52:1759). The map fills the screen; tapping a pin
+// shows that deal's card at the bottom. A floating "View List" / "View Map" pill (after Beli)
+// swaps the map for a list of the same deals, under a header ("Edit" opens Filters) and filter chips.
 export default function MapScreen() {
   const insets = useSafeAreaInsets();
   const map = useRef<MapView>(null);
@@ -64,7 +64,7 @@ export default function MapScreen() {
   const shown = applyFilters(deals, filters, query, store.topics);
   const placed = shown.filter((d) => d.coords);
   const shownEvents = applyEventFilters(events, filters, query);
-  const featured = placed.find((d) => d.id === selectedId) ?? shown[0];
+  const selected = placed.find((d) => d.id === selectedId);
   const eventTime = (e: DealEvent) => eventWeekday(e).charAt(0) + eventWeekday(e).slice(1).toLowerCase();
 
   // Each pin gets the most detail that fits without overlapping; the tapped deal is laid out first.
@@ -278,7 +278,7 @@ export default function MapScreen() {
             </Pressable>
           </View>
           {prompted ? (
-            <View style={styles.lineCheck}>
+            <View style={styles.bottomCard}>
               <LineCheckCard
                 store={prompted.store}
                 onReport={(minutes) => store.reportLine(prompted, minutes, position)}
@@ -287,11 +287,7 @@ export default function MapScreen() {
               />
             </View>
           ) : (
-            <View style={styles.sheet}>
-              <View style={styles.handle} />
-              {sheetTop}
-              {featured && card(featured)}
-            </View>
+            selected && <View style={[styles.bottomCard, shadows.floating]}>{card(selected)}</View>
           )}
         </View>
       )}
@@ -385,22 +381,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  lineCheck: { alignSelf: 'stretch', paddingHorizontal: gutter, paddingBottom: 16 },
-  sheet: {
-    alignSelf: 'stretch',
-    gap: 14,
-    paddingTop: 10,
-    paddingHorizontal: gutter,
-    paddingBottom: 16,
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
-    backgroundColor: colors.surface,
-    shadowColor: '#17171A',
-    shadowOpacity: 0.12,
-    shadowRadius: 14,
-    shadowOffset: { width: 0, height: -6 },
-  },
-  handle: { alignSelf: 'center', width: 40, height: 5, borderRadius: 3, backgroundColor: colors.border },
+  bottomCard: { alignSelf: 'stretch', paddingHorizontal: gutter, paddingBottom: 16 },
   sheetHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   toggle: {
     flexDirection: 'row',
