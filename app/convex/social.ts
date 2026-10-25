@@ -46,6 +46,21 @@ export const findPeople = query({
   },
 });
 
+/** The old name, for app builds from before findPeople (usernames only). Remove once every build uses findPeople. */
+export const findByUsername = query({
+  args: { prefix: v.string() },
+  handler: async (ctx, { prefix }) => {
+    const me = await getUser(ctx);
+    const p = prefix.toLowerCase().replace(/^@/, "").trim();
+    if (!me || p.length < 2) return [];
+    const rows = await ctx.db
+      .query("users")
+      .withIndex("by_username", (q) => q.gte("username", p).lt("username", p + "\uffff"))
+      .take(MAX_PEOPLE);
+    return rows.filter((u) => u._id !== me._id && !u.deleted_at).map(publicProfile);
+  },
+});
+
 async function pair(ctx: QueryCtx, a: Id<"users">, b: Id<"users">) {
   return ctx.db
     .query("friendships")
