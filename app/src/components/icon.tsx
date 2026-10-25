@@ -40,6 +40,7 @@ import Disc from '@/assets/icons/disc.svg';
 import Droplet from '@/assets/icons/droplet.svg';
 import Dumbbell from '@/assets/icons/dumbbell.svg';
 import Eye from '@/assets/icons/eye.svg';
+import Facebook from '@/assets/icons/facebook.svg';
 import Ferris from '@/assets/icons/ferris.svg';
 import Film from '@/assets/icons/film.svg';
 import Flag from '@/assets/icons/flag.svg';
@@ -107,6 +108,7 @@ import Syringe from '@/assets/icons/syringe.svg';
 import Tacos from '@/assets/icons/tacos.svg';
 import Tag from '@/assets/icons/tag.svg';
 import Tattoo from '@/assets/icons/tattoo.svg';
+import Tiktok from '@/assets/icons/tiktok.svg';
 import Tooth from '@/assets/icons/tooth.svg';
 import Truck from '@/assets/icons/truck.svg';
 import User from '@/assets/icons/user.svg';
@@ -161,6 +163,7 @@ const icons = {
   droplet: Droplet,
   dumbbell: Dumbbell,
   eye: Eye,
+  facebook: Facebook,
   ferris: Ferris,
   film: Film,
   flag: Flag,
@@ -228,6 +231,7 @@ const icons = {
   tacos: Tacos,
   tag: Tag,
   tattoo: Tattoo,
+  tiktok: Tiktok,
   tooth: Tooth,
   truck: Truck,
   user: User,

@@ -1,6 +1,15 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { ActivityIndicator, ActionSheetIOS, Alert, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import {
+  ActivityIndicator,
+  ActionSheetIOS,
+  Alert,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  View,
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import VerifiedSuccess from '@/assets/shapes/verified-success.svg';
@@ -24,9 +33,11 @@ import { colors, gutter } from '@/theme';
 function sourceRow(deal: Deal): DetailRow {
   const icon = <Icon name={SOURCE_ICONS[deal.source.kind]} size={20} />;
   const spotted = `Spotted by your agent ${shortAgo(deal.postedHoursAgo)} ago`;
-  if (deal.source.kind === 'instagram') {
+  const social = { instagram: 'Instagram', tiktok: 'TikTok', facebook: 'Facebook' } as const;
+  if (deal.source.kind in social) {
     const handle = deal.source.handle ? ` · @${deal.source.handle}` : '';
-    return { key: 'source', icon, title: `Found on Instagram${handle}`, subtitle: spotted };
+    const network = social[deal.source.kind as keyof typeof social];
+    return { key: 'source', icon, title: `Found on ${network}${handle}`, subtitle: spotted };
   }
   if (deal.source.kind === 'website') {
     const host = deal.source.url ? new URL(deal.source.url).host.replace(/^www\./, '') : 'the web';
@@ -210,12 +221,18 @@ function StillRunning({ deal, store }: { deal: Deal; store: Store }) {
       </View>
       {!answered && (
         <>
-          <Pressable onPress={() => store.confirmDeal(deal.id, 'still_running')} accessibilityRole="button" style={styles.checkButton}>
+          <Pressable
+            onPress={() => store.confirmDeal(deal.id, 'still_running')}
+            accessibilityRole="button"
+            style={styles.checkButton}>
             <Text weight="bold" size={13}>
               Yes
             </Text>
           </Pressable>
-          <Pressable onPress={() => store.confirmDeal(deal.id, 'ended')} accessibilityRole="button" style={styles.checkButton}>
+          <Pressable
+            onPress={() => store.confirmDeal(deal.id, 'ended')}
+            accessibilityRole="button"
+            style={styles.checkButton}>
             <Text weight="bold" size={13} color={colors.orange}>
               Ended
             </Text>

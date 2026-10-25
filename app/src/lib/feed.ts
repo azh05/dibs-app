@@ -15,7 +15,10 @@ const METERS_PER_MILE = 1609.344;
 const WALK_MPH = 3;
 const DRIVE_MPH = 18;
 const DAYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
-const DAY_NAMES = { mon: 'Mon', tue: 'Tue', wed: 'Wed', thu: 'Thu', fri: 'Fri', sat: 'Sat', sun: 'Sun' } as Record<string, string>;
+const DAY_NAMES = { mon: 'Mon', tue: 'Tue', wed: 'Wed', thu: 'Thu', fri: 'Fri', sat: 'Sat', sun: 'Sun' } as Record<
+  string,
+  string
+>;
 
 /** Catalog key ("boba_tea") → the app's label ("Boba & tea"); unknown stores read as restaurants. */
 export function storeTypeLabel(key: string | null | undefined) {
@@ -32,7 +35,7 @@ const TAG_FOR: Record<string, DealTag> = Object.fromEntries(
 );
 
 function sourceKind(kind: string | undefined): SourceKind {
-  if (kind === 'instagram') return 'instagram';
+  if (kind === 'instagram' || kind === 'tiktok' || kind === 'facebook') return kind;
   if (kind === 'photo') return 'community';
   return 'website';
 }
@@ -85,7 +88,10 @@ export function todaysHours(hours: { day: string; hours: string }[] | null | und
   let close = parseClock(closeText);
   if (open == null || close == null) return { hours: null, openUntil: null };
   if (close <= open) close += 24;
-  return { hours: [open, close] as [number, number], openUntil: closeText.replace(/:00(?=\s|$)/, '') || (closeMeridiem ?? null) };
+  return {
+    hours: [open, close] as [number, number],
+    openUntil: closeText.replace(/:00(?=\s|$)/, '') || (closeMeridiem ?? null),
+  };
 }
 
 function fmtTime(t: string) {
@@ -95,9 +101,16 @@ function fmtTime(t: string) {
 
 function windowFor(v: DealView, now: Date): Deal['window'] {
   const fine = v.conditions.join(' · ');
-  const times = v.start_time && v.end_time ? `${fmtTime(v.start_time)} – ${fmtTime(v.end_time)}` : v.end_time ? `Until ${fmtTime(v.end_time)}` : null;
+  const times =
+    v.start_time && v.end_time
+      ? `${fmtTime(v.start_time)} – ${fmtTime(v.end_time)}`
+      : v.end_time
+        ? `Until ${fmtTime(v.end_time)}`
+        : null;
   if (v.recurring_window) {
-    const days = v.recurring_window.days.length ? v.recurring_window.days.map((d) => DAY_NAMES[d] ?? d).join(', ') : 'Daily';
+    const days = v.recurring_window.days.length
+      ? v.recurring_window.days.map((d) => DAY_NAMES[d] ?? d).join(', ')
+      : 'Daily';
     const t =
       v.recurring_window.start_time && v.recurring_window.end_time
         ? `${fmtTime(v.recurring_window.start_time)} – ${fmtTime(v.recurring_window.end_time)}`
@@ -107,7 +120,11 @@ function windowFor(v: DealView, now: Date): Deal['window'] {
     return { title: [days, t].filter(Boolean).join(' · '), subtitle: fine || 'Repeats every week' };
   }
   const today = localISO(now);
-  if (times) return { title: `${v.end_date === today || v.start_date === today ? 'Today' : 'Hours'} · ${times}`, subtitle: fine || 'As posted by the store' };
+  if (times)
+    return {
+      title: `${v.end_date === today || v.start_date === today ? 'Today' : 'Hours'} · ${times}`,
+      subtitle: fine || 'As posted by the store',
+    };
   if (v.code) return { title: `Code ${v.code}`, subtitle: fine || 'Show or enter at checkout' };
   if (fine) return { title: 'Conditions', subtitle: fine };
   return null;

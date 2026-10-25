@@ -108,6 +108,21 @@ def test_search_uses_rrf_and_geo_only_with_coords():
     assert not any("geo_distance" in f for f in bodies[1]["query"]["bool"]["filter"])
 
 
+def test_get_deals_puts_source_filter_in_url_not_body():
+    seen = {}
+
+    def handler(request):
+        seen["url"] = str(request.url)
+        seen["body"] = json.loads(request.content)
+        found = {"_id": "deal:a", "found": True, "_source": {"deal": deal().model_dump(mode="json")}}
+        return httpx.Response(200, json={"docs": [found, {"_id": "deal:b", "found": False}]})
+
+    deals = DealIndex(fake_client(handler)).get_deals(["deal:a", "deal:b"])
+    assert [d.shop_name for d in deals] == ["Tapioca Lab"]
+    assert seen["url"].endswith("/dibs-deals/_mget?_source_includes=deal")
+    assert seen["body"] == {"ids": ["deal:a", "deal:b"]}
+
+
 def test_agent_ask_maps_converse_and_collects_deal_ids():
     seen = {}
 

@@ -333,7 +333,8 @@ class DealIndex:
     def get_deals(self, ids: list[str]) -> list[Deal]:
         if not ids:
             return []
-        result = self.client.es("POST", f"/{self.index}/_mget", {"ids": ids, "_source": ["deal"]})
+        # _source goes in the URL: Serverless rejects it in an ids-style _mget body.
+        result = self.client.es("POST", f"/{self.index}/_mget?_source_includes=deal", {"ids": ids})
         return [Deal.model_validate(d["_source"]["deal"]) for d in result.get("docs", []) if d.get("found")]
 
 
