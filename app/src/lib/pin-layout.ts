@@ -59,3 +59,18 @@ export function layoutPins(pins: PinSpec[], region: Region, size: { width: numbe
 
   return new Map(placed.map((p) => [p.pin.id, p.placement]));
 }
+
+/** The closest the map zooms to pull a stack apart: about 150 m across a phone screen. */
+const CLOSEST_LNG_DELTA = 0.0015;
+
+/**
+ * Whether zooming in would separate any of `pins` (the tapped pin and the ones folded under it).
+ * Deals at the same store never do, so tapping their pin should show them rather than zoom.
+ */
+export function canSplit(pins: PinSpec[], size: { width: number }) {
+  if (pins.length < 2 || !size.width) return false;
+  const lat = pins.reduce((s, p) => s + p.coords.latitude, 0) / pins.length;
+  const lng = pins.reduce((s, p) => s + p.coords.longitude, 0) / pins.length;
+  const region = { latitude: lat, longitude: lng, latitudeDelta: CLOSEST_LNG_DELTA, longitudeDelta: CLOSEST_LNG_DELTA };
+  return layoutPins(pins, region, size, 'icon').size > 1;
+}

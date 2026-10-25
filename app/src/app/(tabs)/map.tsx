@@ -1,6 +1,6 @@
 import { router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ComponentRef, type ReactNode } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import MapView, { Circle, Marker } from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -18,7 +18,7 @@ import { useDeals, useDealsAround } from '@/lib/api';
 import { appliedFilters, applyEventFilters, applyFilters, SORTS } from '@/lib/filters';
 import { SOURCE_ICONS, eventWeekday, plural, recency, shortAgo } from '@/lib/format';
 import { combinedLine, distanceMeters, GEOFENCE_METERS, useLineCheck, useUserLocation } from '@/lib/line-check';
-import { layoutPins } from '@/lib/pin-layout';
+import { canSplit, layoutPins } from '@/lib/pin-layout';
 import { useStore } from '@/lib/store';
 import type { Deal, DealEvent, LatLng } from '@/lib/types';
 import { colors, gutter, radii, shadows } from '@/theme';
@@ -98,11 +98,10 @@ export default function MapScreen() {
     (d) => d.coords && inView(d.coords, region),
   );
   const shownEvents = applyEventFilters(events, filters, query, store.topics).filter((e) => inView(e.coords, region));
-  const selected = shown.find((d) => d.id === selectedId);
   const eventTime = (e: DealEvent) => eventWeekday(e).charAt(0) + eventWeekday(e).slice(1).toLowerCase();
 
-  // Each pin gets the most detail that fits without overlapping; the tapped deal is laid out first.
-  const pinSpecs = [
+  // Each pin gets the most detail that fits without overlapping; the tapped pin is laid out first.
+  const specs = [
     ...shown.map((d) => ({
       id: d.id,
       coords: d.coords!,
@@ -111,17 +110,38 @@ export default function MapScreen() {
       time: shortAgo(d.postedHoursAgo),
     })),
     ...shownEvents.map((e) => ({ id: e.id, coords: e.coords, label: e.pinLabel, store: e.store, time: eventTime(e) })),
-  ].sort((a, b) => Number(b.id === selectedId) - Number(a.id === selectedId));
+  ];
+  const pinSpecs = [...specs].sort((a, b) => Number(b.id === selectedId) - Number(a.id === selectedId));
   const placements = layoutPins(pinSpecs, region, { width: mapWidth }, detailFor(region.latitudeDelta));
-
-  /** Taps on a pin with others folded under it zoom in until they separate. */
-  const expandCluster = (id: string) => {
+  /** A pin and the ones folded under it, in feed order (so it doesn't reshuffle as the selection moves). */
+  const clusterOf = (id: string) => {
     const ids = [id, ...(placements.get(id)?.folded ?? [])];
-    const coords = pinSpecs.filter((p) => ids.includes(p.id)).map((p) => p.coords);
-    map.current?.fitToCoordinates(coords, {
-      edgePadding: { top: topHeight + 80, bottom: bottomHeight + 60, left: 80, right: 80 },
-      animated: true,
-    });
+    return specs.filter((p) => ids.includes(p.id));
+  };
+
+  // The tapped pin's card, plus a card for each pin folded under it (swipe between them).
+  const selection = selectedId && placements.has(selectedId) ? clusterOf(selectedId).map((p) => p.id) : [];
+  const selectedCards = selection.flatMap((id): ({ id: string; deal: Deal } | { id: string; event: DealEvent })[] => {
+    const deal = shown.find((d) => d.id === id);
+    if (deal) return [{ id, deal }];
+    const event = shownEvents.find((e) => e.id === id);
+    return event ? [{ id, event }] : [];
+  });
+
+  /**
+   * Taps on a pin with others folded under it zoom in until they separate. Pins that zooming can't
+   * pull apart (deals at the same store) are selected instead, so their cards show.
+   */
+  const pressCluster = (id: string) => {
+    const cluster = clusterOf(id);
+    if (!canSplit(cluster, { width: mapWidth })) return setSelectedId(id);
+    map.current?.fitToCoordinates(
+      cluster.map((p) => p.coords),
+      {
+        edgePadding: { top: topHeight + 80, bottom: bottomHeight + 60, left: 80, right: 80 },
+        animated: true,
+      },
+    );
   };
   const applied = appliedFilters(filters);
   const sortedBy = SORTS.find((s) => s.key === filters.sort)?.sortedBy ?? 'distance';
@@ -227,7 +247,7 @@ export default function MapScreen() {
               anchor={pinAnchor}
               centerOffset={pinCenterOffset}
               zIndex={isSelected ? 10 : 1}
-              onPress={() => (folded > 0 && !isSelected ? expandCluster(d.id) : setSelectedId(d.id))}>
+              onPress={() => (folded > 0 && !isSelected ? pressCluster(d.id) : setSelectedId(d.id))}>
               <MapPin
                 state={isSelected ? 'selected' : recency(d.postedHoursAgo)}
                 detail={isSelected ? 'full' : placement.detail}
@@ -244,6 +264,7 @@ export default function MapScreen() {
         {shownEvents.map((e) => {
           const placement = placements.get(e.id);
           if (!placement) return null;
+          const isSelected = e.id === selectedId;
           const folded = placement.folded.length;
           return (
             <Marker
@@ -251,10 +272,14 @@ export default function MapScreen() {
               coordinate={e.coords}
               anchor={pinAnchor}
               centerOffset={pinCenterOffset}
-              onPress={() => (folded > 0 ? expandCluster(e.id) : router.push(`/event/${e.id}`))}>
+              zIndex={isSelected ? 10 : 1}
+              onPress={() => {
+                if (!folded) router.push(`/event/${e.id}`);
+                else if (!isSelected) pressCluster(e.id);
+              }}>
               <MapPin
-                state="upcoming"
-                detail={placement.detail}
+                state={isSelected ? 'selected' : 'upcoming'}
+                detail={isSelected ? 'full' : placement.detail}
                 folded={folded}
                 label={e.pinLabel}
                 store={e.store}
@@ -299,7 +324,7 @@ export default function MapScreen() {
         </View>
       ) : (
         <View
-          style={[styles.bottom, !prompted && !selected && styles.bottomBare]}
+          style={[styles.bottom, !prompted && !selectedCards.length && styles.bottomBare]}
           pointerEvents="box-none"
           onLayout={(e) => setBottomHeight(e.nativeEvent.layout.height)}>
           <View style={styles.controls} pointerEvents="box-none">
@@ -322,11 +347,80 @@ export default function MapScreen() {
               />
             </View>
           ) : (
-            selected && <View style={[styles.bottomCard, shadows.floating]}>{card(selected)}</View>
+            selectedCards.length > 0 && (
+              <CardPager
+                width={mapWidth}
+                ids={selectedCards.map((c) => c.id)}
+                selectedId={selectedId}
+                onSelect={setSelectedId}>
+                {selectedCards.map((c) =>
+                  'deal' in c ? (
+                    card(c.deal)
+                  ) : (
+                    <EventCard key={c.id} event={c.event} onPress={() => router.push(`/event/${c.id}`)} />
+                  ),
+                )}
+              </CardPager>
+            )
           )}
         </View>
       )}
     </View>
+  );
+}
+
+/** How much of the next card peeks in when a pin holds several. */
+const PEEK = 24;
+const PAGE_GAP = 8;
+
+/**
+ * The tapped pin's card at the bottom of the map. A pin with others folded under it (deals at the
+ * same store) shows one card per deal; swiping selects the card in view, so the pin follows.
+ */
+function CardPager({
+  width,
+  ids,
+  selectedId,
+  onSelect,
+  children,
+}: {
+  width: number;
+  ids: string[];
+  selectedId: string | null;
+  onSelect: (id: string) => void;
+  children: ReactNode[];
+}) {
+  const pager = useRef<ComponentRef<typeof ScrollView>>(null);
+  const many = ids.length > 1;
+  const cardWidth = width - gutter * 2 - (many ? PEEK : 0);
+  const step = cardWidth + PAGE_GAP;
+  const page = Math.max(0, ids.indexOf(selectedId ?? ''));
+
+  // Keep the selected card in view when a pin tap (not a swipe) changes the selection.
+  useEffect(() => {
+    pager.current?.scrollTo({ x: page * step, animated: false });
+  }, [page, step]);
+
+  return (
+    <ScrollView
+      ref={pager}
+      horizontal
+      scrollEnabled={many}
+      showsHorizontalScrollIndicator={false}
+      snapToInterval={step}
+      decelerationRate="fast"
+      style={styles.pager}
+      contentContainerStyle={[styles.pagerContent, { gap: PAGE_GAP }]}
+      onMomentumScrollEnd={(e) => {
+        const id = ids[Math.round(e.nativeEvent.contentOffset.x / step)];
+        if (id && id !== selectedId) onSelect(id);
+      }}>
+      {children.map((child, i) => (
+        <View key={ids[i]} style={[{ width: cardWidth }, shadows.floating]}>
+          {child}
+        </View>
+      ))}
+    </ScrollView>
   );
 }
 
@@ -412,6 +506,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   bottomCard: { alignSelf: 'stretch', paddingHorizontal: gutter, paddingBottom: 16 },
+  // Visible overflow so the cards' shadows aren't clipped.
+  pager: { overflow: 'visible' },
+  pagerContent: { paddingHorizontal: gutter, paddingBottom: 16 },
   sheetHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   toggle: {
     flexDirection: 'row',
