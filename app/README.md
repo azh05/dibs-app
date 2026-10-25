@@ -25,6 +25,8 @@ Welcome → Sign in → Pick interests → Live alerts → Deals.
   - Phone: we text a code, and it signs in or creates the account.
   - Email: Create account (name, username, password, birthday, invite code), then an emailed code.
   - Log in: email and password.
+  - If the Clerk app requires more than the user gave (e.g. email, username or password for a phone sign-up), an "Almost there" step asks for it.
+  - Setup steps for Convex, the API, Clerk and push are in [convex/README.md](convex/README.md#setup-start-to-finish).
 - **Sign in, mock mode**: every button signs in as the demo account.
 - **"Turn on live alerts"** saves your current location (or Westwood) as the place alerts and scans use. Change it any time from the Deals header.
 - **Elsewhere**:
@@ -53,11 +55,13 @@ Welcome → Sign in → Pick interests → Live alerts → Deals.
   - "Used it" asks what you saved; that feeds $ saved, Deal DNA, streaks and the monthly leaderboards.
 - **Social**: friends by username, a friends feed with cheers, invite links (both get 500 credits).
 - **Student verification**: the `.edu` address is added to your Clerk account and confirmed with an emailed code.
+- **21+**: unlocked from your birthday. Accounts without one (phone and social sign-ups) are asked for it the first time they tap Verify 21+.
+- **Env changes**: Expo reads `.env.local` when Metro starts, so restart with `npx expo start --clear` after editing it.
 
 ## Layout
 
 ```
-src/app/            routes: index (Welcome), onboarding/sign-in|phone|verify|log-in|create-account|interests|alerts,
+src/app/            routes: index (Welcome), onboarding/sign-in|phone|verify|finish|log-in|create-account|interests|alerts,
                     (tabs)/deals|map|earn|alerts|profile, filters, location, saved, leaderboard, friends,
                     deal/[id], event/[id], submission, invite/[code]
 src/components/     one component per Figma component (DealCard, StoreLogo, NotificationCard, LineCheckCard, ...)

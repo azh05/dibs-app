@@ -8,50 +8,122 @@ app (Expo)  ->  Convex (this folder)  ->  api/ (FastAPI)  ->  Anthropic, Bright 
 
 The app talks only to Convex. Convex actions call the Dibs API server to server with a shared key. Neither the app nor Convex holds Anthropic, Bright Data or Apify keys.
 
-## Run it
+## Setup, start to finish
+
+Five parts: Convex, the API, a tunnel between them, Clerk, then the app. About 20 minutes the first time.
+
+### 1. Convex cloud deployment
 
 ```bash
 cd app
 npm install
-npx convex dev            # first run: log in and create a project; writes EXPO_PUBLIC_CONVEX_URL to .env.local
-npm test                  # convex-test suite (no keys, no network)
+npx convex login
+npx convex dev --configure existing --team <team> --project <project> --dev-deployment cloud --once
 ```
 
-No Convex account yet? `CONVEX_AGENT_MODE=anonymous npx convex dev` runs a local backend at `http://127.0.0.1:3210`. It can call an API running on the same machine (`DIBS_API_URL=http://127.0.0.1:8000`).
+The first `npx convex dev` asks you to create a project (or use the command above for an existing one). It writes `CONVEX_DEPLOYMENT`, `EXPO_PUBLIC_CONVEX_URL` and `EXPO_PUBLIC_CONVEX_SITE_URL` to `app/.env.local`. The first deploy fails with "CLERK_JWT_ISSUER_DOMAIN not set" until step 4.
 
-Then start the app with both keys in `app/.env.local`:
+If `npx convex login` offers to link an existing anonymous deployment, that one is local (`127.0.0.1:3210`) and a phone can't reach it. Run the `--dev-deployment cloud` command above afterwards.
+
+No Convex account? `CONVEX_AGENT_MODE=anonymous npx convex dev` runs a local backend. It can call an API on the same machine (`DIBS_API_URL=http://127.0.0.1:8000`) with no tunnel, which is handy for testing scans.
+
+### 2. The API, with a shared key
+
+```bash
+cd api
+printf '\nDIBS_API_KEY=%s\n' "$(openssl rand -hex 24)" >> .env     # once
+uv run --env-file .env uvicorn app.main:app --port 8001
+```
+
+With `DIBS_API_KEY` set, every `/extract/*` call needs the header `X-Dibs-Key`. Convex sends it. Give Convex the same value:
+
+```bash
+cd app
+npx convex env set DIBS_API_KEY "$(grep '^DIBS_API_KEY=' ../api/.env | cut -d= -f2-)"
+```
+
+### 3. A tunnel so Convex can reach the API
+
+Convex runs in the cloud, so the API needs a public URL. During development, run in its own terminal and leave it open:
+
+```bash
+ngrok http 8001            # or: cloudflared tunnel --url http://localhost:8001
+npx convex env set DIBS_API_URL https://<id>.ngrok-free.app
+```
+
+Free ngrok URLs change each time ngrok restarts; set `DIBS_API_URL` again when that happens.
+
+To check the path without spending credits, send a deliberately invalid request. The run should fail with HTTP 422, which means Convex reached the API and the key was accepted:
+
+```bash
+npx convex run scans:startShops '{"area":{"scan_area_key":"wiring-check","neighborhood":"Westwood"},"trigger":"schedule","force":true,"request":{"max_shops":0}}'
+npx convex data agent_runs --limit 1 --order desc
+```
+
+For scans that run 24/7, the API needs a long-running host (Render, Railway, Fly). Serverless platforms won't work: scan jobs run 1 to 5 minutes in background threads and live in the server's memory.
+
+### 4. Clerk
+
+In the Clerk dashboard for your application:
+
+1. **Configure → Integrations → Convex**: turn it on. This adds `aud: "convex"` to session tokens, so no JWT template is needed. Copy the Frontend API URL (shown there, e.g. `https://verb-noun-00.clerk.accounts.dev`) and run `npx convex env set CLERK_JWT_ISSUER_DOMAIN <url>`.
+2. **Native applications**: turn on the Native API. Sign-in from the app fails without it.
+3. **User & authentication**: turn on email (password plus email verification code), phone (SMS code), Google and Apple. Recommended requirements:
+   - **Username off.** Dibs stores usernames in Convex.
+   - **Email on, but not required**, so phone-only accounts work.
+   - **Password not required for every account.**
+
+   Stricter settings still work. The app shows a "finish your account" step (`src/app/onboarding/finish.tsx`) for whatever Clerk still requires, then sends a code to any new email. Clerk also sets the minimum password length (15 on new apps); its message appears under the field.
+4. **Webhooks → Add endpoint**:
+   - URL: `https://<deployment>.convex.site/clerk-users-webhook`. Note `.site`, not `.cloud`.
+   - Events: `user.created`, `user.updated`, `user.deleted`.
+   - Copy the endpoint's **Signing Secret** (`whsec_...`) and run `npx convex env set CLERK_WEBHOOK_SECRET whsec_...`.
+   - The endpoint's **Testing** tab can send a sample event to check it.
+5. Admins (who review "In review" photo submissions): set `{"role": "admin"}` in the user's public metadata.
+
+The session token and the webhook do different jobs. Convex checks each call's Clerk session token with Clerk's public keys, found through `CLERK_JWT_ISSUER_DOMAIN`, so no secret is involved. The webhook is Clerk calling Convex: it keeps email, phone, username and role in sync, marks a user as a verified student once a `.edu` address on their Clerk account is verified, grants referral credits once a referred user verifies, and cleans up on deletion. `user.deleted` removes saved places, follows, devices, notifications and reminders; photo submissions and the credit ledger stay, with the user link removed. The signing secret proves each webhook call came from Clerk.
+
+Testing without real messages: Clerk development apps accept emails containing `+clerk_test` (e.g. `you+clerk_test@gmail.com`) and phone numbers like `+1 201-555-0100`. The code is always `424242`.
+
+### 5. The app
+
+`app/.env.local` needs both:
 
 ```bash
 EXPO_PUBLIC_CONVEX_URL=https://<deployment>.convex.cloud        # written by `npx convex dev`
 EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_test_...                   # Clerk dashboard → API keys
 ```
 
-Without both, the app runs in mock mode (`src/lib/mock.ts`).
+Without both, the app runs in mock mode (`src/lib/mock.ts`). Expo reads env vars when Metro starts, so after changing `.env.local`, restart Metro with `npx expo start --clear`.
+
+```bash
+npx expo start --ios
+xcrun simctl location booted set 34.0628,-118.4455     # put the simulator in Westwood
+```
+
+Sign up, pick interests, then tap **Turn on live alerts**. That saves your location and starts the first scan of the area, which costs real money: about $0.30 to $1.20 of Apify for 8 shops, plus Claude tokens. Deals appear on their own 1 to 5 minutes later. To watch:
+
+- In the Convex dashboard, check `users`, then `agent_runs` going `running` to `done`, then `stores` and `deals`.
+- In Clerk → Webhooks, the `user.created` delivery should show as succeeded.
+
+Phone and social sign-ups skip Create account, so they have no birthday. **Verify 21+** asks for one the first time (`src/lib/age-gate.ts`).
+
+### Push
+
+Run `npx eas-cli@latest init` once, so `app.json` gets an EAS `projectId`; the app needs it for an Expo push token. Until then, alerts still show in the Alerts tab, but nothing reaches the lock screen. Android needs a development build for remote push. After sign-in, the app registers its token (`prefs.registerDevice`). Convex sends alerts and reminders through Expo's push service, 100 per request, and drops tokens Expo reports as `DeviceNotRegistered`.
 
 ## Environment (Convex dashboard, or `npx convex env set NAME value`)
 
 | Variable | What |
 | --- | --- |
-| `CLERK_JWT_ISSUER_DOMAIN` | Clerk's Frontend API URL, e.g. `https://verb-noun-00.clerk.accounts.dev` (`auth.config.ts`) |
-| `CLERK_WEBHOOK_SECRET` | Signing secret of the Clerk webhook below (`whsec_...`) |
-| `DIBS_API_URL` | Where the Dibs API is reachable from Convex: deployed, or a tunnel to `127.0.0.1:8000` (cloudflared, ngrok) |
+| `CLERK_JWT_ISSUER_DOMAIN` | Clerk's Frontend API URL (`auth.config.ts`) |
+| `CLERK_WEBHOOK_SECRET` | Signing secret of the Clerk webhook (`whsec_...`) |
+| `DIBS_API_URL` | Where Convex reaches the Dibs API: a deployed URL, or the tunnel URL |
 | `DIBS_API_KEY` | Same value as the API's `DIBS_API_KEY`; sent as `X-Dibs-Key` |
 | `EXPO_ACCESS_TOKEN` | Optional: only if Expo enhanced push security is on |
 | `DIBS_SCAN_MAX_SHOPS` | Optional: shops per scheduled `/extract/shops` run (default 8; Apify cost grows with it) |
 
-## Clerk setup
-
-1. Create a Clerk application. Under **User & authentication**, turn on email (with password and email verification code), phone (SMS code), Google and Apple.
-2. **Configure → Integrations → Convex**: activate it. This adds `aud: "convex"` to session tokens, so no JWT template is needed. Copy the Frontend API URL into `CLERK_JWT_ISSUER_DOMAIN`.
-3. **Native applications**: turn on the Native API. Allow the app's redirect URL (`dibs://` in builds; the `exp://` URL Expo Go prints during development).
-4. **Webhooks → Add endpoint**: `https://<deployment>.convex.site/clerk-users-webhook` (note `.site`), events `user.created`, `user.updated`, `user.deleted`. Copy the signing secret into `CLERK_WEBHOOK_SECRET`.
-5. Admins (who review "In review" photo submissions): set `{"role": "admin"}` in the user's public metadata.
-
-The webhook keeps email, phone, username and role in sync. It also marks a user as a verified student when a `.edu` address on their Clerk account is verified, and it grants referral credits once a referred user verifies. `user.deleted` removes saved places, follows, devices, notifications and reminders; photo submissions and the credit ledger stay, with the user link removed.
-
-## Push
-
-Run `npx eas-cli@latest init` once, so `app.json` gets an EAS `projectId`; the app needs it for an Expo push token. Android needs a development build for remote push. After sign-in the app registers its token (`prefs.registerDevice`). Convex then sends alerts and reminders through Expo's push service, 100 per request, and drops tokens Expo reports as `DeviceNotRegistered`.
+Tests need none of these: `npm test` runs the convex-test suite with no keys and no network.
 
 ## How data flows
 

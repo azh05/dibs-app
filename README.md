@@ -28,7 +28,11 @@ npm install
 npx expo start --ios          # opens in Expo Go on the iOS simulator
 ```
 
-The app uses mock data unless `EXPO_PUBLIC_CONVEX_URL` and `EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY` are set in `app/.env.local` (see [app/convex/README.md](app/convex/README.md) for the Convex and Clerk setup).
+The app uses mock data unless `EXPO_PUBLIC_CONVEX_URL` and `EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY` are set in `app/.env.local`.
+
+## Full stack setup
+
+Convex cloud deployment → API with `DIBS_API_KEY` → tunnel (or a host) so Convex can reach the API → Clerk (Convex integration, Native API, sign-in methods, webhook) → the app. Step-by-step instructions, including the test codes and a free check of the Convex-to-API path, are in [app/convex/README.md, "Setup, start to finish"](app/convex/README.md#setup-start-to-finish).
 
 ## How it fits together
 
