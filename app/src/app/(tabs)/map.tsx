@@ -1,6 +1,6 @@
 import { router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import MapView, { Circle, Marker } from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -14,8 +14,9 @@ import { MapPin, pinAnchor, pinCenterOffset, type PinDetail } from '@/components
 import { SearchBar } from '@/components/search-bar';
 import { Text } from '@/components/text';
 import { useDeals } from '@/lib/api';
-import { appliedFilters, applyEventFilters, applyFilters, SORTS } from '@/lib/filters';
-import { SOURCE_ICONS, eventWeekday, plural, recency, shortAgo } from '@/lib/format';
+import { applyEventFilters, applyFilters, isOpenNow, SORTS, type Filters } from '@/lib/filters';
+import { SOURCE_ICONS, eventRange, eventWeekday, expiryText, plural, recency, shortAgo } from '@/lib/format';
+import { DEAL_TYPES } from '@/lib/interests';
 import { combinedLine, GEOFENCE_METERS, useLineCheck, useUserLocation } from '@/lib/line-check';
 import { layoutPins } from '@/lib/pin-layout';
 import { useStore } from '@/lib/store';
@@ -39,8 +40,9 @@ function detailFor(latitudeDelta: number): PinDetail {
   return 'icon';
 }
 
-// 08 · Map (Figma 4:298) and 12 · Line check (52:1759). The map fills the screen with a sheet for
-// the top or tapped deal; "Edit" opens Filters.
+// 08 · Map (Figma 4:298) and 12 · Line check (52:1759), laid out like Beli's list/map: a search bar
+// and a row of filter chips on top, then either the full-screen map (a tapped pin shows its deal
+// card) or a list of the same deals, swapped by the floating "View List" / "View Map" button.
 export default function MapScreen() {
   const insets = useSafeAreaInsets();
   const map = useRef<MapView>(null);
@@ -50,6 +52,7 @@ export default function MapScreen() {
   const home = place.coords;
   const [query, setQuery] = useState('');
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [view, setView] = useState<'map' | 'list'>('map');
   const [topHeight, setTopHeight] = useState(0);
   const [bottomHeight, setBottomHeight] = useState(0);
   const [region, setRegion] = useState(regionAround(home));
@@ -61,7 +64,7 @@ export default function MapScreen() {
   const shown = applyFilters(deals, filters, query, store.topics);
   const placed = shown.filter((d) => d.coords);
   const shownEvents = applyEventFilters(events, filters, query);
-  const featured = placed.find((d) => d.id === selectedId) ?? shown[0];
+  const featured = placed.find((d) => d.id === selectedId);
   const eventTime = (e: DealEvent) => eventWeekday(e).charAt(0) + eventWeekday(e).slice(1).toLowerCase();
 
   // Each pin gets the most detail that fits without overlapping; the tapped deal is laid out first.
@@ -86,25 +89,17 @@ export default function MapScreen() {
       animated: true,
     });
   };
-  const applied = appliedFilters(filters);
-  const sortedBy = SORTS.find((s) => s.key === filters.sort)?.sortedBy ?? 'distance';
+  const sort = SORTS.find((x) => x.key === filters.sort) ?? SORTS[0];
+  const nextSort = SORTS[(SORTS.indexOf(sort) + 1) % SORTS.length];
   const prompted = lineCheck.store;
+  // A line-check prompt always shows on the map, over the list if that was open.
+  const shownView = prompted ? 'map' : view;
+  const list = shownView === 'list';
 
   // Zoom in on the store while asking about its line, so its geofence shows (Figma 11 · Line check).
   useEffect(() => {
     if (prompted?.coords) map.current?.animateToRegion(regionAtStore(prompted.coords), 400);
   }, [prompted]);
-
-  const card = (d: Deal) => (
-    <DealCard
-      key={d.id}
-      deal={d}
-      line={combinedLine(d, lineReports)}
-      saved={saved.has(d.id)}
-      onPress={() => router.push(`/deal/${d.id}`)}
-      onToggleSaved={() => toggleSaved(d.id)}
-    />
-  );
 
   return (
     <View style={styles.screen}>
@@ -198,8 +193,49 @@ export default function MapScreen() {
         })}
       </MapView>
 
+      {list && (
+        <ScrollView
+          style={styles.list}
+          contentContainerStyle={{ paddingTop: topHeight, paddingBottom: 96 }}
+          keyboardDismissMode="on-drag">
+          <View style={styles.listHeader}>
+            <Pressable
+              onPress={() => store.setFilters({ ...filters, sort: nextSort.key })}
+              hitSlop={8}
+              accessibilityRole="button"
+              accessibilityLabel={`Sorted by ${sort.sortedBy}. Sort by ${nextSort.sortedBy}`}
+              style={styles.sort}>
+              <Icon name="sliders" size={15} color={colors.orange} />
+              <Text weight="bold" size={15} tracking={0.3} color={colors.orange}>
+                {sort.label}
+              </Text>
+            </Pressable>
+            <Text size={13} color={colors.inkTertiary}>
+              {plural(shown.length, 'deal')} within {filters.radiusMi} mi
+            </Text>
+          </View>
+          {shown.map((d) => (
+            <DealRow
+              key={d.id}
+              deal={d}
+              saved={saved.has(d.id)}
+              onPress={() => router.push(`/deal/${d.id}`)}
+              onToggleSaved={() => toggleSaved(d.id)}
+            />
+          ))}
+          {shownEvents.map((e) => (
+            <EventRow key={e.id} event={e} onPress={() => router.push(`/event/${e.id}`)} />
+          ))}
+          {shown.length === 0 && shownEvents.length === 0 && (
+            <Text size={14} color={colors.inkTertiary} style={styles.empty}>
+              No deals match these filters. Try a wider radius or fewer filters.
+            </Text>
+          )}
+        </ScrollView>
+      )}
+
       <View
-        style={[styles.top, { paddingTop: insets.top + 4 }]}
+        style={[styles.top, list && styles.topSolid, { paddingTop: insets.top + 4 }]}
         pointerEvents="box-none"
         onLayout={(e) => setTopHeight(e.nativeEvent.layout.height)}>
         <SearchBar
@@ -207,101 +243,307 @@ export default function MapScreen() {
           onChangeText={setQuery}
           placeholder="Search this area"
           onFilters={() => router.push('/filters')}
-          floating
+          floating={!list}
         />
+        <FilterChips filters={filters} onChange={store.setFilters} />
       </View>
 
-      <View
-        style={styles.bottom}
-        pointerEvents="box-none"
-        onLayout={(e) => setBottomHeight(e.nativeEvent.layout.height)}>
-        <Pressable
-          onPress={() => map.current?.animateToRegion(regionAround(you), 400)}
-          style={[styles.recenter, shadows.floating]}
-          accessibilityRole="button"
-          accessibilityLabel="Recenter map">
-          <Icon name="navigation" size={20} color={colors.orange} />
-        </Pressable>
-        {prompted ? (
-          <View style={styles.lineCheck}>
-            <LineCheckCard
-              store={prompted.store}
-              onReport={(minutes) => store.reportLine(prompted, minutes, position)}
-              onUndo={store.undoLineReport}
-              onClose={lineCheck.dismiss}
-            />
-          </View>
-        ) : (
-          <View style={styles.sheet}>
-            <View style={styles.handle} />
-            <SheetHeader
-              count={shown.length}
-              radiusMi={filters.radiusMi}
-              sortedBy={sortedBy}
-              onEdit={() => router.push('/filters')}
-            />
-            {applied.length > 0 && (
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.applied}>
-                {applied.map((f) => (
-                  <Pressable
-                    key={f.key}
-                    onPress={() => store.setFilters(f.remove(filters))}
-                    accessibilityRole="button"
-                    accessibilityLabel={`Remove ${f.label}`}
-                    style={styles.appliedChip}>
-                    <Text weight="bold" size={12}>
-                      {f.label}
-                    </Text>
-                    <Icon name="close" size={12} color={colors.orange} />
-                  </Pressable>
-                ))}
-              </ScrollView>
-            )}
-            {featured && card(featured)}
-          </View>
-        )}
-      </View>
+      {list ? (
+        <View style={styles.listToggle} pointerEvents="box-none">
+          <ViewToggle view={shownView} onPress={() => setView('map')} />
+        </View>
+      ) : (
+        <View
+          style={styles.bottom}
+          pointerEvents="box-none"
+          onLayout={(e) => setBottomHeight(e.nativeEvent.layout.height)}>
+          <Pressable
+            onPress={() => map.current?.animateToRegion(regionAround(you), 400)}
+            style={[styles.recenter, shadows.floating]}
+            accessibilityRole="button"
+            accessibilityLabel="Recenter map">
+            <Icon name="navigation" size={20} color={colors.orange} />
+          </Pressable>
+          {!prompted && <ViewToggle view={shownView} onPress={() => setView('list')} />}
+          {prompted ? (
+            <View style={styles.card}>
+              <LineCheckCard
+                store={prompted.store}
+                onReport={(minutes) => store.reportLine(prompted, minutes, position)}
+                onUndo={store.undoLineReport}
+                onClose={lineCheck.dismiss}
+              />
+            </View>
+          ) : (
+            featured && (
+              <View style={styles.card}>
+                <DealCard
+                  deal={featured}
+                  line={combinedLine(featured, lineReports)}
+                  saved={saved.has(featured.id)}
+                  onPress={() => router.push(`/deal/${featured.id}`)}
+                  onToggleSaved={() => toggleSaved(featured.id)}
+                />
+              </View>
+            )
+          )}
+        </View>
+      )}
     </View>
   );
 }
 
-function SheetHeader({
+/**
+ * Beli's chip row: a filters button, then one-tap toggles for Open now, Verified and each deal type,
+ * plus any store types picked on the Filters screen. On chips show a × and turn orange.
+ */
+function FilterChips({ filters, onChange }: { filters: Filters; onChange: (f: Filters) => void }) {
+  const toggled = (set: Set<string>, value: string) => {
+    const next = new Set(set);
+    if (next.has(value)) next.delete(value);
+    else next.add(value);
+    return next;
+  };
+  const chips = [
+    ...[...filters.storeTypes].map((t) => ({
+      key: `store:${t}`,
+      label: t,
+      on: true,
+      toggle: () => onChange({ ...filters, storeTypes: toggled(filters.storeTypes, t) }),
+    })),
+    {
+      key: 'open',
+      label: 'Open now',
+      on: filters.openNow,
+      toggle: () => onChange({ ...filters, openNow: !filters.openNow }),
+    },
+    {
+      key: 'verified',
+      label: 'Verified',
+      on: filters.communityVerified,
+      toggle: () => onChange({ ...filters, communityVerified: !filters.communityVerified }),
+    },
+    ...DEAL_TYPES.map((t) => ({
+      key: `deal:${t.label}`,
+      label: t.label,
+      on: filters.dealTypes.has(t.label),
+      toggle: () => onChange({ ...filters, dealTypes: toggled(filters.dealTypes, t.label) }),
+    })),
+  ];
+  return (
+    <ScrollView
+      horizontal
+      showsHorizontalScrollIndicator={false}
+      style={styles.chips}
+      contentContainerStyle={styles.chipsContent}>
+      <Pressable
+        onPress={() => router.push('/filters')}
+        accessibilityRole="button"
+        accessibilityLabel="All filters"
+        style={[styles.chip, styles.chipIcon]}>
+        <Icon name="sliders" size={18} color={colors.orange} />
+      </Pressable>
+      {chips.map((c) => (
+        <Pressable
+          key={c.key}
+          onPress={c.toggle}
+          accessibilityRole="button"
+          accessibilityState={{ selected: c.on }}
+          style={({ pressed }) => [styles.chip, c.on && styles.chipOn, pressed && { opacity: 0.7 }]}>
+          <Text weight="semibold" size={15}>
+            {c.label}
+          </Text>
+          {c.on && <Icon name="close" size={14} color={colors.orange} />}
+        </Pressable>
+      ))}
+    </ScrollView>
+  );
+}
+
+/** Beli's list row: name, what and where on the left; the deal in a ring and a bookmark on the right. */
+function ListRow({
+  title,
+  subtitle,
+  address,
+  meta,
+  badge,
   count,
-  radiusMi,
-  sortedBy,
-  onEdit,
+  onPress,
+  trailing,
 }: {
-  count: number;
-  radiusMi: number;
-  sortedBy: string;
-  onEdit: () => void;
+  title: string;
+  subtitle: string;
+  address: string | null;
+  meta: string;
+  badge: string;
+  count?: number;
+  onPress: () => void;
+  trailing?: ReactNode;
 }) {
   return (
-    <View style={styles.sheetHeader}>
-      <View style={{ gap: 2 }}>
-        <Text weight="extrabold" size={17} tracking={-0.17}>
-          {plural(count, 'deal')} within {radiusMi} mi
-        </Text>
-        <Text size={13} color={colors.inkTertiary}>
-          Sorted by {sortedBy}
-        </Text>
+    <Pressable onPress={onPress} style={({ pressed }) => [styles.row, pressed && { backgroundColor: colors.muted }]}>
+      <View style={styles.rowMain}>
+        <View style={styles.rowText}>
+          <Text weight="extrabold" size={19} tracking={-0.3} numberOfLines={1}>
+            {title}
+          </Text>
+          <Text size={15} color={colors.inkSecondary} numberOfLines={1}>
+            {subtitle}
+          </Text>
+          {address && (
+            <View style={styles.rowAddress}>
+              <Icon name="pin" size={14} color={colors.inkSecondary} />
+              <Text size={15} color={colors.inkSecondary} numberOfLines={1} style={{ flex: 1 }}>
+                {address}
+              </Text>
+            </View>
+          )}
+        </View>
+        <View style={styles.ring}>
+          <Text
+            weight="extrabold"
+            size={13}
+            color={colors.orange}
+            numberOfLines={1}
+            adjustsFontSizeToFit
+            minimumFontScale={0.7}>
+            {badge}
+          </Text>
+          {!!count && (
+            <View style={styles.ringCount}>
+              <Text weight="bold" size={10} color={colors.surface}>
+                {count}
+              </Text>
+            </View>
+          )}
+        </View>
       </View>
-      <Pressable onPress={onEdit} accessibilityRole="button" style={styles.toggle}>
-        <Icon name="sliders" size={14} />
-        <Text weight="bold" size={13}>
-          Edit
+      <View style={styles.rowFooter}>
+        <Text size={14} color={colors.inkTertiary} numberOfLines={1} style={{ flex: 1 }}>
+          {meta}
         </Text>
-      </Pressable>
-    </View>
+        {trailing}
+      </View>
+    </Pressable>
+  );
+}
+
+function DealRow({
+  deal,
+  saved,
+  onPress,
+  onToggleSaved,
+}: {
+  deal: Deal;
+  saved: boolean;
+  onPress: () => void;
+  onToggleSaved: () => void;
+}) {
+  const open = deal.hours ? (isOpenNow(deal) ? 'Open' : 'Closed') : null;
+  const meta = [
+    deal.distanceMi != null ? `${deal.distanceMi} mi` : null,
+    open,
+    open === 'Open' && deal.openUntil ? `Closes ${deal.openUntil}` : null,
+    expiryText(deal),
+  ];
+  return (
+    <ListRow
+      title={deal.store}
+      subtitle={`${deal.typeLabel} · ${deal.shortOffer}`}
+      address={deal.address}
+      meta={meta.filter(Boolean).join(' · ')}
+      badge={deal.pinLabel}
+      count={deal.confirmations}
+      onPress={onPress}
+      trailing={
+        <Pressable
+          onPress={onToggleSaved}
+          hitSlop={12}
+          accessibilityRole="button"
+          accessibilityLabel={saved ? 'Remove bookmark' : 'Bookmark deal'}>
+          <Icon name="bookmark" size={24} color={saved ? colors.orange : colors.ink} />
+        </Pressable>
+      }
+    />
+  );
+}
+
+function EventRow({ event, onPress }: { event: DealEvent; onPress: () => void }) {
+  return (
+    <ListRow
+      title={event.title}
+      subtitle={`${event.store} · ${event.area}`}
+      address={null}
+      meta={`${event.distanceMi} mi · ${eventRange(event)}`}
+      badge={event.pinLabel}
+      onPress={onPress}
+      trailing={<Icon name="calendar" size={22} color={colors.orange} />}
+    />
+  );
+}
+
+/** The floating dark pill that swaps the map and the list. */
+function ViewToggle({ view, onPress }: { view: 'map' | 'list'; onPress: () => void }) {
+  const toList = view === 'map';
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      style={({ pressed }) => [styles.toggleView, shadows.post, pressed && { opacity: 0.85 }]}>
+      {toList ? (
+        <View style={styles.listGlyph}>
+          {[0, 1, 2].map((i) => (
+            <View key={i} style={styles.listGlyphRow}>
+              <View style={styles.listGlyphDot} />
+              <View style={styles.listGlyphLine} />
+            </View>
+          ))}
+        </View>
+      ) : (
+        <Icon name="map" size={18} color={colors.surface} />
+      )}
+      <Text weight="bold" size={15} color={colors.surface}>
+        {toList ? 'View List' : 'View Map'}
+      </Text>
+    </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: '#F2F0EB' },
-  top: { position: 'absolute', left: 0, right: 0, top: 0, paddingHorizontal: gutter },
+  top: { position: 'absolute', left: 0, right: 0, top: 0, paddingHorizontal: gutter, gap: 12 },
+  topSolid: {
+    paddingBottom: 12,
+    backgroundColor: colors.surface,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.border,
+  },
   you: { width: 70, height: 70 },
   youDot: { position: 'absolute', left: 20, top: 22 },
-  bottom: { position: 'absolute', left: 0, right: 0, bottom: 0, alignItems: 'flex-end', gap: 12 },
+  chips: { marginHorizontal: -gutter },
+  chipsContent: { gap: 8, paddingHorizontal: gutter },
+  chip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    height: 40,
+    paddingHorizontal: 16,
+    borderRadius: radii.pill,
+    borderWidth: 1.5,
+    borderColor: colors.ink,
+    backgroundColor: colors.surface,
+  },
+  chipIcon: { paddingHorizontal: 14 },
+  chipOn: { borderColor: colors.orange, backgroundColor: colors.orangeSoft },
+  bottom: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    alignItems: 'flex-end',
+    gap: 12,
+    paddingBottom: 16,
+  },
   recenter: {
     width: 48,
     height: 48,
@@ -311,43 +553,65 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  lineCheck: { alignSelf: 'stretch', paddingHorizontal: gutter, paddingBottom: 16 },
-  sheet: {
-    alignSelf: 'stretch',
-    gap: 14,
-    paddingTop: 10,
+  card: { alignSelf: 'stretch', paddingHorizontal: gutter },
+  list: { ...StyleSheet.absoluteFill, backgroundColor: colors.surface },
+  listHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     paddingHorizontal: gutter,
-    paddingBottom: 16,
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
-    backgroundColor: colors.surface,
-    shadowColor: '#17171A',
-    shadowOpacity: 0.12,
-    shadowRadius: 14,
-    shadowOffset: { width: 0, height: -6 },
+    paddingVertical: 14,
   },
-  handle: { alignSelf: 'center', width: 40, height: 5, borderRadius: 3, backgroundColor: colors.border },
-  sheetHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  toggle: {
+  sort: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  row: {
+    gap: 18,
+    paddingHorizontal: gutter,
+    paddingVertical: 18,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.border,
+  },
+  rowMain: { flexDirection: 'row', gap: 16 },
+  rowText: { flex: 1, gap: 3 },
+  rowAddress: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  rowFooter: { flexDirection: 'row', alignItems: 'center', gap: 16 },
+  ring: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    borderWidth: 1.5,
+    borderColor: colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 6,
+  },
+  ringCount: {
+    position: 'absolute',
+    right: -6,
+    bottom: -6,
+    minWidth: 26,
+    height: 22,
+    paddingHorizontal: 5,
+    borderRadius: 11,
+    borderWidth: 1.5,
+    borderColor: colors.surface,
+    backgroundColor: colors.ink,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  empty: { textAlign: 'center', paddingTop: 40, paddingHorizontal: gutter },
+  listToggle: { position: 'absolute', right: 0, bottom: 16 },
+  toggleView: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    gap: 10,
+    marginRight: gutter,
+    paddingHorizontal: 24,
+    height: 52,
     borderRadius: radii.pill,
-    backgroundColor: colors.muted,
+    backgroundColor: colors.ink,
   },
-  applied: { gap: 6 },
-  appliedChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    paddingLeft: 10,
-    paddingRight: 8,
-    paddingVertical: 8,
-    borderRadius: radii.pill,
-    borderWidth: 1,
-    borderColor: colors.orange,
-    backgroundColor: colors.orangeSoft,
-  },
+  listGlyph: { gap: 3 },
+  listGlyphRow: { flexDirection: 'row', alignItems: 'center', gap: 3 },
+  listGlyphDot: { width: 3, height: 3, borderRadius: 1.5, backgroundColor: colors.surface },
+  listGlyphLine: { width: 11, height: 2, borderRadius: 1, backgroundColor: colors.surface },
 });
