@@ -44,7 +44,8 @@ export function endsIn(endsAt: Date, now = new Date()) {
 /** "Oct 24, 6 PM", or "Oct 24" when the time is the end of the day. */
 export function dayAndTime(date: Date) {
   const day = `${MONTHS[date.getMonth()]} ${date.getDate()}`;
-  const endOfDay = (date.getHours() === 23 && date.getMinutes() === 59) || (date.getHours() === 0 && date.getMinutes() === 0);
+  const endOfDay =
+    (date.getHours() === 23 && date.getMinutes() === 59) || (date.getHours() === 0 && date.getMinutes() === 0);
   return endOfDay ? day : `${day}, ${clock(date)}`;
 }
 
@@ -57,11 +58,19 @@ export function shortAgo(hours: number) {
 
 const SOURCE_NAMES: Record<SourceKind, string> = {
   instagram: 'Instagram',
+  tiktok: 'TikTok',
+  facebook: 'Facebook',
   community: 'Community',
   website: 'Website',
 };
 
-export const SOURCE_ICONS = { instagram: 'instagram', community: 'users', website: 'globe' } as const;
+export const SOURCE_ICONS = {
+  instagram: 'instagram',
+  tiktok: 'tiktok',
+  facebook: 'facebook',
+  community: 'users',
+  website: 'globe',
+} as const;
 
 /** Source pill text: "Instagram · 2h ago", "Community · verified". */
 export function sourceText(deal: Deal) {

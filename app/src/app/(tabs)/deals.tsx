@@ -70,10 +70,12 @@ export default function DealsScreen() {
   const unread = activity.some((a) => a.unread);
 
   let agentStatus = spots ? `Watching ${spots.toLocaleString()} spots near you` : 'Your agent is learning this area';
-  if (loading) agentStatus = usingBackend ? 'Loading deals near you…' : 'Your agent is scanning Instagram and the web near you…';
+  if (loading)
+    agentStatus = usingBackend ? 'Loading deals near you…' : 'Your agent is scanning Instagram and the web near you…';
   else if (error) agentStatus = `Couldn't reach your agent: ${error}`;
   else if (usingBackend && !place.areaKey) agentStatus = 'Set your location so your agent knows where to look';
-  else if (!usingBackend && usingLiveApi) agentStatus = `Your agent found ${deals.length} verified deals on the web just now`;
+  else if (!usingBackend && usingLiveApi)
+    agentStatus = `Your agent found ${deals.length} verified deals on the web just now`;
 
   return (
     <View style={[styles.screen, { paddingTop: insets.top }]}>
@@ -93,15 +95,24 @@ export default function DealsScreen() {
           </Pressable>
           <View style={styles.headerButtons}>
             {usingLiveApi && (
-              <CircleButton icon="sparkles" tone="muted" accessibilityLabel="Ask dibs" onPress={() => router.push('/ask')} />
+              <CircleButton
+                icon="sparkles"
+                tone="muted"
+                accessibilityLabel="Ask dibs"
+                onPress={() => router.push('/ask')}
+              />
             )}
-            <CircleButton icon="bell" tone="muted" accessibilityLabel="Alerts" onPress={() => router.navigate('/alerts')}>
-            {unread && (
-              <View style={styles.badge}>
-                <Badge width={10} height={10} />
-              </View>
-            )}
-          </CircleButton>
+            <CircleButton
+              icon="bell"
+              tone="muted"
+              accessibilityLabel="Alerts"
+              onPress={() => router.navigate('/alerts')}>
+              {unread && (
+                <View style={styles.badge}>
+                  <Badge width={10} height={10} />
+                </View>
+              )}
+            </CircleButton>
           </View>
         </View>
 
@@ -122,7 +133,9 @@ export default function DealsScreen() {
             <View style={styles.sources}>
               <Icon name="instagram" size={16} color={colors.inkTertiary} />
               <Icon name="globe" size={16} color={colors.inkTertiary} />
+              <Icon name="tiktok" size={16} color={colors.inkTertiary} />
               <Icon name="users" size={16} color={colors.inkTertiary} />
+              <Icon name="facebook" size={16} color={colors.inkTertiary} />
             </View>
           </View>
         </View>

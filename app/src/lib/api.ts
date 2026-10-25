@@ -15,7 +15,7 @@ import { interestIcon } from '@/lib/interests';
 import { distanceMeters } from '@/lib/line-check';
 import { HOME, MOCK_DEALS, MOCK_EVENTS } from '@/lib/mock';
 import { useStore } from '@/lib/store';
-import type { ApiDeal, ApiSearchResponse, Deal, DealEvent, DealTag } from '@/lib/types';
+import type { ApiDeal, ApiSearchResponse, Deal, DealEvent, DealTag, SourceKind } from '@/lib/types';
 import { colors } from '@/theme';
 
 export const API_URL = process.env.EXPO_PUBLIC_API_URL?.replace(/\/$/, '');
@@ -78,7 +78,7 @@ function initials(name: string) {
 /** Map one verified API deal onto the shape the screens render. Location and distance are unknown. */
 export function fromApiDeal(d: ApiDeal, index: number): Deal {
   const cat = CATEGORY[d.category] ?? CATEGORY.other; // a category added to the API later still renders
-  const instagram = /instagram\.com/i.test(d.source_url);
+  const social = d.source_url.match(/(instagram|tiktok|facebook)\.com/i)?.[1].toLowerCase() as SourceKind | undefined;
   const endsAt = d.end_date ? new Date(`${d.end_date}T23:59:00`) : null;
   const postedHoursAgo = daysSince(d.source_post_date);
   return {
@@ -103,7 +103,7 @@ export function fromApiDeal(d: ApiDeal, index: number): Deal {
     window: d.conditions.length
       ? { title: d.code ? `Code ${d.code}` : 'Conditions', subtitle: d.conditions.join(' · ') }
       : null,
-    source: { kind: instagram ? 'instagram' : 'website', handle: d.shop_handle, url: d.source_url },
+    source: { kind: social ?? 'website', handle: d.shop_handle, url: d.source_url },
     postedHoursAgo,
     confirmations: 0,
     lastCheckMinutes: null,
@@ -186,7 +186,11 @@ function useBackendDeals(): DealsState {
     scan_area_key: place.areaKey ?? undefined,
   });
   return useMemo(
-    () => ({ ...(views ? splitFeed(views, place.coords) : { deals: [], events: [] }), loading: views === undefined, error: null }),
+    () => ({
+      ...(views ? splitFeed(views, place.coords) : { deals: [], events: [] }),
+      loading: views === undefined,
+      error: null,
+    }),
     [views, place.coords],
   );
 }
@@ -251,7 +255,9 @@ function useMockDeal(id: string) {
 }
 
 /** One deal by id, also when it isn't in the current feed (e.g. opened from an alert). */
-export const useDeal: (id: string) => { deal: Deal | undefined; loading: boolean } = usingBackend ? useBackendDeal : useMockDeal;
+export const useDeal: (id: string) => { deal: Deal | undefined; loading: boolean } = usingBackend
+  ? useBackendDeal
+  : useMockDeal;
 
 function useBackendEvent(id: string): { event: DealEvent | undefined; loading: boolean } {
   const { place } = useStore();
@@ -266,7 +272,9 @@ function useMockEvent(id: string) {
   return { event: findEvent(id), loading: false };
 }
 
-export const useEvent: (id: string) => { event: DealEvent | undefined; loading: boolean } = usingBackend ? useBackendEvent : useMockEvent;
+export const useEvent: (id: string) => { event: DealEvent | undefined; loading: boolean } = usingBackend
+  ? useBackendEvent
+  : useMockEvent;
 
 function useBackendSpots(): number | null {
   const { place } = useStore();
@@ -308,7 +316,13 @@ function useMockSaved(): SavedState {
     events: MOCK_EVENTS.filter((e) => saved.has(e.id)),
     stores: [...followed].map((name) => {
       const deal = MOCK_DEALS.find((d) => d.store === name);
-      return { key: name, name, icon: deal?.icon ?? 'store', meta: deal ? `${deal.typeLabel} · ${deal.distanceMi} mi` : 'Following', deal };
+      return {
+        key: name,
+        name,
+        icon: deal?.icon ?? 'store',
+        meta: deal ? `${deal.typeLabel} · ${deal.distanceMi} mi` : 'Following',
+        deal,
+      };
     }),
   };
 }

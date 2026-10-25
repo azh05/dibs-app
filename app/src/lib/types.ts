@@ -41,7 +41,7 @@ export type ApiSearchResponse = {
   transcript?: string | null;
 };
 
-export type SourceKind = 'instagram' | 'community' | 'website';
+export type SourceKind = 'instagram' | 'tiktok' | 'facebook' | 'community' | 'website';
 
 export type LatLng = { latitude: number; longitude: number };
 
