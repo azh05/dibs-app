@@ -174,7 +174,7 @@ Tests need none of these: `npm test` runs the convex-test suite with no keys and
 - **Gamification** (`lib/gamify.ts`):
   - XP: deal used 50, verified photo 100, line check 10 (5 a day).
   - Streaks in weeks, 24 badges, one weekly challenge.
-  - Monthly leaderboards for neighbourhood and school (rebuilt hourly) and friends (live).
+  - Monthly leaderboards for neighbourhood and school (rebuilt hourly) and friends (live), ranked by credits posted this month (submissions and referrals; spends don't count).
 
 ## Crons
 

@@ -27,7 +27,8 @@ function change(delta: number) {
   return { text: '— no change', color: colors.inkTertiary };
 }
 
-// 19 · Leaderboard (Figma 51:1657): ranked by dollars saved this month (Convex boards, or mock data).
+// 19 · Leaderboard (Figma 51:1657): ranked by credits earned this month (Convex boards, or mock data). The design
+// ranks by $ saved; we switched to credits because they're verified and reward submitting deals.
 export default function LeaderboardScreen() {
   const insets = useSafeAreaInsets();
   const params = useLocalSearchParams<{ scope?: string }>();
@@ -43,13 +44,13 @@ export default function LeaderboardScreen() {
 
   const you = board.you;
   const myLabel = account ? `You · ${shortName(account.name)}` : 'You';
-  const tenth = board.ranked[9]?.saved;
+  const tenth = board.ranked[9]?.credits;
   const myChange = change(you?.change ?? 0);
   const toTopTen = !you
-    ? 'use a deal to get ranked'
+    ? 'earn credits to get ranked'
     : you.rank <= 10 || tenth == null
       ? 'in the top 10'
-      : `$${tenth - you.saved} to top 10`;
+      : `${(tenth - you.credits).toLocaleString()} credits to top 10`;
 
   return (
     <View style={[styles.screen, { paddingTop: insets.top }]}>
@@ -79,7 +80,7 @@ export default function LeaderboardScreen() {
           </Text>
           <View style={styles.metricPill}>
             <Text weight="bold" size={12} color={colors.orange}>
-              $ saved this month
+              credits this month
             </Text>
           </View>
         </View>
@@ -108,7 +109,7 @@ export default function LeaderboardScreen() {
                     {p.place}
                   </Text>
                   <Text weight="bold" size={13} color={p.text}>
-                    ${person.saved}
+                    {person.credits.toLocaleString()}
                   </Text>
                 </View>
               </View>
@@ -123,7 +124,7 @@ export default function LeaderboardScreen() {
         </View>
         {board.ranked.length === 0 && (
           <Text size={14} color={colors.inkTertiary}>
-            No one has saved anything here this month yet. Mark a deal “Used it” to start.
+            No one has earned credits here this month yet. Snap an in-store deal on Earn to start.
           </Text>
         )}
       </ScrollView>
@@ -142,7 +143,7 @@ export default function LeaderboardScreen() {
           </Text>
         </View>
         <Text weight="extrabold" size={15}>
-          ${you?.saved ?? 0}
+          {(you?.credits ?? 0).toLocaleString()}
         </Text>
       </View>
     </View>
@@ -166,7 +167,7 @@ function RankRow({ rank, person }: { rank: number; person: Ranked }) {
         </Text>
       </View>
       <Text weight="extrabold" size={15}>
-        ${person.saved}
+        {person.credits.toLocaleString()}
       </Text>
     </View>
   );
