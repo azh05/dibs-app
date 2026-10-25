@@ -146,6 +146,12 @@ export default function DealDetail() {
           </View>
           <DetailList rows={rows} />
           <StillRunning deal={deal} store={store} />
+          <Pressable onPress={() => addToList(store, deal.id)} accessibilityRole="button" style={styles.addToList}>
+            <Icon name="bookmark" size={16} color={colors.orange} />
+            <Text weight="bold" size={13} color={colors.orange}>
+              Add to a list
+            </Text>
+          </Pressable>
           <View style={styles.trust}>
             <Icon name="zap" size={16} color={colors.orange} />
             <Text weight="semibold" size={12} color={colors.inkSecondary} style={{ flex: 1 }}>
@@ -161,7 +167,6 @@ export default function DealDetail() {
           variant="outline"
           onPress={() => toggleFollowed(followKey(deal))}
         />
-        <Button label="List" icon="bookmark" variant="outline" onPress={() => addToList(store, deal.id)} />
         <Button label="Get directions" icon="navigation" onPress={() => openDirections(deal)} style={{ flex: 1 }} />
       </ActionBar>
     </View>
@@ -254,6 +259,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
   },
+  addToList: { flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start' },
   checkButton: { paddingHorizontal: 14, paddingVertical: 9, borderRadius: 999, backgroundColor: colors.muted },
   votes: { flexDirection: 'row', gap: 6 },
   vote: { paddingHorizontal: 12, paddingVertical: 9, borderRadius: 999, borderWidth: 1, borderColor: colors.border },
