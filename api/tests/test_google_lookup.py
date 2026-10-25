@@ -4,7 +4,7 @@ import pytest
 
 from app.brightdata import BrightDataAuthError, BrightDataError, IgPost, SerpResult
 from app.google_lookup import GoogleLookup, accounts_from_results, deal_queries, handle_matches, lookup_query
-from app.schemas import Location, Shop, ShopsRequest
+from app.schemas import KnownShop, Location, Shop, ShopsRequest
 from app.shop_pipeline import ShopCache, ShopPipeline
 from tests.test_bd_pipeline import FakeBD
 from tests.test_extractor import FakeClient, msg, record_block
@@ -185,3 +185,19 @@ def test_post_by_a_shop_found_only_through_a_deal_counts_as_its_own():
     [d] = out.deals
     assert "shop_own_post" in d.flags and d.shop_id == "ig:26vietcafe.usa"
     assert [s.found_via for s in out.shops if s.id == d.shop_id] == ["deal"]
+
+
+def test_store_batch_fills_accounts_but_skips_the_area_deal_search():
+    known = KnownShop(id="gmaps:ChIJjc", name="Juice Crafters", website="https://juicecrafters.com/", lookup=True)
+    req = ShopsRequest(location=Location(neighborhood="Westwood"), stores=[known])
+    out, apify, _, progress = run(jc_bd(), req=req)
+    assert apify.calls["instagram"] == [["juicecrafters"]]  # the handle the lookup found
+    assert out.brightdata_requests == 1  # the lookup only: no deal searches, no post fetch
+    assert not any(q.startswith("google:") for q in out.queries)
+    assert out.shops[0].instagram == "juicecrafters" and out.shops[0].id == "gmaps:ChIJjc"
+
+
+def test_store_batch_looks_up_only_the_stores_convex_asks_for():
+    known = KnownShop(id="gmaps:ChIJjc", name="Juice Crafters", website="https://juicecrafters.com/")
+    out, apify, *_ = run(jc_bd(), req=ShopsRequest(location=Location(neighborhood="Westwood"), stores=[known]))
+    assert out.brightdata_requests == 0 and "instagram" not in apify.calls

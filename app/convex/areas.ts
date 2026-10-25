@@ -6,24 +6,25 @@
 //   area is refreshed every DISCOVERY_TTL by the cron (scheduleDiscovery), or straight away when a saved place
 //   creates or widens it. claimDiscovery skips areas that are fresh or already running, so nothing is fetched twice.
 //   scans.pollShops writes the result: stores through ingest, then recordDiscovery.
+// - Once a week each area also gets a smaller non-food discovery (EXTRA_CATEGORIES: retail, beauty, fitness, fun),
+//   so those shops join the list too; they start in the cold scan tier (lib/tiers.ts) unless they post deals.
 // - Deal scans add the stores they find (linkScanStores), so shops tagged in creator posts join the list too.
+// - batches.ts scans the list itself, a rotating batch of stores at a time.
 import { paginationOptsValidator } from "convex/server";
 import { v } from "convex/values";
 
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { internalAction, internalMutation, internalQuery } from "./_generated/server";
-import type { MutationCtx } from "./_generated/server";
+import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { insertRun } from "./ingest";
 import { apiConfigured, dibsApi } from "./lib/api";
 import { areaGeo, haversineMeters, METERS_PER_MILE } from "./lib/geo";
 import { areaKey } from "./lib/text";
-import { DAY, HOUR, MINUTE } from "./lib/time";
+import { DAY, MINUTE } from "./lib/time";
 
 /** An area's shop list is fresh this long: shops open and close slowly, and Google Maps is billed per place. */
 export const DISCOVERY_TTL = 7 * DAY;
-/** A store's deals are fresh this long (used by the per-store deal scans). */
-export const DEAL_SCAN_TTL = 24 * HOUR;
 /** A discovery still queued or running after this is presumed lost (the API keeps jobs in memory). */
 const DISCOVERY_RUNNING_MAX = 35 * MINUTE;
 const MIN_RADIUS_MILES = 1;
@@ -34,6 +35,9 @@ const MAX_DISCOVERIES_PER_TICK = 2;
 const DISCOVERY_STAGGER_MS = 5 * MINUTE; // each discovery is up to 7 Maps runs; leave Apify memory for deal scans
 const DEFAULT_CATEGORIES = ["food", "drink"];
 const MAX_SHOPS = Number(process.env.DIBS_DISCOVER_MAX_SHOPS ?? 250);
+/** The weekly discovery beyond food and drink: the API's Category values, a few Maps results per search term. */
+export const EXTRA_CATEGORIES = ["retail", "beauty", "fitness", "entertainment"];
+const EXTRA_PER_TERM = 20;
 
 const miles = (meters: number) => meters / METERS_PER_MILE;
 
@@ -42,6 +46,23 @@ export function discoveryDue(area: Doc<"scan_areas">, now: number): boolean {
   if (area.last_discovered_at === undefined) return true;
   if ((area.discovered_radius_miles ?? 0) < area.radius_miles) return true;
   return area.last_discovered_at < now - DISCOVERY_TTL;
+}
+
+/** The area's non-food list is due: weekly, after its main list exists, and only for areas on the default categories. */
+export function extraDiscoveryDue(area: Doc<"scan_areas">, now: number): boolean {
+  if (!area.enabled || area.last_discovered_at === undefined || area.search_terms?.length) return false;
+  return area.extra_discovered_at === undefined || area.extra_discovered_at < now - DISCOVERY_TTL;
+}
+
+/** The API's Location for an area: names it and sets the timezone. */
+export function scanLocation(area: { neighborhood?: string; city?: string; region?: string; timezone?: string }) {
+  return {
+    neighborhood: area.neighborhood,
+    city: area.city ?? "Los Angeles",
+    region: area.region ?? "California",
+    country: "US",
+    timezone: area.timezone ?? "America/Los_Angeles",
+  };
 }
 
 /** What the area-wide deal scan (scans.startShops) is sent for this area. */
@@ -138,42 +159,60 @@ export const backfill = internalMutation({
 /** Enabled areas someone has a saved place in whose shop list is missing, stale or too small. Oldest first. */
 export const areasToDiscover = internalQuery({
   args: { now: v.number() },
-  handler: async (ctx, { now }) => {
-    const areas = await ctx.db
-      .query("scan_areas")
-      .withIndex("by_enabled_and_last_discovered_at", (q) => q.eq("enabled", true))
-      .take(500);
-    const due: Id<"scan_areas">[] = [];
-    for (const area of areas) {
-      if (!discoveryDue(area, now)) continue;
-      const watched = await ctx.db
-        .query("saved_locations")
-        .withIndex("by_area", (q) => q.eq("scan_area_key", area.key))
-        .first();
-      if (watched) due.push(area._id);
-    }
-    return due;
-  },
+  handler: async (ctx, { now }) => (await dueAreas(ctx, now)).main,
+});
+
+/** Watched areas due a main discovery, and (separately) the weekly non-food one. */
+async function dueAreas(ctx: QueryCtx, now: number) {
+  const areas = await ctx.db
+    .query("scan_areas")
+    .withIndex("by_enabled_and_last_discovered_at", (q) => q.eq("enabled", true))
+    .take(500);
+  const main: Id<"scan_areas">[] = [];
+  const extra: Id<"scan_areas">[] = [];
+  for (const area of areas) {
+    const isMain = discoveryDue(area, now);
+    if (!isMain && !extraDiscoveryDue(area, now)) continue;
+    if (!(await watched(ctx, area))) continue;
+    (isMain ? main : extra).push(area._id);
+  }
+  return { main, extra };
+}
+
+/** Someone has a saved place in the area. */
+export async function watched(ctx: QueryCtx, area: Doc<"scan_areas">): Promise<boolean> {
+  const loc = await ctx.db
+    .query("saved_locations")
+    .withIndex("by_area", (q) => q.eq("scan_area_key", area.key))
+    .first();
+  return loc !== null;
+}
+
+export const discoveriesDue = internalQuery({
+  args: { now: v.number() },
+  handler: (ctx, { now }) => dueAreas(ctx, now),
 });
 
 export const scheduleDiscovery = internalAction({
   args: {},
   handler: async (ctx) => {
-    const due = await ctx.runQuery(internal.areas.areasToDiscover, { now: Date.now() });
-    for (const [i, areaId] of due.slice(0, MAX_DISCOVERIES_PER_TICK).entries()) {
-      await ctx.scheduler.runAfter(i * DISCOVERY_STAGGER_MS, internal.areas.startDiscovery, { areaId });
+    const { main, extra } = await ctx.runQuery(internal.areas.discoveriesDue, { now: Date.now() });
+    // Main lists first; the weekly non-food pass fills the tick's spare slots.
+    const due = [...main.map((areaId) => ({ areaId, extra: false })), ...extra.map((areaId) => ({ areaId, extra: true }))];
+    for (const [i, job] of due.slice(0, MAX_DISCOVERIES_PER_TICK).entries()) {
+      await ctx.scheduler.runAfter(i * DISCOVERY_STAGGER_MS, internal.areas.startDiscovery, job);
     }
   },
 });
 
 /** Check and start in one transaction, so two triggers can't both pay for the same area. Null: nothing to do. */
 export const claimDiscovery = internalMutation({
-  args: { areaId: v.id("scan_areas"), force: v.boolean() },
-  handler: async (ctx, { areaId, force }) => {
+  args: { areaId: v.id("scan_areas"), force: v.boolean(), extra: v.optional(v.boolean()) },
+  handler: async (ctx, { areaId, force, extra }) => {
     const area = await ctx.db.get("scan_areas", areaId);
     if (!area?.enabled) return null;
     const now = Date.now();
-    if (!force && !discoveryDue(area, now)) return null;
+    if (!force && !(extra ? extraDiscoveryDue(area, now) : discoveryDue(area, now))) return null;
     const last = await ctx.db
       .query("agent_runs")
       .withIndex("by_scan_area", (q) => q.eq("scan_area_id", areaId))
@@ -191,26 +230,27 @@ export const claimDiscovery = internalMutation({
       lat: area.lat,
       lng: area.lng,
       radius_miles: area.radius_miles,
-      categories: area.categories,
-      search_terms: area.search_terms ?? [],
+      categories: extra ? EXTRA_CATEGORIES : area.categories,
+      search_terms: extra ? [] : (area.search_terms ?? []),
       max_shops: MAX_SHOPS,
+      ...(extra ? { per_term: EXTRA_PER_TERM } : {}),
     };
     const runId = await insertRun(ctx, {
       provider: "apify_maps",
       trigger: "schedule",
       scan_area_id: areaId,
-      request,
-      queries: area.search_terms ?? area.categories,
+      request: extra ? { ...request, extra: true } : request,
+      queries: extra ? EXTRA_CATEGORIES : (area.search_terms ?? area.categories),
     });
     return { runId, request };
   },
 });
 
 export const startDiscovery = internalAction({
-  args: { areaId: v.id("scan_areas"), force: v.optional(v.boolean()) },
-  handler: async (ctx, { areaId, force }): Promise<Id<"agent_runs"> | null> => {
+  args: { areaId: v.id("scan_areas"), force: v.optional(v.boolean()), extra: v.optional(v.boolean()) },
+  handler: async (ctx, { areaId, force, extra }): Promise<Id<"agent_runs"> | null> => {
     if (!apiConfigured()) return null;
-    const claim = await ctx.runMutation(internal.areas.claimDiscovery, { areaId, force: force ?? false });
+    const claim = await ctx.runMutation(internal.areas.claimDiscovery, { areaId, force: force ?? false, extra });
     if (!claim) return null;
     try {
       const job = await dibsApi<{ job_id: string; status_url: string }>("/discover/shops", {
@@ -271,7 +311,13 @@ export const recordDiscovery = internalMutation({
     if (!run || !area) return;
     const now = Date.now();
     const linked = await link(ctx, area, storeIds, "maps", now);
-    const radius = (run.request as { radius_miles?: number } | undefined)?.radius_miles ?? area.radius_miles;
+    const request = run.request as { radius_miles?: number; extra?: boolean } | undefined;
+    if (request?.extra) {
+      // The non-food pass adds to the list; the main list's freshness and count stay as they were.
+      await ctx.db.patch("scan_areas", area._id, { extra_discovered_at: now });
+      return;
+    }
+    const radius = request?.radius_miles ?? area.radius_miles;
     await ctx.db.patch("scan_areas", area._id, { store_count: linked, last_discovered_at: now, discovered_radius_miles: radius });
   },
 });

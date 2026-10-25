@@ -241,6 +241,35 @@ class Shop(BaseModel):
         return self
 
 
+class KnownShop(BaseModel):
+    """A shop Convex already has on an area's list, scraped as it is: no Google Maps search."""
+
+    id: str = Field(..., min_length=1, description="Its Shop.id: gmaps:<place_id>, ig:/tt:<handle>, name:<slug>")
+    name: str
+    category: Optional[str] = None
+    lat: Optional[float] = None
+    lng: Optional[float] = None
+    website: Optional[str] = None
+    instagram: Optional[str] = Field(None, description="Handle without @")
+    tiktok: Optional[str] = Field(None, description="Handle without @")
+    facebook: Optional[str] = Field(None, description="Page URL")
+    found_via: Literal["google_maps", "named", "mention", "deal"] = "google_maps"
+    since: Optional[date] = Field(None, description="Only this shop's posts from this day on (its last scan). Default: the request's days")
+    lookup: bool = Field(False, description="Look up its missing Instagram/TikTok/Facebook on Google (Bright Data)")
+
+    def shop(self) -> Shop:
+        return Shop.model_validate(self.model_dump(exclude={"since", "lookup"}))
+
+
+class ScannedShop(BaseModel):
+    """What one known shop's own channels showed in a store batch, so Convex can schedule its next scan."""
+
+    id: str
+    posts: int = Field(0, description="Own posts inside the window")
+    latest_post_date: Optional[date] = Field(None, description="Newest own post seen, inside the window or not")
+    deals: int = 0
+
+
 class SearchResponse(BaseModel):
     as_of: date
     deals: list[Deal]
@@ -253,6 +282,7 @@ class SearchResponse(BaseModel):
     brightdata_requests: int = 0
     apify_runs: int = 0
     shops: list[Shop] = Field(default_factory=list, description="Shops the deals link to (apify_shops: also every shop that was scraped)")
+    scanned: list[ScannedShop] = Field(default_factory=list, description="apify_shops with stores: one entry per store sent")
     transcript: Optional[str] = Field(None, description="user_photo only: all text Claude read in the image")
 
 
@@ -296,6 +326,10 @@ class InstagramRequest(BaseModel):
         return cleaned
 
 
+MAX_BATCH_STORES = 60
+MAX_SWEEP_STORES = 500
+
+
 class ShopsRequest(BaseModel):
     location: Location = Field(default_factory=Location)
     radius_miles: float = Field(1.0, gt=0, le=25)
@@ -308,6 +342,17 @@ class ShopsRequest(BaseModel):
     )
     shops: list[str] = Field(
         default_factory=list, max_length=60, description="Scrape these shops instead of searching, e.g. ['Milksha Westwood']"
+    )
+    stores: list[KnownShop] = Field(
+        default_factory=list,
+        max_length=MAX_SWEEP_STORES,
+        description=f"Scrape these known shops (up to {MAX_BATCH_STORES}) instead of searching Google Maps. No keyword "
+        "sweep or Google deal search (those are area-wide: see sweep_only)",
+    )
+    sweep_only: bool = Field(
+        False,
+        description="Only the area-wide searches: the keyword sweep and the Google deal search, no shop channels. "
+        "stores, if given, are the area's known shops, so their posts count as first-hand",
     )
     max_shops: int = Field(20, ge=1, le=60, description="Shops from Google Maps, split across the search terms")
     days: int = Field(14, ge=1, le=60, description="Only posts from the last N days")
@@ -326,6 +371,13 @@ class ShopsRequest(BaseModel):
         description="Bright Data Google search: find shops' missing Instagram/TikTok/Facebook accounts, and recent deal "
         "posts in the area. Skipped when BRIGHTDATA_API_KEY isn't set",
     )
+
+    @model_validator(mode="after")
+    def _batch_size(self) -> "ShopsRequest":
+        # A sweep only uses the shops for attribution; a batch scrapes each one, and its Actor runs must finish in 4 min.
+        if not self.sweep_only and len(self.stores) > MAX_BATCH_STORES:
+            raise ValueError(f"at most {MAX_BATCH_STORES} stores per batch (sweep_only takes up to {MAX_SWEEP_STORES})")
+        return self
 
 
 class DiscoverRequest(BaseModel):

@@ -183,6 +183,11 @@ Also handled: a failed channel is retried once, then noted in `search_errors` wh
 
 The response adds `shops` and `apify_runs`; `provider` is `apify_shops`.
 
+**Store batches and area sweeps.** Convex's rotating scans send two other shapes of the same request:
+
+- *Store batch* (`stores`: up to 60 shops it already has, each `{id, name, instagram, tiktok, facebook, website, lat, lng, category, found_via, since, lookup}`). Step 1 is skipped (no Google Maps, no cache, no keyword sweep, no Google deal search); the missing-accounts lookup runs only for stores sent with `lookup: true` (Convex asks at most weekly per store), and the handles it finds come back in `shops`. Each Actor run starts from the batch's oldest `since` less a day (the days window when any store has none), and a store's own posts from before its `since` less a day are dropped before Claude reads them. The response adds `scanned`: one `{id, posts, latest_post_date, deals}` per store sent (own posts inside the window, newest own post seen, deals linked to it), which Convex uses to schedule each store's next scan.
+- *Area sweep* (`sweep_only: true`): only the keyword sweep and the Google deal search, no shop channels. `stores`, if given, are the area's known shops, so their posts count as first-hand; `shops` in the response holds only the ones a deal links to plus newly mentioned accounts.
+
 | Error | HTTP |
 | --- | --- |
 | `APIFY_TOKEN` missing or rejected | 500 `APIFY_TOKEN missing or invalid` (missing: before the job starts) |
@@ -238,15 +243,15 @@ The API stores nothing: results live in the job until the server restarts. Stora
 
 | Table | Upsert key | From |
 | --- | --- | --- |
-| `agent_runs` | one per job or response | `provider`, `usage`, `brightdata_requests`, `apify_runs`, `search_errors`; the API job id while polling |
-| `stores` | `external_id` = `Shop.id`, else Instagram handle, else name within the scanned area (never one `gmaps:` place into another: chain branches stay separate) | `shops[]`; `Shop.category` → the app's store type (`app/convex/catalog.ts`), `Shop.hours` |
+| `agent_runs` | one per job or response | `provider`, `usage`, `brightdata_requests`, `apify_runs`, `search_errors`; the API job id while polling; the request sent (store batches and sweeps), `stores_scanned` and an estimated `cost_usd` |
+| `stores` | `external_id` = `Shop.id`, else Instagram handle, else name within the scanned area (never one `gmaps:` place into another: chain branches stay separate) | `shops[]`; `Shop.category` → the app's store type (`app/convex/catalog.ts`), `Shop.hours`; a store batch's `scanned[]` sets each store's scan tier and next scan |
 | `scan_areas`, `area_stores` | one area per circle; one row per (area, store) | `/discover/shops` `shops[]` become the area's shop list; deal scans add the stores they find |
 | `sources` | normalized URL (`verify.normalize_url`, ported) | `sources[]` that a deal cites, with `text`, `origin` and `handle` |
 | `deals` | `dedupe_key` = store id + offer + code (`verify.py`'s rule, with the store's id instead of its name) | `deals[]`, including the display fields |
 | `deal_evidence` | `evidence_key` = `Deal.id` | one row per post behind a deal: quote, post date, `second_hand` |
 | `rejected_extractions` | one per rejected deal | `rejected[]` |
 
-A deal is first looked up by `Deal.id` (same post), then by the dedupe key (same offer in another post). `first_seen_at` is kept and `last_verified_at` bumped. A deal is `second_hand` only while every piece of its evidence is. Status is recomputed hourly with `verify.py`'s rules, plus `upcoming` and `hidden` (see `app/convex/lib/status.ts`). Each area's shop list lives in Convex (`scan_areas` and `area_stores`, refreshed weekly through `/discover/shops`), so nothing is lost when the API restarts. The API's `ShopCache` is now only used by `/extract/shops`; Convex's own scan cache (`scan_cache`) stops it from re-running the same area within 6 hours.
+A deal is first looked up by `Deal.id` (same post), then by the dedupe key (same offer in another post). `first_seen_at` is kept and `last_verified_at` bumped. A deal is `second_hand` only while every piece of its evidence is. Status is recomputed hourly with `verify.py`'s rules, plus `upcoming` and `hidden` (see `app/convex/lib/status.ts`). Each area's shop list lives in Convex (`scan_areas` and `area_stores`, refreshed weekly through `/discover/shops`), so nothing is lost when the API restarts. Convex scans that list itself in rotating store batches (`app/convex/batches.ts`: `/extract/shops` with `stores`, plus one `sweep_only` job per area a day), so the API's `ShopCache` is only used by the Google Maps area scan that runs before an area has a list; Convex's own scan cache (`scan_cache`) stops that from re-running the same area within 6 hours.
 
 ### Apify setup
 

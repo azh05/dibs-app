@@ -121,7 +121,10 @@ Run `npx eas-cli@latest init` once, so `app.json` gets an EAS `projectId`; the a
 | `DIBS_API_URL` | Where Convex reaches the Dibs API: a deployed URL, or the tunnel URL |
 | `DIBS_API_KEY` | Same value as the API's `DIBS_API_KEY`; sent as `X-Dibs-Key` |
 | `EXPO_ACCESS_TOKEN` | Optional: only if Expo enhanced push security is on |
-| `DIBS_SCAN_MAX_SHOPS` | Optional: shops per scheduled `/extract/shops` run (default 8; Apify cost grows with it) |
+| `DIBS_SCAN_MAX_SHOPS` | Optional: shops per area scan (an area with no shop list yet; default 8; Apify cost grows with it) |
+| `DIBS_SCAN_BATCH` | Optional: stores per batch scan (default 20; each Apify channel run has to finish within 4 minutes) |
+| `DIBS_AREA_DAILY_BUDGET_USD` | Optional: estimated deal-scan spend per area per local day before batches and sweeps stop (default 5; `scan_areas.daily_budget_usd` overrides it per area) |
+| `DIBS_COST_APIFY_PER_SHOP`, `DIBS_COST_BRIGHTDATA_PER_REQUEST`, `DIBS_COST_INPUT_PER_MTOK`, `DIBS_COST_OUTPUT_PER_MTOK`, `DIBS_COST_WEB_SEARCH` | Optional: the prices behind `agent_runs.cost_usd` (`lib/cost.ts`; defaults $0.035, $0.0015, $4, $20, $0.01) |
 | `DIBS_DISCOVER_MAX_SHOPS` | Optional: shops kept per area by `/discover/shops` (default 250; Google Maps is billed per place) |
 
 Tests need none of these: `npm test` runs the convex-test suite with no keys and no network.
@@ -132,7 +135,21 @@ Tests need none of these: `npm test` runs the convex-test suite with no keys and
   - **Shop list**: `/discover/shops` returns up to 250 shops in the circle from Google Maps. Their stores are upserted (`last_scanned_at` untouched; new stores start at 0, meaning never deal-scanned) and linked in `area_stores` (`via: "maps"`). Stores a deal scan finds inside the circle, or with no coordinates (handle only), are linked too (`via: "scan"`).
   - **Freshness**: a list is fresh for 7 days (`DISCOVERY_TTL`), or until the circle grows. `claimDiscovery` checks freshness and in-flight runs in one transaction, so a fresh area makes no API call, and neither does a new user inside one.
   - **When**: a new or widened area is discovered right away (3 per user per day, `areaDiscovery`); the 6-hourly cron catches up on the rest, 2 areas per tick. Discovery runs carry `scan_area_id` and no `area`, so they don't count as deal scans.
-- **Scans** (`scans.ts`, `crons.ts`): every hour, up to 3 areas that people have saved and that weren't scanned in the last 6 hours get a `/extract/shops` job, over the area's own circle. The API runs it in the background (1 to 5 min). `pollShops` checks it every 15 s by rescheduling itself, because actions aren't retried, and gives up after 10 minutes (30 for discovery jobs). Saving a new place scans its area right away.
+  - **Beyond food and drink**: once a week each area on the default categories also gets a smaller discovery of retail, beauty, fitness and entertainment shops (`EXTRA_CATEGORIES`, 20 Maps results per search term), using the cron's spare slots. It adds to the list without changing `store_count` or `last_discovered_at` (`scan_areas.extra_discovered_at` is its clock).
+- **Batch scans** (`batches.ts`): an area with a shop list is scanned store by store.
+  - Every hour, `claimBatch` takes the area's 20 most overdue stores with something to scrape (an Instagram, TikTok or Facebook account, or a website). A store is due when `next_scan_at` is unset or past. The never-scheduled go first, then hot before warm before cold.
+  - Up to 5 Maps stores with nothing to scrape ride along once a week, so the API's Google lookup can find their accounts. Any Maps store missing an Instagram, TikTok or Facebook is sent with `lookup: true` at most once a week (`accounts_checked_at`). A store that gains its first account is scanned on the next tick.
+  - Claiming sets `next_scan_at` an hour ahead (a lease) in the same transaction, so ticks never overlap. The batch is one `/extract/shops` job with `stores` (no Google Maps search), and each store's `since` is the day of its last scan, so only newer posts are read.
+  - `finishBatch` reads the response's `scanned` and sets `last_post_at`, `last_deal_at`, `quiet_scans`, `scan_tier` and `next_scan_at`, using `lib/tiers.ts`:
+    - **hot**, every 24 h: a deal in the last 30 days, a follower, or a food or drink store in its first week
+    - **warm**, every 3 days: posts weekly, or nothing says it has gone quiet
+    - **cold**, every 7 days: two quiet batches in a row, no post in 30 days, a non-food store in its first week, or nothing to scrape
+
+    A store a failed run never reported keeps its lease and comes back within the hour.
+  - Once a day (10 AM in LA), `scheduleSweeps` sends each area a `sweep_only` job: the keyword sweep and Google's deal search, with the area's accounts so their posts count as first-hand. It doesn't move the stores' scan clocks (`last_scanned_at`); shops its deals name join the list.
+  - **Budget**: each run's `cost_usd` is estimated in `lib/cost.ts`. Batches and sweeps stop for the day once an area's runs since local midnight add up to its budget (`DIBS_AREA_DAILY_BUDGET_USD`, default $5, or `scan_areas.daily_budget_usd`).
+  - **Lost jobs**: when the API restarts, it loses its jobs, and a poll gets a 404. A batch or sweep is then re-sent once from `agent_runs.request` (`retried`).
+- **Area scans** (`scans.ts`, `crons.ts`): every hour, up to 3 saved areas with no shop list yet, not scanned in the last 6 hours, get a Google Maps `/extract/shops` job over the area's own circle. The API runs it in the background (1 to 5 min). `pollShops` checks it, and batch and sweep jobs, every 15 s by rescheduling itself, because actions aren't retried. It gives up after 10 minutes (30 for discovery jobs). Saving a new place scans its area right away, before its list exists.
 - **Ingest** (`ingest.ts`): the result is written in batches.
   - Stores are matched by `Shop.id`, then Instagram handle, then name within the scanned area. Two Google Maps places never merge (chain branches share a name and handle), so handle and name only join a Maps place to a store known some other way.
   - Sources are matched by normalized URL. Only the ones a deal cites are kept.
@@ -155,7 +172,9 @@ Tests need none of these: `npm test` runs the convex-test suite with no keys and
 
 | Job | When |
 | --- | --- |
-| `scans.scheduleAreas` | hourly |
+| `scans.scheduleAreas` | hourly (areas with no shop list yet) |
+| `batches.scheduleBatches` | hourly |
+| `batches.scheduleSweeps` | daily, 17:00 UTC |
 | `areas.scheduleDiscovery` | every 6 hours |
 | `deals.recomputeStatus` | hourly |
 | `leaderboards.rebuild` | hourly |
@@ -176,6 +195,10 @@ npx convex run areas:backfill
 npx convex data scan_areas
 npx convex run areas:startDiscovery '{"areaId":"<scan_areas _id>","force":true}'
 npx convex run areas:storesInArea '{"areaId":"<scan_areas _id>","paginationOpts":{"numItems":20,"cursor":null}}'
+
+# Batch scans: the area's next batch now (spends Apify credits), and its sweep for today
+npx convex run batches:startBatch '{"areaId":"<scan_areas _id>"}'
+npx convex run batches:claimSweep '{"areaId":"<scan_areas _id>"}'   # then: batches:send '{"runId":"<returned id>"}'
 ```
 
 ## Filling areas with deals (`scripts/batch-scan.sh`)
@@ -202,7 +225,8 @@ users.ts         users.store, profile, 21+ check, Clerk webhook mutations
 http.ts          POST /clerk-users-webhook (Svix-verified)
 ingest.ts        writes an API response: stores, sources, deals, evidence, rejected
 areas.ts         scan areas (circles saved places share), their shop lists, /discover/shops jobs (cron)
-scans.ts         /extract/shops jobs (cron), /extract/search (user, rate-limited), scan cache, job polling
+batches.ts       rotating store batches and daily area sweeps over each list (cron), tiers, daily budget
+scans.ts         area /extract/shops jobs (cron), /extract/search (user, rate-limited), scan cache, job polling
 deals.ts         feed, deal detail, store deals, status recompute
 prefs.ts         saved places, interests, Instant alerts, store follows, push devices
 saves.ts         saved deals, Used it, lists
@@ -217,6 +241,7 @@ leaderboards.ts  monthly boards
 challenges.ts    weekly challenge
 profile.ts       $ saved, Deal DNA, badges, invites
 crons.ts         schedules
-lib/             auth, API client, geo, status, time, text matching (ports of verify.py / linking.py), gamify
+lib/             auth, API client, geo, status, time, text matching (ports of verify.py / linking.py), gamify,
+                 scan tiers, run cost estimate
 *.test.ts        convex-test suites
 ```

@@ -125,6 +125,9 @@ export const updateRun = internalMutation({
     brightdata_requests: v.optional(v.number()),
     apify_runs: v.optional(v.number()),
     deals_found: v.optional(v.number()),
+    stores_scanned: v.optional(v.number()),
+    cost_usd: v.optional(v.number()),
+    retried: v.optional(v.boolean()),
   },
   handler: async (ctx, { runId, ...patch }) => {
     const finished = patch.status === "done" || patch.status === "failed" ? { finished_at: Date.now() } : {};
