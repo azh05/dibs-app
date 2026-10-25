@@ -66,6 +66,22 @@ test("line reports inside the geofence count and earn XP, capped per day", async
 
 });
 
+test("everyone sees a line report, and two reports blend", async () => {
+  const t = makeTest();
+  const { storeId, dealId } = await seed(t);
+  const reporter = await signIn(t, 1);
+  const other = await signIn(t, 2);
+  await reporter.as.mutation(api.lineChecks.report, { storeId, wait_minutes: 30, ...TAPIOCA });
+  expect((await other.as.query(api.deals.get, { id: dealId }))!.line).toEqual({ minutes: 30, reports: 1 });
+  expect((await t.query(api.deals.get, { id: dealId }))!.line).toEqual({ minutes: 30, reports: 1 }); // signed out
+
+  await other.as.mutation(api.lineChecks.report, { storeId, wait_minutes: 20, ...TAPIOCA });
+  const line = (await reporter.as.query(api.deals.get, { id: dealId }))!.line!;
+  expect(line.reports).toBe(2);
+  expect(line.minutes).toBeGreaterThanOrEqual(20);
+  expect(line.minutes).toBeLessThanOrEqual(30);
+});
+
 test("line-check XP stops at 5 a day", async () => {
   const t = makeTest();
   const { storeId } = await seed(t);

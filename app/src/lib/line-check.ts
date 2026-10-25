@@ -34,7 +34,9 @@ export function distanceMeters(a: LatLng, b: LatLng) {
 
 /** The deal's seeded estimate blended with this user's recent reports (newer weigh more). */
 export function combinedLine(deal: Deal, reports: LineReport[], now = Date.now()): LineEstimate | null {
-  const recent = reports.filter((r) => r.dealId === deal.id && now - r.at < REPORT_WINDOW_MS);
+  // A report the server has saved (serverId) is already in deal.line, the shared estimate; counting it again here
+  // would show the reporter one report too many.
+  const recent = reports.filter((r) => r.dealId === deal.id && !r.serverId && now - r.at < REPORT_WINDOW_MS);
   if (recent.length === 0) return deal.line;
   const seeded = deal.line ? [{ minutes: deal.line.minutes, weight: deal.line.reports * 0.5 }] : [];
   const mine = recent.map((r) => ({ minutes: r.minutes, weight: 1 - (now - r.at) / REPORT_WINDOW_MS }));
