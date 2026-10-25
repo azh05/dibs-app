@@ -10,9 +10,9 @@
 * Components: @convex-dev/geospatial (as dealGeo, locationGeo, areaGeo), @convex-dev/rate-limiter
 * Convex features: schema, indexes, queries, mutations, actions, HTTP actions, crons, scheduled functions, file storage, full text search, realtime useQuery, paginated queries
 * Auth: Clerk
-* AI models: claude-opus-5-5, jina-embeddings-v5-text-small (Elastic search)
+* AI models: claude-opus-5-5, jina-embeddings-v5-text-small
 * Started: 2026-10-24T05:44:04Z
-* Last updated: 2026-10-25T08:35:00Z
+* Last updated: 2026-10-25T08:40:00Z
 
 ## How we use Convex
 
