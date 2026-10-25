@@ -1,7 +1,7 @@
 import { router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useState, type ReactNode } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, Switch, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Switch, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Button } from '@/components/button';
@@ -13,6 +13,7 @@ import { useDeals } from '@/lib/api';
 import { DEFAULT_FILTERS, SORTS, SOURCES, applyFilters, type Filters } from '@/lib/filters';
 import { plural } from '@/lib/format';
 import { DEAL_TYPES, RADIUS_OPTIONS, STORE_SECTIONS, type InterestSection } from '@/lib/interests';
+import { verifyAge } from '@/lib/age-gate';
 import { useStore } from '@/lib/store';
 import { colors, gutter, radii } from '@/theme';
 
@@ -43,10 +44,7 @@ export default function FiltersScreen() {
   const allDealTypesOn = allDealTypes.every((t) => draft.dealTypes.has(t));
 
   const toggleGroup = async (section: InterestSection) => {
-    if (section.adult && !store.adultUnlocked && (await store.unlockAdult()) !== 'unlocked') {
-      Alert.alert('21+ only', 'Add a birthday showing you’re 21 or older to see these stores.');
-      return;
-    }
+    if (section.adult && !(await verifyAge(store))) return;
     setOpenGroup((g) => (g === section.title ? null : section.title));
   };
 

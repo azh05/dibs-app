@@ -1,7 +1,7 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Button } from '@/components/button';
@@ -14,6 +14,7 @@ import { Text } from '@/components/text';
 import { useDeals } from '@/lib/api';
 import { DEAL_TYPES, DEFAULT_INTERESTS, RADIUS_OPTIONS, STORE_SECTIONS, STORE_TYPE_COUNT, type Interest } from '@/lib/interests';
 import { currentPlace, NEIGHBORHOODS } from '@/lib/location';
+import { verifyAge as checkAge } from '@/lib/age-gate';
 import { requestAlertPermission, sendDealAlert } from '@/lib/notifications';
 import { useStore } from '@/lib/store';
 import { colors, gutter, radii } from '@/theme';
@@ -52,11 +53,7 @@ export default function PickInterests() {
     .map((s) => ({ ...s, interests: s.interests.filter(matches) }))
     .filter((s) => s.interests.length > 0);
 
-  const verifyAge = async () => {
-    const result = await store.unlockAdult();
-    if (result === 'too-young') Alert.alert('21+ only', 'Nightlife and 21+ shops open up on your 21st birthday.');
-    if (result === 'no-birthday') Alert.alert('Add your birthday', 'We need it once to show 21+ deals. It never appears on your profile.');
-  };
+  const verifyAge = () => checkAge(store);
 
   const turnOn = async () => {
     store.setInstant(true);

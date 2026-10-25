@@ -1,7 +1,7 @@
 // App state behind one hook, useStore(). Two implementations share this interface:
 // - mock mode (this file): in memory, seeded from src/lib/mock.ts and src/lib/social.ts; resets on restart.
 // - backend mode (src/lib/backend-store.tsx): Convex queries and mutations, signed in with Clerk.
-import { createContext, useContext, useState, type ReactNode } from 'react';
+import { createContext, useContext, useRef, useState, type ReactNode } from 'react';
 
 import { ageOn, type Account } from '@/lib/account';
 import { DEFAULT_FILTERS, type Filters } from '@/lib/filters';
@@ -36,6 +36,8 @@ export type Store = {
   /** 21+ sections unlock once the account's birthday says so. */
   adultUnlocked: boolean;
   unlockAdult: () => Promise<AdultResult>;
+  /** YYYY-MM-DD; asked for by the 21+ check when the account has none (e.g. phone sign-up). */
+  setBirthday: (birthday: string) => Promise<void>;
   /** Invite code for the referral link (backend only). */
   referralCode: string | null;
 
@@ -127,6 +129,8 @@ const SEEDED_SAVES = [
 
 export function MockStoreProvider({ children }: { children: ReactNode }) {
   const [account, setAccount] = useState<Account | null>(null);
+  // The 21+ check runs right after setBirthday, before state re-renders.
+  const birthdayRef = useRef<string | null>(null);
   const [studentDomain, setStudentDomain] = useState<string | null>(null);
   const [adultUnlocked, setAdultUnlocked] = useState(false);
   const [saved, toggleSaved] = useToggleSet(SEEDED_SAVES);
@@ -163,10 +167,15 @@ export function MockStoreProvider({ children }: { children: ReactNode }) {
     setStudentDomain,
     adultUnlocked,
     unlockAdult: async () => {
-      if (!account?.birthday) return 'no-birthday';
-      if (ageOn(account.birthday) < 21) return 'too-young';
+      const birthday = birthdayRef.current ?? account?.birthday;
+      if (!birthday) return 'no-birthday';
+      if (ageOn(birthday) < 21) return 'too-young';
       setAdultUnlocked(true);
       return 'unlocked';
+    },
+    setBirthday: async (birthday) => {
+      birthdayRef.current = birthday;
+      setAccount((a) => (a ? { ...a, birthday } : a));
     },
     referralCode: null,
     saved,

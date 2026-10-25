@@ -249,6 +249,10 @@ export function BackendStoreProvider({ children }: { children: ReactNode }) {
       if (needAccount()) return 'no-birthday';
       return unlockAdult({});
     },
+    setBirthday: async (birthday) => {
+      if (needAccount()) return;
+      await updateProfile({ birthday });
+    },
     referralCode: me?.referral_code ?? null,
 
     saved: saved.set,
