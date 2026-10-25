@@ -16,6 +16,7 @@
       }
     },
     "android": {
+      "package": "com.dibs.app",
       "adaptiveIcon": {
         "backgroundColor": "#FF5A1F",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
