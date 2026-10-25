@@ -1,4 +1,3 @@
-import { useQuery } from 'convex/react';
 import { router, useLocalSearchParams } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useState } from 'react';
@@ -10,16 +9,8 @@ import { Icon } from '@/components/icon';
 import { OnboardingProgress } from '@/components/onboarding-progress';
 import { Text } from '@/components/text';
 import { TextField } from '@/components/text-field';
-import {
-  eduDomain,
-  formatBirthdayInput,
-  isEmailValid,
-  isUsernameAvailable,
-  isUsernameValid,
-  parseBirthday,
-  passwordStrength,
-} from '@/lib/account';
-import { api } from '@convex/_generated/api';
+import { toHandle, UsernameField, useUsernameAvailable } from '@/components/username-field';
+import { eduDomain, formatBirthdayInput, isEmailValid, parseBirthday, passwordStrength } from '@/lib/account';
 import { usingBackend } from '@/lib/backend';
 import { pendingReferralCode, setPendingProfile } from '@/lib/backend-store';
 import { clerkError, useCodeAuth } from '@/lib/clerk-auth';
@@ -27,13 +18,6 @@ import { useStore } from '@/lib/store';
 import { colors, gutter } from '@/theme';
 
 const STRENGTH_COLORS = [colors.border, colors.orange, colors.orange, colors.success, colors.success];
-
-/** Username availability: checked by Convex with the backend, against a local list in mock mode. */
-function useRemoteUsername(handle: string) {
-  const ok = useQuery(api.users.usernameAvailable, isUsernameValid(handle) ? { username: handle } : 'skip');
-  return isUsernameValid(handle) && ok !== false;
-}
-const useUsernameAvailable: (handle: string) => boolean = usingBackend ? useRemoteUsername : isUsernameAvailable;
 
 /** Backend: Clerk creates the account and emails a code; demo: signs straight in. */
 function useLocalSignUp() {
@@ -60,7 +44,7 @@ export default function CreateAccount() {
   const [error, setError] = useState<string | null>(null);
   const flow = useSignUpFlow();
 
-  const handle = username.replace(/^@/, '').toLowerCase();
+  const handle = toHandle(username);
   const domain = eduDomain(email);
   const strength = passwordStrength(password);
   const birthdayISO = parseBirthday(birthday);
@@ -115,15 +99,7 @@ export default function CreateAccount() {
         </Text>
 
         <TextField label="Name" value={name} onChangeText={setName} placeholder="Your name" textContentType="name" />
-        <TextField
-          label="Username"
-          value={handle ? `@${handle}` : ''}
-          onChangeText={setUsername}
-          placeholder="@username"
-          autoCapitalize="none"
-          textContentType="username"
-          trailing={handle.length >= 3 && <UsernameStatus handle={handle} available={available} />}
-        />
+        <UsernameField handle={handle} available={available} onChangeText={setUsername} />
         <TextField
           label="Email"
           value={email}
@@ -253,18 +229,6 @@ export default function CreateAccount() {
   );
 }
 
-function UsernameStatus({ handle, available }: { handle: string; available: boolean }) {
-  const label = available ? 'Available' : isUsernameValid(handle) ? 'Taken' : 'a–z, 0–9, _ .';
-  return (
-    <View style={styles.status}>
-      {available && <Icon name="check" size={14} color={colors.success} />}
-      <Text weight="bold" size={13} color={available ? colors.success : colors.orange}>
-        {label}
-      </Text>
-    </View>
-  );
-}
-
 function StudentPill() {
   return (
     <View style={styles.studentPill}>
@@ -294,7 +258,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   checked: { borderColor: colors.orange, backgroundColor: colors.orange },
-  status: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   studentPill: {
     flexDirection: 'row',
     alignItems: 'center',

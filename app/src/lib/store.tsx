@@ -42,6 +42,10 @@ export type Store = {
   setBirthday: (birthday: string) => Promise<void>;
   /** Invite code for the referral link (backend only). */
   referralCode: string | null;
+  /** Signed in without a username yet (e.g. Apple, Google or phone sign-up): the tabs send them to pick one. */
+  needsUsername: boolean;
+  /** Name and username from "Pick a username"; rejects when the username is taken. */
+  saveProfile: (profile: { name: string; username: string }) => Promise<void>;
 
   saved: Set<string>;
   toggleSaved: (id: string) => void;
@@ -182,6 +186,8 @@ export function MockStoreProvider({ children }: { children: ReactNode }) {
       setAccount((a) => (a ? { ...a, birthday } : a));
     },
     referralCode: null,
+    needsUsername: false,
+    saveProfile: async ({ name, username }) => setAccount((a) => (a ? { ...a, name, username } : a)),
     saved,
     toggleSaved,
     used,

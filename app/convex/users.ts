@@ -23,6 +23,17 @@ async function newReferralCode(ctx: MutationCtx): Promise<string> {
   }
 }
 
+/** The name as a username, if it's valid and nobody else has it (Clerk's username or nickname can clash). */
+async function freeUsername(ctx: MutationCtx, name: string | null | undefined, self?: Id<"users">): Promise<string | undefined> {
+  const n = name?.toLowerCase();
+  if (!n || !USERNAME.test(n)) return undefined;
+  const taken = await ctx.db
+    .query("users")
+    .withIndex("by_username", (q) => q.eq("username", n))
+    .first();
+  return !taken || taken._id === self ? n : undefined;
+}
+
 function newUser(clerkId: string, tokenIdentifier: string, now: number, code: string): Omit<Doc<"users">, "_id" | "_creationTime"> {
   return {
     clerk_user_id: clerkId,
@@ -77,7 +88,7 @@ export const store = mutation({
     return ctx.db.insert("users", {
       ...newUser(identity.subject, identity.tokenIdentifier, now, await newReferralCode(ctx)),
       ...fromToken,
-      username: typeof identity.nickname === "string" && USERNAME.test(identity.nickname) ? identity.nickname : undefined,
+      username: await freeUsername(ctx, typeof identity.nickname === "string" ? identity.nickname : undefined),
     });
   },
 });
@@ -238,7 +249,8 @@ export const upsertFromClerk = internalMutation({
     const edu = emails.find((e) => verified(e) && schoolDomain(e.email_address));
     const role = data.public_metadata?.role === "admin" ? "admin" : "user";
     const name = [data.first_name, data.last_name].filter(Boolean).join(" ") || undefined;
-    const username = data.username && USERNAME.test(data.username) ? data.username : undefined;
+    // Only fills a missing one: people pick and change their username in the app (updateProfile), not in Clerk.
+    const username = user?.username ? undefined : await freeUsername(ctx, data.username, user?._id);
 
     const patch: Partial<Doc<"users">> = {
       email: primaryEmail?.email_address,

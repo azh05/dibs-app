@@ -1,13 +1,14 @@
-import { router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useState } from 'react';
 import { KeyboardAvoidingView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Button } from '@/components/button';
+import { OnboardingProgress } from '@/components/onboarding-progress';
 import { Text } from '@/components/text';
 import { TextField } from '@/components/text-field';
 import { alreadySignedIn, clerkError, useCodeAuth } from '@/lib/clerk-auth';
+import { resetTo } from '@/lib/navigation';
 import { colors, gutter } from '@/theme';
 
 // "Already have an account? Log in": email and password.
@@ -24,12 +25,10 @@ export default function LogIn() {
     setError(null);
     try {
       await logIn(email.trim(), password);
-      router.dismissAll();
-      router.replace('/deals');
+      resetTo('/deals');
     } catch (e) {
       if (alreadySignedIn(e)) {
-        router.dismissAll();
-        router.replace('/deals');
+        resetTo('/deals');
         return;
       }
       setError(clerkError(e));
@@ -39,9 +38,10 @@ export default function LogIn() {
   };
 
   return (
-    <KeyboardAvoidingView behavior="padding" style={[styles.screen, { paddingTop: insets.top + 24 }]}>
+    <KeyboardAvoidingView behavior="padding" style={[styles.screen, { paddingTop: insets.top }]}>
       <StatusBar style="dark" />
       <View style={styles.content}>
+        <OnboardingProgress />
         <Text weight="extrabold" size={28} tracking={-0.84}>
           Welcome back
         </Text>
@@ -62,11 +62,21 @@ export default function LogIn() {
           secureTextEntry
           autoCapitalize="none"
           textContentType="password"
-          hint={error && <Text weight="semibold" size={12} color={colors.orange}>{error}</Text>}
+          hint={
+            error && (
+              <Text weight="semibold" size={12} color={colors.orange}>
+                {error}
+              </Text>
+            )
+          }
         />
       </View>
       <View style={[styles.cta, { paddingBottom: Math.max(insets.bottom, 24) }]}>
-        <Button label={busy ? 'Logging in…' : 'Log in'} onPress={submit} disabled={!ready || !email || !password || busy} />
+        <Button
+          label={busy ? 'Logging in…' : 'Log in'}
+          onPress={submit}
+          disabled={!ready || !email || !password || busy}
+        />
       </View>
     </KeyboardAvoidingView>
   );
@@ -74,6 +84,6 @@ export default function LogIn() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.surface },
-  content: { gap: 14, paddingHorizontal: gutter + 4 },
+  content: { gap: 14, paddingTop: 6, paddingHorizontal: gutter + 4 },
   cta: { marginTop: 'auto', paddingHorizontal: gutter + 4 },
 });

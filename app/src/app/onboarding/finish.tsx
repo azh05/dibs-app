@@ -5,13 +5,17 @@ import { KeyboardAvoidingView, ScrollView, StyleSheet, View } from 'react-native
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Button } from '@/components/button';
+import { OnboardingProgress } from '@/components/onboarding-progress';
 import { Text } from '@/components/text';
 import { TextField } from '@/components/text-field';
 import { pendingUsername } from '@/lib/backend-store';
 import { clerkError, FINISH_FIELDS, goAfter, useCodeAuth, type FinishField } from '@/lib/clerk-auth';
 import { colors, gutter } from '@/theme';
 
-const FIELDS: Record<FinishField, { label: string; placeholder: string; secure?: boolean; keyboard?: 'email-address' }> = {
+const FIELDS: Record<
+  FinishField,
+  { label: string; placeholder: string; secure?: boolean; keyboard?: 'email-address' }
+> = {
   email_address: { label: 'Email', placeholder: 'you@school.edu', keyboard: 'email-address' },
   username: { label: 'Username', placeholder: 'username' },
   password: { label: 'Password', placeholder: 'Choose a password', secure: true }, // Clerk's settings decide the minimum length
@@ -24,7 +28,9 @@ const FIELDS: Record<FinishField, { label: string; placeholder: string; secure?:
 export default function FinishSignUp() {
   const insets = useSafeAreaInsets();
   const { fields } = useLocalSearchParams<{ fields: string }>();
-  const missing = (fields ?? '').split(',').filter((f): f is FinishField => (FINISH_FIELDS as readonly string[]).includes(f));
+  const missing = (fields ?? '')
+    .split(',')
+    .filter((f): f is FinishField => (FINISH_FIELDS as readonly string[]).includes(f));
   const { ready, finish } = useCodeAuth();
   const [values, setValues] = useState<Partial<Record<FinishField, string>>>(() => ({ username: pendingUsername() }));
   const [busy, setBusy] = useState(false);
@@ -45,9 +51,10 @@ export default function FinishSignUp() {
   };
 
   return (
-    <KeyboardAvoidingView behavior="padding" style={[styles.screen, { paddingTop: insets.top + 24 }]}>
+    <KeyboardAvoidingView behavior="padding" style={[styles.screen, { paddingTop: insets.top }]}>
       <StatusBar style="dark" />
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+        <OnboardingProgress />
         <Text weight="extrabold" size={28} tracking={-0.84}>
           Almost there
         </Text>
@@ -59,7 +66,9 @@ export default function FinishSignUp() {
             key={f}
             label={FIELDS[f].label}
             value={values[f] ?? ''}
-            onChangeText={(t) => setValues((v) => ({ ...v, [f]: f === 'username' ? t.replace(/^@/, '').toLowerCase() : t }))}
+            onChangeText={(t) =>
+              setValues((v) => ({ ...v, [f]: f === 'username' ? t.replace(/^@/, '').toLowerCase() : t }))
+            }
             placeholder={FIELDS[f].placeholder}
             secureTextEntry={FIELDS[f].secure}
             keyboardType={FIELDS[f].keyboard}
@@ -82,6 +91,6 @@ export default function FinishSignUp() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.surface },
-  content: { gap: 14, paddingHorizontal: gutter + 4, paddingBottom: 24 },
+  content: { gap: 14, paddingTop: 6, paddingHorizontal: gutter + 4, paddingBottom: 24 },
   cta: { paddingHorizontal: gutter + 4 },
 });

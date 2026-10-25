@@ -20,9 +20,9 @@ Expo reads `.env.local` when Metro starts, so restart with `npx expo start --cle
 
 ## Flow
 
-Welcome → Sign in → (email: Create account) → Pick interests → Live alerts → Deals.
+Welcome → Sign in → (email: Create account; Apple, Google, phone: Pick a username) → Pick interests → Live alerts → Deals.
 
-- With the backend: Apple and Google go through Clerk; phone sends a text code that signs in or creates the account; email goes through Create account (name, username, password, birthday, invite code) and an emailed code; Log in is email and password. If the Clerk app requires more than the user gave, an "Almost there" step asks for it. In mock mode every button signs in as the demo account.
+- With the backend: Apple and Google go through Clerk; phone sends a text code that signs in or creates the account; email goes through Create account (name, username, password, birthday, invite code) and an emailed code; Log in is email and password. If the Clerk app requires more than the user gave, an "Almost there" step asks for it. Every account needs a username, since friends find people by it: Apple, Google and phone sign-ups pick one (and their name) on `onboarding/username`, and the tabs send any signed-in account without one there first. In mock mode every button signs in as the demo account.
 - "Turn on live alerts" saves your current location (or Westwood) as the place alerts and scans use; change it any time from the Deals header (`location` modal).
 - `dibs://invite/<code>` fills in a friend's invite code on Create account.
 - The tab bar has Deals, Map, Friends, Earn, Alerts and Profile. Saved and Leaderboard open from Profile (and Leaderboard from Friends) and keep the tab bar, with Profile lit.
@@ -33,8 +33,8 @@ Welcome → Sign in → (email: Create account) → Pick interests → Live aler
 - **Welcome**: store types cycle through a wheel (each holds 0.5 s, then slides up). Without location, the pill says "Turn on location to see spots near you", and "Find deals near me" shows the iOS location prompt before Sign in; with it, the pill shows the spots being watched.
 - **Pick interests**: 72 store types in sections, plus 8 deal types and an alert distance. Nightlife and 21+ shops unlock once the birthday on the account shows 21+, and then carry a 21+ note. Accounts without a birthday (phone and social sign-ups) are asked for it the first time they tap Verify 21+.
 - **Deals**: "Agents searching 24/7" with its sources, then chips: "All" (on at first), your store-type interests, every deal type and "+ Edit". Several chips can be on at once. Below them: upcoming events and the live feed.
-- **Map**: recency pins that fold together when they'd overlap. A bottom sheet shows the selected or top deal; **Edit** opens Filters. A floating **View List** / **View Map** pill swaps the map for a list of the same deals under the same header and filter chips.
-- **Friends**: rank cards for Westwood and your school (each opens the leaderboard), friends ranked by money saved with a Westwood/school switch, and an activity feed with likes. Save or "I'm in" on a card adds its deal or event to Saved. The search button opens `find-friends` (search by @username, answer requests; backend only).
+- **Map**: recency pins that fold together when they'd overlap. Tapping a pin shows that deal's card at the bottom. A floating **View List** / **View Map** pill swaps the map for a list of the same deals under a header (**Edit** opens Filters) and filter chips.
+- **Friends**: rank cards for Westwood and your school (each opens the leaderboard), friends ranked by money saved with a Westwood/school switch, and an activity feed with likes. Save or "I'm in" on a card adds its deal or event to Saved. The search button opens `find-friends` (search by name or @username, answer requests; backend only; a friend request needs a username).
 - **Earn**: snap an in-store deal and earn 500 credits once it's verified (`CREDITS_PER_DEAL` in `src/lib/photo.ts`). With the backend, only a new, live deal earns them; they're pending until 24 hours pass with no "ended" report or 2 other people confirm it, at most 3 a day. Rewards are always credits, never money.
 - **Alerts**: the Instant toggle, your interests (tap an unpicked store type to add it), the alert distance, and recent alerts.
 - **Profile**: level and XP, money saved with a weekly bar chart, rank cards, deal DNA, lists, a row of friends and invites (both people get 500 credits; the share includes your invite link).
@@ -55,7 +55,7 @@ In mock mode nothing persists: the account, saves, likes, interests, line report
 ## Layout
 
 ```
-src/app/            routes: index (Welcome), onboarding/sign-in|phone|verify|finish|log-in|create-account|interests|alerts, ask (modal),
+src/app/            routes: index (Welcome), onboarding/sign-in|phone|verify|finish|log-in|create-account|username|interests|alerts, ask (modal),
                     (tabs)/deals|map|friends|earn|alerts|profile, plus (tabs)/saved|leaderboard (hidden tabs),
                     filters and location (modals), deal/[id], event/[id], submission, find-friends, invite/[code]
 src/components/     one component per Figma component (DealCard, StoreLogo, CategoryWheel, TabBar, LineCheckCard, ...)

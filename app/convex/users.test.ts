@@ -121,3 +121,17 @@ test("usernames are validated and unique; 21+ needs a birthday", async () => {
   await b.mutation(api.users.updateProfile, { birthday: `${new Date().getUTCFullYear() - 18}-01-01` });
   expect(await b.mutation(api.users.unlockAdult, {})).toBe("too-young");
 });
+
+test("the webhook fills a missing username but never replaces one picked in the app, or takes someone else's", async () => {
+  const t = makeTest();
+  await deliver(t, "user.created", clerkUser({ username: null }));
+  const as = t.withIdentity(identity(1));
+  await as.mutation(api.users.updateProfile, { username: "maya.r" });
+  await deliver(t, "user.updated", clerkUser({ username: "mayasaves", updated_at: 200 }));
+  expect((await as.query(api.users.me, {}))!.username).toBe("maya.r");
+
+  await deliver(t, "user.created", clerkUser({ id: "user_2", username: "maya.r", primary_email_address_id: null, email_addresses: [] }));
+  await deliver(t, "user.created", clerkUser({ id: "user_3", username: "jess", primary_email_address_id: null, email_addresses: [] }));
+  expect((await t.withIdentity(identity(2)).query(api.users.me, {}))!.username).toBeNull();
+  expect((await t.withIdentity(identity(3)).query(api.users.me, {}))!.username).toBe("jess");
+});

@@ -111,6 +111,7 @@ export default defineSchema({
     .index("by_token", ["token_identifier"])
     .index("by_clerk_id", ["clerk_user_id"])
     .index("by_username", ["username"])
+    .searchIndex("search_display_name", { searchField: "display_name" })
     .index("by_referral_code", ["referral_code"])
     .index("by_referred_by", ["referred_by"])
     .index("by_school", ["school"])
