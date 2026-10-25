@@ -8,6 +8,13 @@ Short-lived local deals (grand-opening specials, BOGO offers, happy hours, promo
 | [`app/`](app/) | Expo (React Native) app built from the [Figma design](https://www.figma.com/design/6mfeMN9XPnjwR6dn2DwdsG): onboarding, Deals, Map, Friends, Earn credits, Alerts, Profile | [app/README.md](app/README.md) |
 | [`app/convex/`](app/convex/) | Convex backend for the app: Clerk sign-in, storage, the 24/7 scan schedule, photo credits, push alerts, social and leaderboards | [app/convex/README.md](app/convex/README.md); "Backend data model" tab of the Dibs App doc |
 
+## How we use Convex
+
+- Live feeds: Deals, Map, Saved, Alerts, Friends and Leaderboard are Convex queries read with `useQuery`, so they update without a refresh.
+- 24/7 agents: crons and scheduled actions scan every saved area, then mutations upsert the deals (`app/convex/scans.ts`, `batches.ts`).
+- Geo and alerts: `@convex-dev/geospatial` indexes deals and saved places; a new deal schedules push alerts (`app/convex/notify.ts`).
+- Clerk auth, file storage for photo deals, full text search for friends. Full details in [hackathon.md](hackathon.md).
+
 ## Quick start (API)
 
 ```bash
