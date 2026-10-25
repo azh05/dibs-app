@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { AdultNote } from '@/components/adult-note';
 import { Button } from '@/components/button';
 import { Icon } from '@/components/icon';
 import { InterestChip } from '@/components/interest-chip';
@@ -182,28 +183,7 @@ function AgeGate({ onVerify }: { onVerify: () => void }) {
   );
 }
 
-// Figma "21+ note" (101:2392), under Nightlife once it's unlocked.
-function AdultNote() {
-  return (
-    <View style={styles.note}>
-      <Icon name="info" size={16} color={colors.orange} />
-      <Text weight="semibold" size={12} color={colors.inkSecondary} style={{ flex: 1 }}>
-        Note: you must be 21+ to enter these locations.
-      </Text>
-    </View>
-  );
-}
-
 const styles = StyleSheet.create({
-  note: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderRadius: 12,
-    backgroundColor: colors.orangeSoft,
-  },
   screen: { flex: 1, backgroundColor: colors.surface },
   content: { paddingTop: 6, paddingHorizontal: gutter, paddingBottom: 24, gap: 22 },
   sectionHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },

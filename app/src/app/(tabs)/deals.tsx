@@ -17,33 +17,37 @@ import { SearchBar } from '@/components/search-bar';
 import { SectionHeader } from '@/components/section-header';
 import { Text } from '@/components/text';
 import { useDeals, usingLiveApi } from '@/lib/api';
-import { applyEventFilters, applyFilters, byStoreTypes } from '@/lib/filters';
-import { STORE_TYPES } from '@/lib/interests';
+import { UPCOMING_EVENTS, applyEventFilters, applyFilters, quickFilters } from '@/lib/filters';
+import { DEAL_TYPES, STORE_TYPES } from '@/lib/interests';
 import { combinedLine } from '@/lib/line-check';
 import { HOME } from '@/lib/mock';
 import { useStore } from '@/lib/store';
 import { colors, gutter } from '@/theme';
 
-// 06 · Deals (Figma 4:73)
+// 07 · Deals (Figma 4:73)
 export default function DealsScreen() {
   const insets = useSafeAreaInsets();
   const { deals, events, loading, error } = useDeals();
   const { saved, toggleSaved, activity, filters, lineReports, topics } = useStore();
-  // Your store-type interests as chips, all on at first; "All" turns them off.
+  // Quick chips: "All" (on at first), your store-type interests, then every deal type.
   const interests = STORE_TYPES.filter((t) => topics.has(t.label));
-  const [picked, setPicked] = useState(() => new Set(interests.map((t) => t.label)));
+  const [pickedStores, setPickedStores] = useState(new Set<string>());
+  const [pickedTypes, setPickedTypes] = useState(new Set<string>());
   const [upcomingOnly, setUpcomingOnly] = useState(false);
   const [query, setQuery] = useState('');
 
-  const togglePicked = (label: string) =>
-    setPicked((s) => {
-      const next = new Set(s);
-      if (next.has(label)) next.delete(label);
-      else next.add(label);
-      return next;
-    });
-  const shownDeals = upcomingOnly ? [] : byStoreTypes(applyFilters(deals, filters, query), picked);
-  const shownEvents = byStoreTypes(applyEventFilters(events, filters, query), picked);
+  const toggle = (set: Set<string>, label: string) => {
+    const next = new Set(set);
+    if (next.has(label)) next.delete(label);
+    else next.add(label);
+    return next;
+  };
+  const quick = quickFilters(filters, pickedStores, pickedTypes);
+  // "See all" on Coming up, or the Upcoming events chip on its own, shows events only.
+  const eventsOnly = upcomingOnly || (pickedTypes.size === 1 && pickedTypes.has(UPCOMING_EVENTS));
+  const shownDeals = eventsOnly ? [] : applyFilters(applyFilters(deals, filters, query, topics), quick, '', topics);
+  const shownEvents = applyEventFilters(applyEventFilters(events, filters, query), quick);
+  const allOn = pickedStores.size === 0 && pickedTypes.size === 0 && !upcomingOnly;
   const unread = activity.some((a) => a.unread);
 
   let agentStatus = 'Watching 1,284 spots near you';
@@ -79,9 +83,19 @@ export default function DealsScreen() {
             </Text>{' '}
             live deals
           </Text>
-          <Text size={15} color={colors.inkTertiary} style={{ marginTop: 4 }}>
-            {events.length} upcoming this week · within {filters.radiusMi} mi
-          </Text>
+          <View style={styles.agents}>
+            <Text weight="bold" size={15}>
+              Agents searching{' '}
+              <Text weight="extrabold" size={15} color={colors.orange}>
+                24/7
+              </Text>
+            </Text>
+            <View style={styles.sources}>
+              <Icon name="instagram" size={16} color={colors.inkTertiary} />
+              <Icon name="globe" size={16} color={colors.inkTertiary} />
+              <Icon name="users" size={16} color={colors.inkTertiary} />
+            </View>
+          </View>
         </View>
 
         <View style={styles.pad}>
@@ -96,9 +110,11 @@ export default function DealsScreen() {
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips}>
           <Chip
             label="All"
-            active={picked.size === 0 && !upcomingOnly}
+            tone="orange"
+            active={allOn}
             onPress={() => {
-              setPicked(new Set());
+              setPickedStores(new Set());
+              setPickedTypes(new Set());
               setUpcomingOnly(false);
             }}
           />
@@ -107,10 +123,24 @@ export default function DealsScreen() {
               key={t.label}
               label={t.label}
               icon={t.icon}
-              selected={picked.has(t.label)}
-              onPress={() => togglePicked(t.label)}
+              selected={pickedStores.has(t.label)}
+              onPress={() => setPickedStores((s) => toggle(s, t.label))}
             />
           ))}
+          <View style={styles.divider} />
+          {DEAL_TYPES.map((t) => (
+            <InterestChip
+              key={t.label}
+              label={t.label}
+              icon={t.icon}
+              selected={pickedTypes.has(t.label)}
+              onPress={() => setPickedTypes((s) => toggle(s, t.label))}
+            />
+          ))}
+          <Chip
+            label="+ Edit"
+            onPress={() => router.push({ pathname: '/onboarding/interests', params: { edit: '1' } })}
+          />
         </ScrollView>
 
         <View style={styles.pad}>
@@ -137,7 +167,7 @@ export default function DealsScreen() {
           </View>
         )}
 
-        {!upcomingOnly && (
+        {!eventsOnly && (
           <View style={{ gap: 20 }}>
             <SectionHeader
               leading={<DotSection width={8} height={8} />}
@@ -180,7 +210,10 @@ const styles = StyleSheet.create({
   },
   location: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   badge: { position: 'absolute', left: 24, top: 9 },
-  chips: { gap: 8, paddingHorizontal: gutter },
+  chips: { gap: 8, paddingHorizontal: gutter, alignItems: 'center' },
+  divider: { width: 1.5, height: 24, borderRadius: 1, backgroundColor: colors.border },
+  agents: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 4 },
+  sources: { flexDirection: 'row', alignItems: 'center', gap: 7 },
   agent: {
     flexDirection: 'row',
     alignItems: 'center',

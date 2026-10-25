@@ -8,12 +8,10 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Halo from '@/assets/shapes/halo.svg';
 import You from '@/assets/shapes/you.svg';
 import { DealCard } from '@/components/deal-card';
-import { EventCard } from '@/components/event-card';
 import { Icon } from '@/components/icon';
 import { LineCheckCard } from '@/components/line-check-card';
 import { MapPin, pinAnchor, pinCenterOffset, type PinDetail } from '@/components/map-pin';
 import { SearchBar } from '@/components/search-bar';
-import { Overline } from '@/components/section-header';
 import { Text } from '@/components/text';
 import { useDeals } from '@/lib/api';
 import { appliedFilters, applyEventFilters, applyFilters, SORTS } from '@/lib/filters';
@@ -42,8 +40,8 @@ function detailFor(latitudeDelta: number): PinDetail {
   return 'icon';
 }
 
-// 07 · Map (Figma 4:298) and 11 · Line check (52:1759). The map fills the screen with a sheet for
-// the nearest or tapped deal; "List" swaps the map for the same deals as a list.
+// 08 · Map (Figma 4:298) and 12 · Line check (52:1759). The map fills the screen with a sheet for
+// the top or tapped deal; "Edit" opens Filters.
 export default function MapScreen() {
   const insets = useSafeAreaInsets();
   const map = useRef<MapView>(null);
@@ -51,7 +49,6 @@ export default function MapScreen() {
   const store = useStore();
   const { saved, toggleSaved, filters, lineReports } = store;
   const [query, setQuery] = useState('');
-  const [view, setView] = useState<'map' | 'list'>('map');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [topHeight, setTopHeight] = useState(0);
   const [bottomHeight, setBottomHeight] = useState(0);
@@ -61,7 +58,7 @@ export default function MapScreen() {
   const you = position ?? HOME;
   const lineCheck = useLineCheck(deals, position);
 
-  const shown = applyFilters(deals, filters, query);
+  const shown = applyFilters(deals, filters, query, store.topics);
   const placed = shown.filter((d) => d.coords);
   const shownEvents = applyEventFilters(events, filters, query);
   const featured = placed.find((d) => d.id === selectedId) ?? shown[0];
@@ -97,7 +94,6 @@ export default function MapScreen() {
   useEffect(() => {
     if (prompted?.coords) map.current?.animateToRegion(regionAtStore(prompted.coords), 400);
   }, [prompted]);
-  const onMap = view === 'map';
 
   const card = (d: Deal) => (
     <DealCard
@@ -202,35 +198,6 @@ export default function MapScreen() {
         })}
       </MapView>
 
-      {!onMap && (
-        <ScrollView
-          style={styles.list}
-          contentContainerStyle={[styles.listContent, { paddingTop: topHeight + 8 }]}
-          keyboardShouldPersistTaps="handled">
-          <SheetHeader
-            count={shown.length}
-            radiusMi={filters.radiusMi}
-            sortedBy={sortedBy}
-            toggleLabel="Map"
-            onToggle={() => setView('map')}
-          />
-          {shown.map(card)}
-          {shownEvents.length > 0 && (
-            <View style={{ gap: 12, paddingTop: 8 }}>
-              <Overline>COMING UP</Overline>
-              {shownEvents.map((e) => (
-                <EventCard key={e.id} event={e} onPress={() => router.push(`/event/${e.id}`)} />
-              ))}
-            </View>
-          )}
-          {shown.length === 0 && shownEvents.length === 0 && (
-            <Text size={14} color={colors.inkTertiary}>
-              Nothing here yet. Try fewer filters.
-            </Text>
-          )}
-        </ScrollView>
-      )}
-
       <View
         style={[styles.top, { paddingTop: insets.top + 4 }]}
         pointerEvents="box-none"
@@ -238,68 +205,62 @@ export default function MapScreen() {
         <SearchBar
           value={query}
           onChangeText={setQuery}
-          placeholder={onMap ? 'Search this area' : 'Search stores or deals'}
+          placeholder="Search this area"
           onFilters={() => router.push('/filters')}
-          floating={onMap}
+          floating
         />
       </View>
 
-      {onMap && (
-        <View
-          style={styles.bottom}
-          pointerEvents="box-none"
-          onLayout={(e) => setBottomHeight(e.nativeEvent.layout.height)}>
-          <Pressable
-            onPress={() => map.current?.animateToRegion(regionAround(you), 400)}
-            style={[styles.recenter, shadows.floating]}
-            accessibilityRole="button"
-            accessibilityLabel="Recenter map">
-            <Icon name="navigation" size={20} color={colors.orange} />
-          </Pressable>
-          {prompted ? (
-            <View style={styles.lineCheck}>
-              <LineCheckCard
-                store={prompted.store}
-                onReport={(minutes) => store.reportLine(prompted.id, minutes)}
-                onUndo={store.undoLineReport}
-                onClose={lineCheck.dismiss}
-              />
-            </View>
-          ) : (
-            <View style={styles.sheet}>
-              <View style={styles.handle} />
-              <SheetHeader
-                count={shown.length}
-                radiusMi={filters.radiusMi}
-                sortedBy={sortedBy}
-                toggleLabel="List"
-                onToggle={() => {
-                  setSelectedId(null);
-                  setView('list');
-                }}
-              />
-              {applied.length > 0 && (
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.applied}>
-                  {applied.map((f) => (
-                    <Pressable
-                      key={f.key}
-                      onPress={() => store.setFilters(f.remove(filters))}
-                      accessibilityRole="button"
-                      accessibilityLabel={`Remove ${f.label}`}
-                      style={styles.appliedChip}>
-                      <Text weight="bold" size={12}>
-                        {f.label}
-                      </Text>
-                      <Icon name="close" size={12} color={colors.orange} />
-                    </Pressable>
-                  ))}
-                </ScrollView>
-              )}
-              {featured && card(featured)}
-            </View>
-          )}
-        </View>
-      )}
+      <View
+        style={styles.bottom}
+        pointerEvents="box-none"
+        onLayout={(e) => setBottomHeight(e.nativeEvent.layout.height)}>
+        <Pressable
+          onPress={() => map.current?.animateToRegion(regionAround(you), 400)}
+          style={[styles.recenter, shadows.floating]}
+          accessibilityRole="button"
+          accessibilityLabel="Recenter map">
+          <Icon name="navigation" size={20} color={colors.orange} />
+        </Pressable>
+        {prompted ? (
+          <View style={styles.lineCheck}>
+            <LineCheckCard
+              store={prompted.store}
+              onReport={(minutes) => store.reportLine(prompted.id, minutes)}
+              onUndo={store.undoLineReport}
+              onClose={lineCheck.dismiss}
+            />
+          </View>
+        ) : (
+          <View style={styles.sheet}>
+            <View style={styles.handle} />
+            <SheetHeader
+              count={shown.length}
+              radiusMi={filters.radiusMi}
+              sortedBy={sortedBy}
+              onEdit={() => router.push('/filters')}
+            />
+            {applied.length > 0 && (
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.applied}>
+                {applied.map((f) => (
+                  <Pressable
+                    key={f.key}
+                    onPress={() => store.setFilters(f.remove(filters))}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Remove ${f.label}`}
+                    style={styles.appliedChip}>
+                    <Text weight="bold" size={12}>
+                      {f.label}
+                    </Text>
+                    <Icon name="close" size={12} color={colors.orange} />
+                  </Pressable>
+                ))}
+              </ScrollView>
+            )}
+            {featured && card(featured)}
+          </View>
+        )}
+      </View>
     </View>
   );
 }
@@ -308,14 +269,12 @@ function SheetHeader({
   count,
   radiusMi,
   sortedBy,
-  toggleLabel,
-  onToggle,
+  onEdit,
 }: {
   count: number;
   radiusMi: number;
   sortedBy: string;
-  toggleLabel: string;
-  onToggle: () => void;
+  onEdit: () => void;
 }) {
   return (
     <View style={styles.sheetHeader}>
@@ -327,9 +286,10 @@ function SheetHeader({
           Sorted by {sortedBy}
         </Text>
       </View>
-      <Pressable onPress={onToggle} accessibilityRole="button" style={styles.toggle}>
+      <Pressable onPress={onEdit} accessibilityRole="button" style={styles.toggle}>
+        <Icon name="sliders" size={14} />
         <Text weight="bold" size={13}>
-          {toggleLabel}
+          Edit
         </Text>
       </Pressable>
     </View>
@@ -341,8 +301,6 @@ const styles = StyleSheet.create({
   top: { position: 'absolute', left: 0, right: 0, top: 0, paddingHorizontal: gutter },
   you: { width: 70, height: 70 },
   youDot: { position: 'absolute', left: 20, top: 22 },
-  list: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, backgroundColor: colors.surface },
-  listContent: { paddingHorizontal: gutter, paddingBottom: 24, gap: 12 },
   bottom: { position: 'absolute', left: 0, right: 0, bottom: 0, alignItems: 'flex-end', gap: 12 },
   recenter: {
     width: 48,
@@ -370,7 +328,15 @@ const styles = StyleSheet.create({
   },
   handle: { alignSelf: 'center', width: 40, height: 5, borderRadius: 3, backgroundColor: colors.border },
   sheetHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  toggle: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: radii.pill, backgroundColor: colors.muted },
+  toggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: radii.pill,
+    backgroundColor: colors.muted,
+  },
   applied: { gap: 6 },
   appliedChip: {
     flexDirection: 'row',

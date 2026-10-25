@@ -1,6 +1,7 @@
+import * as Location from 'expo-location';
 import { router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { Animated, Pressable, StyleSheet, useAnimatedValue, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -11,10 +12,24 @@ import { Text } from '@/components/text';
 import { Wordmark } from '@/components/wordmark';
 import { colors } from '@/theme';
 
-// 01 · Welcome (Figma 3:97). Both buttons lead to Sign in, as in the prototype.
+// 01 · Welcome (Figma 91:2223, location off) and 02 · Welcome · location on (3:97). Without
+// location the pill asks for it; "Find deals near me" asks too (the iOS prompt), then both
+// buttons lead to Sign in, as in the prototype.
 export default function Welcome() {
   const insets = useSafeAreaInsets();
   const pulse = useAnimatedValue(1);
+  const [located, setLocated] = useState(false);
+
+  useEffect(() => {
+    Location.getForegroundPermissionsAsync()
+      .then(({ granted }) => setLocated(granted))
+      .catch(() => undefined);
+  }, []);
+
+  const askLocation = async () => {
+    const { granted } = await Location.requestForegroundPermissionsAsync().catch(() => ({ granted: false }));
+    setLocated(granted);
+  };
 
   useEffect(() => {
     const loop = Animated.loop(
@@ -28,6 +43,10 @@ export default function Welcome() {
   }, [pulse]);
 
   const signIn = () => router.push('/onboarding/sign-in');
+  const findDeals = async () => {
+    if (!located) await askLocation();
+    signIn();
+  };
 
   return (
     <View style={[styles.screen, { paddingTop: insets.top, paddingBottom: Math.max(insets.bottom, 24) + 24 }]}>
@@ -45,20 +64,29 @@ export default function Welcome() {
         <CategoryWheel />
       </View>
       <View style={styles.actions}>
-        <View style={styles.scanning}>
-          <Animated.View style={{ opacity: pulse }}>
-            <DotWelcome width={8} height={8} />
-          </Animated.View>
-          <Text weight="semibold" size={13} color={colors.surface}>
-            Watching{' '}
-            <Text weight="extrabold" size={13} color={colors.surface}>
-              1,284
-            </Text>{' '}
-            spots near you
-          </Text>
-        </View>
+        {located ? (
+          <View style={styles.scanning}>
+            <Animated.View style={{ opacity: pulse }}>
+              <DotWelcome width={8} height={8} />
+            </Animated.View>
+            <Text weight="semibold" size={13} color={colors.surface}>
+              Watching{' '}
+              <Text weight="extrabold" size={13} color={colors.surface}>
+                1,284
+              </Text>{' '}
+              spots near you
+            </Text>
+          </View>
+        ) : (
+          <Pressable onPress={askLocation} accessibilityRole="button" style={styles.scanning}>
+            <Icon name="pin" size={14} color={colors.surface} />
+            <Text weight="semibold" size={13} color={colors.surface}>
+              Turn on location to see spots near you
+            </Text>
+          </Pressable>
+        )}
         <Pressable
-          onPress={signIn}
+          onPress={findDeals}
           accessibilityRole="button"
           style={({ pressed }) => [styles.primary, pressed && { opacity: 0.9 }]}>
           <Icon name="navigation" size={20} color={colors.orange} />
@@ -88,7 +116,7 @@ const styles = StyleSheet.create({
     alignSelf: 'flex-start',
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 5,
     paddingHorizontal: 14,
     paddingVertical: 8,
     borderRadius: 999,

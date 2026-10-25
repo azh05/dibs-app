@@ -9,10 +9,13 @@ type Props = {
   onPress?: () => void;
   /** Drop shadow used when chips float over the map. */
   floating?: boolean;
+  /** Active look: ink (default) or orange-soft with an orange border, like a selected Interest Chip. */
+  tone?: 'ink' | 'orange';
 };
 
-// Figma "Chip" (2:146): Default = white with border, Active = ink.
-export function Chip({ label, active = false, onPress, floating = false }: Props) {
+// Figma "Chip" (2:146): Default = white with border, Active = ink. Deals' "All" uses the orange tone.
+export function Chip({ label, active = false, onPress, floating = false, tone = 'ink' }: Props) {
+  const orange = active && tone === 'orange';
   return (
     <Pressable
       onPress={onPress}
@@ -20,11 +23,11 @@ export function Chip({ label, active = false, onPress, floating = false }: Props
       accessibilityState={{ selected: active }}
       style={({ pressed }) => [
         styles.chip,
-        active ? styles.active : styles.default,
+        active ? (orange ? styles.orange : styles.active) : styles.default,
         floating && shadows.button,
         pressed && { opacity: 0.7 },
       ]}>
-      <Text weight="semibold" size={14} color={active ? colors.surface : colors.ink}>
+      <Text weight={orange ? 'bold' : 'semibold'} size={14} color={active && !orange ? colors.surface : colors.ink}>
         {label}
       </Text>
     </Pressable>
@@ -40,4 +43,5 @@ const styles = StyleSheet.create({
   },
   default: { backgroundColor: colors.surface, borderColor: colors.border },
   active: { backgroundColor: colors.ink, borderColor: colors.ink },
+  orange: { backgroundColor: colors.orangeSoft, borderColor: colors.orange, borderWidth: 1.5 },
 });

@@ -41,6 +41,13 @@ export function endsIn(endsAt: Date, now = new Date()) {
 }
 
 /** "2h", "35m", "3d", "2w" */
+/** "Oct 24, 6 PM", or "Oct 24" when the time is the end of the day. */
+export function dayAndTime(date: Date) {
+  const day = `${MONTHS[date.getMonth()]} ${date.getDate()}`;
+  const endOfDay = (date.getHours() === 23 && date.getMinutes() === 59) || (date.getHours() === 0 && date.getMinutes() === 0);
+  return endOfDay ? day : `${day}, ${clock(date)}`;
+}
+
 export function shortAgo(hours: number) {
   if (hours < 1) return `${Math.max(1, Math.round(hours * 60))}m`;
   if (hours < 24) return `${Math.round(hours)}h`;

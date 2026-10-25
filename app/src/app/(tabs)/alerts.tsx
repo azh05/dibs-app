@@ -15,7 +15,7 @@ import { Text } from '@/components/text';
 import { Thumb } from '@/components/thumb';
 import { findDeal, useDeals } from '@/lib/api';
 import { INTERESTS, STORE_TYPES } from '@/lib/interests';
-import { alertBody } from '@/lib/notifications';
+import { alertBody, dealWhen } from '@/lib/notifications';
 import { useStore } from '@/lib/store';
 import { colors, gutter, radii } from '@/theme';
 
@@ -143,31 +143,34 @@ export default function AlertsScreen() {
 
         <View style={{ gap: 4 }}>
           <Overline>TODAY</Overline>
-          {activity.map((a) => (
-            <Pressable
-              key={a.id}
-              style={styles.activity}
-              onPress={() => {
-                store.markRead(a.id);
-                if (a.dealId) router.push(`/deal/${a.dealId}`);
-              }}>
-              <Thumb icon={a.icon} />
-              <View style={{ flex: 1, gap: 2 }}>
-                <Text weight="bold" size={14} numberOfLines={1}>
-                  {a.title}
-                </Text>
-                <Text size={12} color={colors.inkTertiary} numberOfLines={1}>
-                  {a.subtitle}
-                </Text>
-              </View>
-              <View style={styles.activityMeta}>
-                <Text size={12} color={colors.inkTertiary}>
-                  {a.ago}
-                </Text>
-                {a.unread ? <DotUnread width={8} height={8} /> : <DotRead width={8} height={8} />}
-              </View>
-            </Pressable>
-          ))}
+          {activity.map((a) => {
+            const deal = a.dealId ? findDeal(deals, a.dealId) : undefined;
+            return (
+              <Pressable
+                key={a.id}
+                style={styles.activity}
+                onPress={() => {
+                  store.markRead(a.id);
+                  if (a.dealId) router.push(`/deal/${a.dealId}`);
+                }}>
+                <Thumb icon={a.icon} />
+                <View style={{ flex: 1, gap: 2 }}>
+                  <Text weight="bold" size={14} numberOfLines={1}>
+                    {a.title}
+                  </Text>
+                  <Text size={12} color={colors.inkTertiary} numberOfLines={1}>
+                    {deal ? `${deal.store} · ${dealWhen(deal)}` : a.subtitle}
+                  </Text>
+                </View>
+                <View style={styles.activityMeta}>
+                  <Text size={12} color={colors.inkTertiary}>
+                    {a.ago}
+                  </Text>
+                  {a.unread ? <DotUnread width={8} height={8} /> : <DotRead width={8} height={8} />}
+                </View>
+              </Pressable>
+            );
+          })}
         </View>
       </ScrollView>
     </View>

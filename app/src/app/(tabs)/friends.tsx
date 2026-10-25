@@ -1,27 +1,28 @@
 import { router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
+import { useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Avatar } from '@/components/avatar';
 import { Icon } from '@/components/icon';
+import { RankCards } from '@/components/rank-cards';
 import { StoreLogo } from '@/components/store-logo';
 import { Text } from '@/components/text';
+import { initials } from '@/lib/account';
 import { findDeal, findEvent, useDeals } from '@/lib/api';
-import { FRIEND_POSTS, FRIENDS_OUT, LEADERBOARDS, inviteFriends, type FriendPost } from '@/lib/social';
+import { FRIEND_POSTS, FRIEND_RANKS, PROFILE_STATS, RANK_CARDS, inviteFriends, type FriendPost } from '@/lib/social';
 import { useStore } from '@/lib/store';
 import { colors, gutter, radii } from '@/theme';
 
 const CARD_BUTTON = { deal: ['Save', 'Saved'], event: ['I’m in', 'You’re in'] } as const;
 
-// 17 · Friends (Figma 102:2466): your rank, who's out using deals, and friends' activity.
-// Mock data until there is a social backend.
+// 17 · Friends · scroll (Figma 102:2466): your ranks, friends ranked by $ saved in Westwood or at
+// your school, and friends' activity. Mock data until there is a social backend.
 export default function FriendsScreen() {
   const insets = useSafeAreaInsets();
-  const { you } = LEADERBOARDS.Westwood;
-  const out = FRIENDS_OUT.filter((f) => f.out).length;
-  const trend =
-    you.change > 0 ? `▲ ${you.change} this week` : you.change < 0 ? `▼ ${-you.change} this week` : 'No change';
+  const { account } = useStore();
+  const [scope, setScope] = useState<keyof typeof FRIEND_RANKS>('Westwood');
 
   return (
     <View style={[styles.screen, { paddingTop: insets.top }]}>
@@ -46,57 +47,63 @@ export default function FriendsScreen() {
         </View>
 
         <View style={styles.pad}>
-          <View style={styles.rank}>
-            <View style={styles.rankBadge}>
-              <Text weight="extrabold" size={16} tracking={-0.32} color={colors.surface}>
-                #{you.rank}
-              </Text>
-            </View>
-            <View style={{ flex: 1, gap: 2 }}>
-              <Text weight="extrabold" size={15} tracking={-0.15} color={colors.surface}>
-                #{you.rank} in Westwood
-              </Text>
-              <Text weight="semibold" size={12} color={colors.inkTertiary}>
-                {trend} · ${you.toNext} to #{you.rank - 1}
-              </Text>
-            </View>
-            <Pressable
-              onPress={() => router.navigate('/leaderboard')}
-              accessibilityRole="button"
-              style={styles.rankButton}>
-              <Text weight="bold" size={12}>
-                Rankings
-              </Text>
-              <Icon name="chevron" size={14} />
-            </Pressable>
-          </View>
+          <RankCards />
         </View>
 
-        <View style={{ gap: 10 }}>
-          <View style={[styles.outHeader, styles.pad]}>
-            <View style={styles.liveDot} />
-            <Text weight="extrabold" size={16} tracking={-0.16}>
-              Out now
-            </Text>
-            <Text weight="medium" size={13} color={colors.inkTertiary}>
-              · {out} friends using deals
-            </Text>
+        <View style={[styles.pad, { gap: 2 }]}>
+          <View style={styles.listHeader}>
+            <View style={styles.listTitle}>
+              <Text weight="extrabold" size={16} tracking={-0.16}>
+                Friends
+              </Text>
+              <Text weight="semibold" size={13} color={colors.inkTertiary}>
+                {PROFILE_STATS.friends}
+              </Text>
+            </View>
+            <View style={styles.scope}>
+              {RANK_CARDS.map(({ scope: s }) => (
+                <Pressable
+                  key={s}
+                  onPress={() => setScope(s)}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: s === scope }}
+                  style={[styles.scopeOption, s === scope && styles.scopeOn]}>
+                  <Text weight="bold" size={12} color={s === scope ? colors.ink : colors.inkTertiary}>
+                    {s}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
           </View>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.outRow}>
-            {FRIENDS_OUT.map((f) => (
-              <View key={f.name} style={styles.outFriend}>
-                <Avatar
-                  initials={f.initials}
-                  size={54}
-                  tone={f.tone}
-                  ring={f.out ? { width: 2.5, color: colors.orange } : undefined}
-                />
-                <Text weight="semibold" size={12} color={colors.inkSecondary}>
-                  {f.name}
-                </Text>
-              </View>
-            ))}
-          </ScrollView>
+          {FRIEND_RANKS[scope].map((f) => (
+            <View key={f.name} style={[styles.friendRow, f.you && styles.youRow]}>
+              <Text
+                weight="extrabold"
+                size={13}
+                color={f.you ? colors.orange : colors.inkTertiary}
+                style={styles.rankNumber}>
+                #{f.rank}
+              </Text>
+              <Avatar initials={f.you && account ? initials(account.name) : f.initials} size={36} tone={f.tone} />
+              <Text weight="bold" size={14} style={{ flex: 1 }}>
+                {f.name}
+              </Text>
+              <Text weight="extrabold" size={14}>
+                ${f.saved}
+              </Text>
+            </View>
+          ))}
+          <Pressable
+            onPress={() => router.navigate({ pathname: '/leaderboard', params: { scope: 'Friends' } })}
+            accessibilityRole="button"
+            style={styles.showAll}>
+            <Text weight="bold" size={13}>
+              Show all {PROFILE_STATS.friends} friends
+            </Text>
+            <View style={{ transform: [{ rotate: '90deg' }] }}>
+              <Icon name="chevron" size={14} />
+            </View>
+          </Pressable>
         </View>
 
         <View style={[styles.pad, { gap: 12 }]}>
@@ -190,38 +197,23 @@ const styles = StyleSheet.create({
   pad: { paddingHorizontal: gutter },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   headerIcons: { flexDirection: 'row', alignItems: 'center', gap: 16 },
-  rank: {
+  listHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingBottom: 6 },
+  listTitle: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  scope: { flexDirection: 'row', gap: 2, padding: 3, borderRadius: radii.pill, backgroundColor: colors.muted },
+  scopeOption: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: radii.pill },
+  scopeOn: { backgroundColor: colors.surface },
+  friendRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 9 },
+  youRow: { paddingHorizontal: 10, borderRadius: radii.thumb, backgroundColor: colors.orangeSoft },
+  rankNumber: { width: 28 },
+  showAll: {
     flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    paddingLeft: 16,
-    paddingRight: 12,
-    paddingVertical: 14,
-    borderRadius: radii.card,
-    backgroundColor: colors.ink,
-  },
-  rankBadge: {
-    width: 46,
-    height: 46,
-    borderRadius: radii.thumb,
-    backgroundColor: colors.orange,
     alignItems: 'center',
     justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 11,
+    borderRadius: radii.thumb,
+    backgroundColor: colors.muted,
   },
-  rankButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingLeft: 12,
-    paddingRight: 8,
-    paddingVertical: 8,
-    borderRadius: radii.pill,
-    backgroundColor: colors.surface,
-  },
-  outHeader: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  liveDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: colors.success },
-  outRow: { gap: 14, paddingHorizontal: gutter },
-  outFriend: { alignItems: 'center', gap: 6 },
   post: { gap: 10, padding: 14, borderRadius: radii.card, borderWidth: 1, borderColor: colors.border },
   postHeader: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   card: {

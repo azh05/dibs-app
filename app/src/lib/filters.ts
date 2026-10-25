@@ -1,20 +1,13 @@
-// Filters shared by Deals, Map and the Filters screen (Figma "08 · Filters"), plus the
+// Filters shared by Deals, Map and the Filters screen (Figma "09 · Filters"), plus the
 // quick chips on the Deals screen, which narrow the list further without touching them.
-import type { IconName } from '@/components/icon';
-import type { Deal, DealEvent, SourceKind } from '@/lib/types';
+import type { Deal, DealEvent } from '@/lib/types';
 
-export type Sort = 'nearest' | 'newest' | 'ending';
+export type Sort = 'best' | 'relevance' | 'distance';
 
 export const SORTS: { key: Sort; label: string; sortedBy: string }[] = [
-  { key: 'nearest', label: 'Nearest', sortedBy: 'distance' },
-  { key: 'newest', label: 'Newest', sortedBy: 'newest' },
-  { key: 'ending', label: 'Ending soon', sortedBy: 'ending soon' },
-];
-
-export const SOURCES: { kind: SourceKind; label: string; icon: IconName }[] = [
-  { kind: 'instagram', label: 'Instagram', icon: 'instagram' },
-  { kind: 'website', label: 'Websites', icon: 'globe' },
-  { kind: 'community', label: 'Community', icon: 'users' },
+  { key: 'best', label: 'Best deals', sortedBy: 'best deals' },
+  { key: 'relevance', label: 'Relevance', sortedBy: 'relevance' },
+  { key: 'distance', label: 'Distance', sortedBy: 'distance' },
 ];
 
 export const UPCOMING_EVENTS = 'Upcoming events';
@@ -29,18 +22,16 @@ export type Filters = {
   openNow: boolean;
   communityVerified: boolean;
   hideExpired: boolean;
-  sources: Set<SourceKind>;
 };
 
 export const DEFAULT_FILTERS: Filters = {
-  sort: 'nearest',
+  sort: 'best',
   radiusMi: 1,
   dealTypes: new Set(),
   storeTypes: new Set(),
   openNow: true,
   communityVerified: false,
   hideExpired: true,
-  sources: new Set(SOURCES.map((s) => s.kind)),
 };
 
 /** Posts this old with no end date have probably run their course. */
@@ -71,13 +62,23 @@ function withinRadius(distanceMi: number | null, radiusMi: number) {
   return distanceMi == null || distanceMi <= radiusMi;
 }
 
-const SORTERS: Record<Sort, (a: Deal, b: Deal) => number> = {
-  nearest: (a, b) => (a.distanceMi ?? Infinity) - (b.distanceMi ?? Infinity),
-  newest: (a, b) => a.postedHoursAgo - b.postedHoursAgo,
-  ending: (a, b) => (a.endsAt?.getTime() ?? Infinity) - (b.endsAt?.getTime() ?? Infinity),
-};
+const nearest = (a: Deal, b: Deal) => (a.distanceMi ?? Infinity) - (b.distanceMi ?? Infinity);
 
-export function applyFilters(deals: Deal[], filters: Filters, query = '', now = new Date()) {
+/** Best deals: most confirmed in store first, then the freshest post. */
+const best = (a: Deal, b: Deal) => b.confirmations - a.confirmations || a.postedHoursAgo - b.postedHoursAgo;
+
+/** Relevance: deals at store types you follow first, then nearest. */
+const relevance = (interests: Set<string>) => (a: Deal, b: Deal) =>
+  Number(interests.has(b.storeType)) - Number(interests.has(a.storeType)) || nearest(a, b);
+
+export function applyFilters(
+  deals: Deal[],
+  filters: Filters,
+  query = '',
+  interests: Set<string> = new Set(),
+  now = new Date(),
+) {
+  const sorter = { best, relevance: relevance(interests), distance: nearest }[filters.sort];
   const dealTypes = [...filters.dealTypes].filter((t) => t !== UPCOMING_EVENTS);
   return deals
     .filter(
@@ -88,10 +89,9 @@ export function applyFilters(deals: Deal[], filters: Filters, query = '', now = 
         (!filters.openNow || isOpenNow(d, now)) &&
         (!filters.communityVerified || isCommunityVerified(d)) &&
         (!filters.hideExpired || !isLikelyExpired(d, now)) &&
-        filters.sources.has(d.source.kind) &&
         matchesQuery(query, d.store, d.offer, d.typeLabel, d.storeType),
     )
-    .sort(SORTERS[filters.sort]);
+    .sort(sorter);
 }
 
 /** Events are worth a short trip, so distance doesn't hide them (the 1.2 mi pop-up shows at 1 mi). */
@@ -125,8 +125,9 @@ export function appliedFilters(filters: Filters): { key: string; label: string; 
   ];
 }
 
-// Quick chips on the Deals screen (Figma "06 · Deals"): "All" plus the store types you picked,
-// any number on at once. An empty set means every store type.
-export function byStoreTypes<T extends { storeType: string }>(items: T[], storeTypes: Set<string>) {
-  return storeTypes.size === 0 ? items : items.filter((i) => storeTypes.has(i.storeType));
+// Quick chips on the Deals screen (Figma "07 · Deals"): "All", your store types, then deal types,
+// any number on at once. Running the filters a second time with these sets narrows the list
+// further without touching the saved filters; empty sets mean any.
+export function quickFilters(filters: Filters, storeTypes: Set<string>, dealTypes: Set<string>): Filters {
+  return { ...filters, storeTypes, dealTypes };
 }
