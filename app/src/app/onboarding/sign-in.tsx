@@ -23,8 +23,8 @@ const PROVIDERS: Provider[] = [
   { key: 'phone', label: 'Continue with phone', icon: 'phone', variant: 'outline' },
 ];
 
-// 02 · Sign in (Figma 49:1450). With the backend: Apple and Google through Clerk, phone by text code, email
-// through Create account. Without it, everything signs in as the demo account.
+// 03 · Sign in (Figma 49:1450). With the backend: Apple and Google through Clerk, phone by text code, email
+// through Create account (a .edu address typed in the student card goes there too, filled in). Without it, everything signs in as the demo account.
 export default function SignIn() {
   const { signedIn } = useStore();
   if (usingBackend && signedIn) return <Redirect href="/deals" />;
@@ -62,9 +62,11 @@ function ClerkSignIn() {
       onLogIn={() => router.push('/onboarding/log-in')}
       busy={busy}
       student={
-        <Text size={12} color={colors.inkTertiary} style={{ textAlign: 'center' }}>
-          Students: sign up with your .edu email, or verify it later from your profile, to unlock student deals.
-        </Text>
+        <StudentVerify
+          domain={null}
+          onVerified={() => undefined}
+          onNeedsAccount={(email) => router.push({ pathname: '/onboarding/create-account', params: { email } })}
+        />
       }
     />
   );
@@ -116,7 +118,14 @@ function SignInLayout({
       </View>
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         {PROVIDERS.map((p) => (
-          <Button key={p.label} label={p.label} icon={p.icon} variant={p.variant} onPress={() => onProvider(p)} disabled={busy} />
+          <Button
+            key={p.label}
+            label={p.label}
+            icon={p.icon}
+            variant={p.variant}
+            onPress={() => onProvider(p)}
+            disabled={busy}
+          />
         ))}
         <Button
           label="Continue with email"

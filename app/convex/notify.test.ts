@@ -74,7 +74,8 @@ test("a new deal alerts nearby followers of its type, once, by push", async () =
   const sent = JSON.parse(pushes[0]!.init!.body as string);
   expect(sent.map((p: { to: string }) => p.to).sort()).toEqual(["ExponentPushToken[1]", "ExponentPushToken[5]"]);
   expect(sent[0]).toMatchObject({ title: "Tapioca Lab", categoryId: "deal-alert" });
-  expect(sent[0].body).toContain("BOGO milk tea · via Instagram");
+  // Figma "6 · Notifications": the deal over its end time.
+  expect(sent[0].body).toBe("BOGO milk tea\nEnds Dec 31, 6 PM");
 
   // The token Expo called DeviceNotRegistered is gone.
   expect(await t.run(async (ctx) => (await ctx.db.query("devices").collect()).length)).toBe(4);

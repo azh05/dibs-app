@@ -51,7 +51,7 @@ function sourceRow(deal: Deal): DetailRow {
   };
 }
 
-// 09 · Deal detail (Figma 5:341)
+// 10 · Deal detail (Figma 5:341)
 export default function DealDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const insets = useSafeAreaInsets();
@@ -97,7 +97,7 @@ export default function DealDetail() {
       title: 'Line now: ',
       accent: lineLabel(line.minutes),
       subtitle: `${line.reports} ${line.reports === 1 ? 'report' : 'reports'} in the last hour`,
-      trailing: <StatusPill label="Live" />,
+      trailing: <StatusPill label="Live" small />,
     });
   }
   if (deal.address) {

@@ -13,6 +13,8 @@ type Props = {
   /** The verified domain, once there is one. */
   domain: string | null;
   onVerified: (domain: string) => void;
+  /** Backend, before sign-in: there is no account to add the address to, so hand it to sign-up. */
+  onNeedsAccount?: (email: string) => void;
 };
 
 // Figma "Student verify" (Sign in): .edu email in, student-only deals unlocked. With the backend the address is
@@ -23,7 +25,7 @@ export function StudentVerify(props: Props) {
 
 type EmailResource = NonNullable<ReturnType<typeof useUser>['user']>['emailAddresses'][number];
 
-function ClerkStudentVerify({ domain }: Props) {
+function ClerkStudentVerify({ domain, onNeedsAccount }: Props) {
   const { user } = useUser();
   const [email, setEmail] = useState('');
   const [code, setCode] = useState('');
@@ -47,6 +49,7 @@ function ClerkStudentVerify({ domain }: Props) {
   const send = () =>
     run(async () => {
       if (!eduDomain(email)) throw new Error('Use your school email, ending in .edu');
+      if (!user && onNeedsAccount) return onNeedsAccount(email.trim());
       if (!user) throw new Error('Sign in first');
       const existing = user.emailAddresses.find((e) => e.emailAddress.toLowerCase() === email.trim().toLowerCase());
       const address = existing ?? (await user.createEmailAddress({ email: email.trim() }));
@@ -61,7 +64,11 @@ function ClerkStudentVerify({ domain }: Props) {
       setDone(true);
     });
 
-  const title = domain ? 'Student deals unlocked' : done ? 'Verified! Unlocking student deals…' : 'Unlock student-only deals';
+  const title = domain
+    ? 'Student deals unlocked'
+    : done
+      ? 'Verified! Unlocking student deals…'
+      : 'Unlock student-only deals';
   const subtitle = domain
     ? `Verified with ${domain}`
     : pending
@@ -89,7 +96,11 @@ function ClerkStudentVerify({ domain }: Props) {
               onSubmitEditing={pending ? confirm : send}
               style={styles.field}
             />
-            <Pressable onPress={pending ? confirm : send} disabled={busy} accessibilityRole="button" style={styles.verify}>
+            <Pressable
+              onPress={pending ? confirm : send}
+              disabled={busy}
+              accessibilityRole="button"
+              style={styles.verify}>
               <Text weight="bold" size={14} color={colors.surface}>
                 {busy ? '…' : pending ? 'Confirm' : 'Verify'}
               </Text>

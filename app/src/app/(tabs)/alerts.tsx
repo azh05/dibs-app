@@ -22,7 +22,7 @@ import { colors, gutter, radii } from '@/theme';
 /** Chips shown before the "+N more" pill: picked interests first, then store types to add. */
 const SHOWN_INTERESTS = 9;
 
-// 12 · Alerts (Figma 5:559)
+// 13 · Alerts (Figma 5:559)
 export default function AlertsScreen() {
   const insets = useSafeAreaInsets();
   const { deals, events } = useDeals();

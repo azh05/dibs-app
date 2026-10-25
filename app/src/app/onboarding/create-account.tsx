@@ -1,5 +1,5 @@
 import { useQuery } from 'convex/react';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useState } from 'react';
 import { KeyboardAvoidingView, Pressable, ScrollView, StyleSheet, View } from 'react-native';
@@ -41,14 +41,16 @@ function useLocalSignUp() {
 }
 const useSignUpFlow = usingBackend ? useCodeAuth : useLocalSignUp;
 
-// 03 · Create account (Figma 66:2207), onboarding step 1 of 3. Validates locally; there is no
-// account backend yet.
+// 04 · Create account (Figma 66:2207), onboarding step 1 of 3. With the backend, Clerk creates the
+// account (plus an optional invite code field); without it, the form signs in locally.
 export default function CreateAccount() {
   const insets = useSafeAreaInsets();
   const { signIn, studentDomain } = useStore();
+  // Sign in's student card passes the .edu address it was given.
+  const params = useLocalSearchParams<{ email?: string }>();
   const [name, setName] = useState('');
   const [username, setUsername] = useState('');
-  const [email, setEmail] = useState('');
+  const [email, setEmail] = useState(params.email ?? '');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [birthday, setBirthday] = useState('');
@@ -303,7 +305,13 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     backgroundColor: colors.orangeSoft,
   },
-  cta: { gap: 10, paddingTop: 10, paddingHorizontal: gutter + 4, alignItems: 'center', backgroundColor: colors.surface },
+  cta: {
+    gap: 10,
+    paddingTop: 10,
+    paddingHorizontal: gutter + 4,
+    alignItems: 'center',
+    backgroundColor: colors.surface,
+  },
   ctaButton: { alignSelf: 'stretch', paddingVertical: 17 },
   logIn: { flexDirection: 'row', gap: 4 },
 });

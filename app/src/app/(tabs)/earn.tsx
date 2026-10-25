@@ -14,7 +14,7 @@ import { colors, gutter, radii } from '@/theme';
 
 const STEPS = ['Snap it', 'We verify', `Earn ${CREDITS_PER_DEAL}`];
 
-// 14 · Earn credits (Figma 5:445)
+// 15 · Earn credits (Figma 5:445)
 export default function EarnScreen() {
   const insets = useSafeAreaInsets();
   const { submissions, credits } = useStore();
@@ -33,8 +33,7 @@ export default function EarnScreen() {
             Spot a deal. Earn credits.
           </Text>
           <Text size={14} color={colors.inkSecondary} style={{ lineHeight: 21 }}>
-            Some deals only live on a poster or the menu. Snap one we haven’t found and earn credits once it’s
-            verified.
+            Some deals only live on a poster or the menu. Snap one we haven’t found and earn credits once it’s verified.
           </Text>
         </View>
 
@@ -89,7 +88,8 @@ export default function EarnScreen() {
               Your submissions
             </Text>
             <Text weight="bold" size={14} color={colors.success}>
-              {credits.balance.toLocaleString()} credits{credits.pending ? ` · ${credits.pending.toLocaleString()} pending` : ''}
+              {credits.balance.toLocaleString()} credits earned
+              {credits.pending ? ` · ${credits.pending.toLocaleString()} pending` : ''}
             </Text>
           </View>
           {submissions.map((s) => (

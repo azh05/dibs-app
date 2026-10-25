@@ -15,6 +15,9 @@ export function PostPreview({
   imageHeight: number;
   imageUri?: string;
 }) {
+  // Figma draws two poster styles: the deal's big headline (52px, 4% tighter, 11px subline) and the
+  // event's smaller one (30px, 2% tighter, 10px subline spaced wider, 4px apart).
+  const big = post.headlineSize >= 40;
   return (
     <View style={[styles.card, shadows.post]}>
       <View style={styles.clip}>
@@ -36,17 +39,22 @@ export function PostPreview({
         {imageUri ? (
           <Image source={{ uri: imageUri }} style={{ height: imageHeight }} resizeMode="cover" />
         ) : (
-          <View style={[styles.image, { height: imageHeight, backgroundColor: post.imageColor }]}>
+          <View style={[styles.image, { height: imageHeight, gap: big ? 2 : 4, backgroundColor: post.imageColor }]}>
             <Text
               weight="extrabold"
               size={post.headlineSize}
-              tracking={-post.headlineSize * 0.03}
+              tracking={-post.headlineSize * (big ? 0.04 : 0.02)}
               color={colors.surface}
               numberOfLines={1}
               adjustsFontSizeToFit>
               {post.headline}
             </Text>
-            <Text weight="bold" size={11} tracking={0.66} color={post.sublineColor} numberOfLines={1}>
+            <Text
+              weight="bold"
+              size={big ? 11 : 10}
+              tracking={big ? 0.66 : 0.8}
+              color={post.sublineColor}
+              numberOfLines={1}>
               {post.subline}
             </Text>
           </View>
@@ -67,6 +75,6 @@ const styles = StyleSheet.create({
   clip: { borderRadius: 20, overflow: 'hidden' },
   header: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 12, paddingVertical: 10 },
   avatar: { width: 26, height: 26, borderRadius: 13, alignItems: 'center', justifyContent: 'center' },
-  image: { alignItems: 'center', justifyContent: 'center', gap: 2, paddingHorizontal: 12 },
+  image: { alignItems: 'center', justifyContent: 'center', paddingHorizontal: 12 },
   caption: { paddingHorizontal: 12, paddingVertical: 10 },
 });
