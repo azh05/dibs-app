@@ -48,7 +48,7 @@ Welcome → Sign in → (email: Create account; Apple, Google, phone: Pick a use
   - Typing in Deals search queries `/search/deals`, which searches every indexed deal by meaning (any language) and distance.
   - The sparkles button next to the bell opens Ask dibs (`src/app/ask.tsx`, not in Figma yet), a chat with the Elastic agent that shows the deals it found as cards. It can also watch for new deals; that needs a push token, so a development build with an EAS project id.
   - Set `EXPO_PUBLIC_DIBS_API_KEY` when the API has `DIBS_API_KEY`. That key ships inside the app bundle, so it's for development; in production these calls should go through Convex.
-- **Filters**: sort (best deals, relevance, distance), distance, store types, deal types, open now (on by default), community verified and hide likely expired. They apply across Deals and Map, except distance, which only the Deals tab uses.
+- **Filters**: sort (best deals, relevance, distance), distance, store types, deal types, open now (off by default), community verified and hide likely expired. They apply across Deals and Map, except distance, which only the Deals tab uses.
 
 In mock mode nothing persists: the account, saves, likes, interests, line reports, credits and XP reset on restart, and friends, ranks and leaderboards are mock data. In backend mode they all live in Convex.
 

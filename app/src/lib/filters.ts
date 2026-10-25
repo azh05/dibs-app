@@ -31,7 +31,7 @@ export const DEFAULT_FILTERS: Filters = {
   radiusMi: 1,
   dealTypes: new Set(),
   storeTypes: new Set(),
-  openNow: true,
+  openNow: false,
   communityVerified: false,
   hideExpired: true,
   matchInterests: true,
