@@ -9,15 +9,8 @@ import { Icon } from '@/components/icon';
 import { Segmented } from '@/components/segmented';
 import { Text } from '@/components/text';
 import { initials, shortName } from '@/lib/account';
-import {
-  LEADERBOARDS,
-  PROFILE_STATS,
-  SCOPES,
-  daysUntilReset,
-  type AvatarTone,
-  type Ranked,
-  type Scope,
-} from '@/lib/social';
+import { daysUntilReset, type AvatarTone, type Ranked } from '@/lib/social';
+import { BOARD_SCOPES, scopeFromParam, useBoard, type BoardScope } from '@/lib/social-data';
 import { useStore } from '@/lib/store';
 import { colors, gutter, radii } from '@/theme';
 
@@ -34,25 +27,29 @@ function change(delta: number) {
   return { text: '— no change', color: colors.inkTertiary };
 }
 
-// 19 · Leaderboard (Figma 51:1657): ranked by dollars saved this month. Mock data for now.
+// 19 · Leaderboard (Figma 51:1657): ranked by dollars saved this month (Convex boards, or mock data).
 export default function LeaderboardScreen() {
   const insets = useSafeAreaInsets();
-  const params = useLocalSearchParams<{ scope?: Scope }>();
+  const params = useLocalSearchParams<{ scope?: string }>();
   const { account } = useStore();
-  const [scope, setScope] = useState<Scope>(params.scope && SCOPES.includes(params.scope) ? params.scope : 'Westwood');
+  const [scope, setScope] = useState<BoardScope>(() => scopeFromParam(params.scope, []));
+  const board = useBoard(scope);
   // The tab stays mounted, so a rank card opening another scope switches it here, while rendering.
   const [lastParam, setLastParam] = useState(params.scope);
   if (params.scope !== lastParam) {
     setLastParam(params.scope);
-    if (params.scope && SCOPES.includes(params.scope)) setScope(params.scope);
+    if (params.scope) setScope(scopeFromParam(params.scope, board.labels));
   }
 
-  const board = LEADERBOARDS[scope];
+  const you = board.you;
   const myLabel = account ? `You · ${shortName(account.name)}` : 'You';
   const tenth = board.ranked[9]?.saved;
-  const myChange = change(board.you.change);
-  const toTopTen =
-    board.you.rank <= 10 || tenth == null ? 'in the top 10' : `$${tenth - PROFILE_STATS.savedDollars} to top 10`;
+  const myChange = change(you?.change ?? 0);
+  const toTopTen = !you
+    ? 'use a deal to get ranked'
+    : you.rank <= 10 || tenth == null
+      ? 'in the top 10'
+      : `$${tenth - you.saved} to top 10`;
 
   return (
     <View style={[styles.screen, { paddingTop: insets.top }]}>
@@ -70,7 +67,11 @@ export default function LeaderboardScreen() {
           </Text>
         </View>
 
-        <Segmented options={SCOPES.map((s) => ({ value: s, label: s }))} value={scope} onChange={setScope} />
+        <Segmented
+          options={BOARD_SCOPES.map((s, i) => ({ value: s, label: board.labels[i] ?? s }))}
+          value={scope}
+          onChange={setScope}
+        />
 
         <View style={styles.metric}>
           <Text size={13} color={colors.inkTertiary}>
@@ -86,6 +87,7 @@ export default function LeaderboardScreen() {
         <View style={styles.podium}>
           {PODIUM.map((p) => {
             const person = board.ranked[p.place - 1];
+            if (!person) return <View key={p.place} style={styles.place} />;
             return (
               <View key={p.place} style={styles.place}>
                 <Avatar
@@ -112,14 +114,19 @@ export default function LeaderboardScreen() {
 
         <View>
           {board.ranked.slice(3).map((person, i) => (
-            <RankRow key={person.name} rank={i + 4} person={person} />
+            <RankRow key={`${person.name}-${i}`} rank={i + 4} person={person} />
           ))}
         </View>
+        {board.ranked.length === 0 && (
+          <Text size={14} color={colors.inkTertiary}>
+            No one has saved anything here this month yet. Mark a deal “Used it” to start.
+          </Text>
+        )}
       </ScrollView>
 
       <View style={[styles.you, { bottom: 12 }]}>
         <Text weight="extrabold" size={15} color={colors.orange}>
-          {board.you.rank}
+          {you?.rank ?? '–'}
         </Text>
         <Avatar initials={account ? initials(account.name) : 'ME'} size={36} tone="orange" />
         <View style={{ flex: 1, gap: 1 }}>
@@ -131,7 +138,7 @@ export default function LeaderboardScreen() {
           </Text>
         </View>
         <Text weight="extrabold" size={15}>
-          ${PROFILE_STATS.savedDollars}
+          ${you?.saved ?? 0}
         </Text>
       </View>
     </View>

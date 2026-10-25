@@ -11,18 +11,26 @@ import { StoreLogo } from '@/components/store-logo';
 import { Text } from '@/components/text';
 import { initials } from '@/lib/account';
 import { findDeal, findEvent, useDeals } from '@/lib/api';
-import { FRIEND_POSTS, FRIEND_RANKS, PROFILE_STATS, RANK_CARDS, inviteFriends, type FriendPost } from '@/lib/social';
+import { usingBackend } from '@/lib/backend';
+import { inviteFriends, type FriendPost } from '@/lib/social';
+import { useFriendRanks, useSocial, type AreaKey } from '@/lib/social-data';
 import { useStore } from '@/lib/store';
 import { colors, gutter, radii } from '@/theme';
 
 const CARD_BUTTON = { deal: ['Save', 'Saved'], event: ['I’m in', 'You’re in'] } as const;
 
-// 17 · Friends · scroll (Figma 102:2466): your ranks, friends ranked by $ saved in Westwood or at
-// your school, and friends' activity. Mock data until there is a social backend.
+// 17 · Friends · scroll (Figma 102:2466): your ranks, friends ranked by $ saved in your neighbourhood or at
+// your school, and friends' activity. Live from Convex (src/lib/social-data.ts), or mock data.
 export default function FriendsScreen() {
   const insets = useSafeAreaInsets();
   const { account } = useStore();
-  const [scope, setScope] = useState<keyof typeof FRIEND_RANKS>('Westwood');
+  const social = useSocial();
+  const [scope, setScope] = useState<AreaKey>('neighborhood');
+  const ranks = useFriendRanks(scope);
+  const search = () =>
+    usingBackend
+      ? router.push('/find-friends')
+      : Alert.alert('Find friends', 'Searching by name or @username works once the app is signed in to dibs.');
 
   return (
     <View style={[styles.screen, { paddingTop: insets.top }]}>
@@ -33,11 +41,15 @@ export default function FriendsScreen() {
             Friends
           </Text>
           <View style={styles.headerIcons}>
-            <Pressable onPress={inviteFriends} hitSlop={8} accessibilityRole="button" accessibilityLabel="Add friends">
+            <Pressable
+              onPress={() => inviteFriends(social.invites.code, social.invites.reward)}
+              hitSlop={8}
+              accessibilityRole="button"
+              accessibilityLabel="Add friends">
               <Icon name="user-plus" size={22} />
             </Pressable>
             <Pressable
-              onPress={() => Alert.alert('Find friends', 'Searching by name or @username is coming soon.')}
+              onPress={search}
               hitSlop={8}
               accessibilityRole="button"
               accessibilityLabel="Search friends">
@@ -57,11 +69,11 @@ export default function FriendsScreen() {
                 Friends
               </Text>
               <Text weight="semibold" size={13} color={colors.inkTertiary}>
-                {PROFILE_STATS.friends}
+                {social.stats.friends}
               </Text>
             </View>
             <View style={styles.scope}>
-              {RANK_CARDS.map(({ scope: s }) => (
+              {social.rankCards.map(({ key: s, label }) => (
                 <Pressable
                   key={s}
                   onPress={() => setScope(s)}
@@ -69,13 +81,18 @@ export default function FriendsScreen() {
                   accessibilityState={{ selected: s === scope }}
                   style={[styles.scopeOption, s === scope && styles.scopeOn]}>
                   <Text weight="bold" size={12} color={s === scope ? colors.ink : colors.inkTertiary}>
-                    {s}
+                    {label}
                   </Text>
                 </Pressable>
               ))}
             </View>
           </View>
-          {FRIEND_RANKS[scope].map((f) => (
+          {ranks.length === 0 && (
+            <Text size={13} color={colors.inkTertiary} style={{ paddingVertical: 8 }}>
+              No one is ranked here yet this month. Mark a deal “Used it” to get on the board.
+            </Text>
+          )}
+          {ranks.map((f) => (
             <View key={f.name} style={[styles.friendRow, f.you && styles.youRow]}>
               <Text
                 weight="extrabold"
@@ -98,7 +115,7 @@ export default function FriendsScreen() {
             accessibilityRole="button"
             style={styles.showAll}>
             <Text weight="bold" size={13}>
-              Show all {PROFILE_STATS.friends} friends
+              Show all {social.stats.friends} friends
             </Text>
             <View style={{ transform: [{ rotate: '90deg' }] }}>
               <Icon name="chevron" size={14} />
@@ -110,7 +127,12 @@ export default function FriendsScreen() {
           <Text weight="extrabold" size={16} tracking={-0.16}>
             Activity
           </Text>
-          {FRIEND_POSTS.map((p) => (
+          {social.posts.length === 0 && (
+            <Text size={13} color={colors.inkTertiary}>
+              When friends use deals or save events, it shows up here.
+            </Text>
+          )}
+          {social.posts.map((p) => (
             <Post key={p.id} post={p} />
           ))}
         </View>

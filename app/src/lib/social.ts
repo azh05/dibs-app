@@ -1,5 +1,5 @@
-// Profile, leaderboard and friends data (Figma "5 · Profile & social"). There is no social
-// backend yet, so everything here is mock data shaped like the screens.
+// Profile, leaderboard and friends data (Figma "5 · Profile & social"): the mock data, shaped like the screens.
+// With the backend, src/lib/social-data.ts serves the same shapes from Convex.
 import { Share } from 'react-native';
 
 import type { IconName } from '@/components/icon';
@@ -103,9 +103,11 @@ export const FRIEND_POSTS: FriendPost[] = [
 /** Credits, not cash: both people get this when an invited friend signs up and verifies. */
 export const INVITES = { joined: 3, earned: 1500, reward: 500 };
 
-/** The share sheet behind "Invite" (Profile) and the add-friends button (Friends). */
-export function inviteFriends() {
-  const message = `Join me on dibs: it finds the best deals near you before they’re gone. We both get ${INVITES.reward} credits.`;
+/** The share sheet behind "Invite" (Profile) and the add-friends button (Friends). With the backend, `code` is
+ * your invite code: the link fills it in on Create account and both of you get the credits. */
+export function inviteFriends(code?: string | null, reward = INVITES.reward) {
+  const link = code ? ` dibs://invite/${code} (code ${code})` : '';
+  const message = `Join me on dibs: it finds the best deals near you before they’re gone. We both get ${reward} credits.${link}`;
   Share.share({ message }).catch(() => undefined);
 }
 

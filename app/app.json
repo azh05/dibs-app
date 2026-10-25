@@ -16,6 +16,7 @@
       }
     },
     "android": {
+      "package": "com.dibs.app",
       "adaptiveIcon": {
         "backgroundColor": "#FF5A1F",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
@@ -49,7 +50,10 @@
         {
           "locationWhenInUsePermission": "dibs uses your location to find deals and events near you."
         }
-      ]
+      ],
+      "@clerk/expo",
+      "expo-secure-store",
+      "expo-web-browser"
     ],
     "experiments": {
       "typedRoutes": true,

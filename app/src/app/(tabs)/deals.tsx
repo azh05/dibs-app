@@ -16,11 +16,11 @@ import { InterestChip } from '@/components/interest-chip';
 import { SearchBar } from '@/components/search-bar';
 import { SectionHeader } from '@/components/section-header';
 import { Text } from '@/components/text';
-import { searchIndexedDeals, useDeals, usingLiveApi } from '@/lib/api';
+import { searchIndexedDeals, useDeals, useSpotsWatched, usingLiveApi } from '@/lib/api';
+import { usingBackend } from '@/lib/backend';
 import { UPCOMING_EVENTS, applyEventFilters, applyFilters, quickFilters } from '@/lib/filters';
 import { DEAL_TYPES, STORE_TYPES } from '@/lib/interests';
 import { combinedLine } from '@/lib/line-check';
-import { HOME } from '@/lib/mock';
 import { useStore } from '@/lib/store';
 import type { Deal } from '@/lib/types';
 import { colors, gutter } from '@/theme';
@@ -29,7 +29,8 @@ import { colors, gutter } from '@/theme';
 export default function DealsScreen() {
   const insets = useSafeAreaInsets();
   const { deals, events, loading, error } = useDeals();
-  const { saved, toggleSaved, activity, filters, lineReports, topics } = useStore();
+  const { saved, toggleSaved, activity, filters, lineReports, topics, place } = useStore();
+  const spots = useSpotsWatched();
   // Quick chips: "All" (on at first), your store-type interests, then every deal type.
   const interests = STORE_TYPES.filter((t) => topics.has(t.label));
   const [pickedStores, setPickedStores] = useState(new Set<string>());
@@ -43,13 +44,13 @@ export default function DealsScreen() {
   useEffect(() => {
     if (!usingLiveApi || !q) return;
     const id = setTimeout(() => {
-      searchIndexedDeals(q, HOME, filters.radiusMi).then(
+      searchIndexedDeals(q, place.coords, filters.radiusMi).then(
         (found) => setIndexed({ query: q, deals: found }),
         () => setIndexed({ query: q, deals: [] }),
       );
     }, 400);
     return () => clearTimeout(id);
-  }, [q, filters.radiusMi]);
+  }, [q, filters.radiusMi, place.coords]);
 
   const toggle = (set: Set<string>, label: string) => {
     const next = new Set(set);
@@ -68,20 +69,25 @@ export default function DealsScreen() {
   const allOn = pickedStores.size === 0 && pickedTypes.size === 0 && !upcomingOnly;
   const unread = activity.some((a) => a.unread);
 
-  let agentStatus = 'Watching 1,284 spots near you';
-  if (loading) agentStatus = 'Your agent is scanning Instagram and the web near you…';
+  let agentStatus = spots ? `Watching ${spots.toLocaleString()} spots near you` : 'Your agent is learning this area';
+  if (loading) agentStatus = usingBackend ? 'Loading deals near you…' : 'Your agent is scanning Instagram and the web near you…';
   else if (error) agentStatus = `Couldn't reach your agent: ${error}`;
-  else if (usingLiveApi) agentStatus = `Your agent found ${deals.length} verified deals on the web just now`;
+  else if (usingBackend && !place.areaKey) agentStatus = 'Set your location so your agent knows where to look';
+  else if (!usingBackend && usingLiveApi) agentStatus = `Your agent found ${deals.length} verified deals on the web just now`;
 
   return (
     <View style={[styles.screen, { paddingTop: insets.top }]}>
       <StatusBar style="dark" />
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         <View style={styles.header}>
-          <Pressable style={styles.location} accessibilityRole="button" accessibilityLabel="Change location">
+          <Pressable
+            style={styles.location}
+            onPress={() => router.push('/location')}
+            accessibilityRole="button"
+            accessibilityLabel="Change location">
             <Icon name="pin" size={18} color={colors.orange} />
             <Text weight="bold" size={16}>
-              {HOME.label}
+              {place.label}
             </Text>
             <Caret width={16} height={16} color={colors.ink} />
           </Pressable>

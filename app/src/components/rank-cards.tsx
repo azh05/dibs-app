@@ -3,20 +3,20 @@ import { Pressable, StyleSheet, View } from 'react-native';
 
 import { Icon } from '@/components/icon';
 import { Text } from '@/components/text';
-import { LEADERBOARDS, RANK_CARDS } from '@/lib/social';
+import { useSocial } from '@/lib/social-data';
 import { colors } from '@/theme';
 
-// Figma "Rankings" (115:2598) on Friends and Profile: your rank in Westwood and at your school.
-// Each card opens the leaderboard on that scope.
+// Figma "Rankings" (115:2598) on Friends and Profile: your rank in your neighbourhood and at your school
+// ("Westwood" and "UCLA" in the design). Each card opens the leaderboard on that scope.
 export function RankCards() {
+  const { rankCards } = useSocial();
   return (
     <View style={styles.row}>
-      {RANK_CARDS.map(({ scope, icon }) => {
-        const { rank, change, top } = LEADERBOARDS[scope].you;
+      {rankCards.map(({ key, label: scope, icon, rank, change, top }) => {
         return (
           <Pressable
-            key={scope}
-            onPress={() => router.navigate({ pathname: '/leaderboard', params: { scope } })}
+            key={key}
+            onPress={() => router.navigate({ pathname: '/leaderboard', params: { scope: key } })}
             accessibilityRole="button"
             accessibilityLabel={`${scope} leaderboard`}
             style={styles.card}>
@@ -28,11 +28,13 @@ export function RankCards() {
             </View>
             <View style={styles.value}>
               <Text weight="extrabold" size={28} tracking={-0.84}>
-                #{rank}
+                {rank ? `#${rank}` : '–'}
               </Text>
-              <Text weight="bold" size={12} color={colors.orange} style={{ paddingBottom: 5 }}>
-                Top {top}%
-              </Text>
+              {top != null && (
+                <Text weight="bold" size={12} color={colors.orange} style={{ paddingBottom: 5 }}>
+                  Top {top}%
+                </Text>
+              )}
             </View>
             <Text weight="semibold" size={12} color={change >= 0 ? colors.success : colors.orange}>
               {change > 0 ? `▲ ${change} this week` : change < 0 ? `▼ ${-change} this week` : 'No change this week'}

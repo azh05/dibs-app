@@ -18,7 +18,6 @@ import { appliedFilters, applyEventFilters, applyFilters, SORTS } from '@/lib/fi
 import { SOURCE_ICONS, eventWeekday, plural, recency, shortAgo } from '@/lib/format';
 import { combinedLine, GEOFENCE_METERS, useLineCheck, useUserLocation } from '@/lib/line-check';
 import { layoutPins } from '@/lib/pin-layout';
-import { HOME } from '@/lib/mock';
 import { useStore } from '@/lib/store';
 import type { Deal, DealEvent, LatLng } from '@/lib/types';
 import { colors, gutter, radii, shadows } from '@/theme';
@@ -47,15 +46,16 @@ export default function MapScreen() {
   const map = useRef<MapView>(null);
   const { deals, events } = useDeals();
   const store = useStore();
-  const { saved, toggleSaved, filters, lineReports } = store;
+  const { saved, toggleSaved, filters, lineReports, place } = store;
+  const home = place.coords;
   const [query, setQuery] = useState('');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [topHeight, setTopHeight] = useState(0);
   const [bottomHeight, setBottomHeight] = useState(0);
-  const [region, setRegion] = useState(regionAround(HOME));
+  const [region, setRegion] = useState(regionAround(home));
   const [mapWidth, setMapWidth] = useState(0);
   const position = useUserLocation();
-  const you = position ?? HOME;
+  const you = position ?? home;
   const lineCheck = useLineCheck(deals, position);
 
   const shown = applyFilters(deals, filters, query, store.topics);
@@ -119,7 +119,7 @@ export default function MapScreen() {
         showsCompass={false}
         rotateEnabled={false}
         pitchEnabled={false}
-        initialRegion={regionAround(HOME)}
+        initialRegion={regionAround(home)}
         // Keeps the visible middle of the map between the search bar and the bottom sheet.
         mapPadding={{ top: topHeight, bottom: bottomHeight, left: 0, right: 0 }}
         onMapReady={() => map.current?.animateToRegion(regionAround(you), 0)}
@@ -131,7 +131,7 @@ export default function MapScreen() {
         {prompted?.coords && (
           <Circle
             center={prompted.coords}
-            radius={GEOFENCE_METERS}
+            radius={prompted.geofenceM ?? GEOFENCE_METERS}
             strokeColor={colors.orange}
             strokeWidth={1.5}
             lineDashPattern={[6, 5]}
@@ -226,7 +226,7 @@ export default function MapScreen() {
           <View style={styles.lineCheck}>
             <LineCheckCard
               store={prompted.store}
-              onReport={(minutes) => store.reportLine(prompted.id, minutes)}
+              onReport={(minutes) => store.reportLine(prompted, minutes, position)}
               onUndo={store.undoLineReport}
               onClose={lineCheck.dismiss}
             />

@@ -12,18 +12,20 @@ import { RankCards } from '@/components/rank-cards';
 import { StudentVerify } from '@/components/student-verify';
 import { Text } from '@/components/text';
 import { initials, schoolName, shortName } from '@/lib/account';
-import { DEAL_DNA, INVITES, PROFILE_FRIENDS, PROFILE_STATS, inviteFriends, levelFor } from '@/lib/social';
+import { inviteFriends, levelFor } from '@/lib/social';
+import { useSocial, type SocialData } from '@/lib/social-data';
 import { useStore } from '@/lib/store';
 import { colors, gutter, radii } from '@/theme';
 
 const editInterests = () => router.push({ pathname: '/onboarding/interests', params: { edit: '1' } });
 
-// 18 · Profile (Figma 50:1552). Savings, ranks and friends are mock data until there is a
-// social backend.
+// 18 · Profile (Figma 50:1552). Savings, ranks and friends come from Convex (src/lib/social-data.ts), or mock
+// data without a backend.
 export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
   const store = useStore();
-  const { account, studentDomain, xp, saved, used, topics, instant, alertRadiusMi } = store;
+  const { account, studentDomain, xp, saved, topics, instant, alertRadiusMi, lists, place } = store;
+  const social = useSocial();
   const [verifying, setVerifying] = useState(false);
 
   if (!account) {
@@ -39,7 +41,9 @@ export default function ProfileScreen() {
 
   const level = levelFor(xp);
   const school = studentDomain ? schoolName(studentDomain) : null;
-  const dealsUsed = PROFILE_STATS.dealsUsed + used.size;
+  const dealsUsed = social.stats.dealsUsed;
+  const area = place.label.split(',')[0];
+  const invite = () => inviteFriends(social.invites.code, social.invites.reward);
 
   const openSettings = () =>
     Alert.alert('Settings', undefined, [
@@ -90,7 +94,7 @@ export default function ProfileScreen() {
               {shortName(account.name)}
             </Text>
             <Text size={13} color={colors.inkTertiary}>
-              {school ? `${school} · Westwood` : 'Westwood'}
+              {school ? `${school} · ${area}` : area}
             </Text>
             <View style={styles.identityMeta}>
               {school && (
@@ -102,7 +106,7 @@ export default function ProfileScreen() {
                 </View>
               )}
               <Text weight="bold" size={12} color={colors.inkSecondary}>
-                {PROFILE_STATS.friends} friends
+                {social.stats.friends} friends
               </Text>
             </View>
           </View>
@@ -137,19 +141,19 @@ export default function ProfileScreen() {
           </View>
         </View>
 
-        <Savings />
+        <Savings stats={social.stats} />
 
         <RankCards />
 
         <View style={styles.dna}>
           <SectionTitle title="Your deal DNA" meta="This month" />
           <View style={styles.dnaBar}>
-            {DEAL_DNA.slices.map((s) => (
+            {social.dealDna.slices.map((s) => (
               <View key={s.label} style={[styles.dnaSlice, { flex: s.percent, backgroundColor: s.color }]} />
             ))}
           </View>
           <View style={styles.legend}>
-            {DEAL_DNA.slices.map((s) => (
+            {social.dealDna.slices.map((s) => (
               <View key={s.label} style={styles.legendItem}>
                 <View style={[styles.legendDot, { backgroundColor: s.color }]} />
                 <Text weight="semibold" size={12} color={colors.inkSecondary}>
@@ -159,7 +163,7 @@ export default function ProfileScreen() {
             ))}
           </View>
           <Text weight="semibold" size={13}>
-            {DEAL_DNA.summary}
+            {social.dealDna.summary}
           </Text>
         </View>
 
@@ -167,14 +171,20 @@ export default function ProfileScreen() {
           <SectionTitle title="My lists" action="See all" onAction={() => router.push('/saved')} />
           <View style={styles.lists}>
             <ListTile icon="bookmark" count={saved.size} label="Saved" tone="orange" onPress={() => router.push('/saved')} />
-            <ListTile icon="calendar" count={12} label="Want to try" tone="soft" />
+            <ListTile
+              icon="calendar"
+              count={lists[0]?.spots ?? 0}
+              label={lists[0]?.name ?? 'Lists'}
+              tone="soft"
+              onPress={() => router.push('/saved')}
+            />
             <ListTile icon="check" count={dealsUsed} label="Used" tone="muted" />
           </View>
         </View>
 
         <View style={{ gap: 12 }}>
           <SectionTitle
-            title={`Friends · ${PROFILE_STATS.friends}`}
+            title={`Friends · ${social.stats.friends}`}
             action="See all"
             onAction={() => router.navigate('/friends')}
           />
@@ -183,7 +193,12 @@ export default function ProfileScreen() {
             showsHorizontalScrollIndicator={false}
             style={{ marginHorizontal: -gutter }}
             contentContainerStyle={styles.friends}>
-            {PROFILE_FRIENDS.map((f) => (
+            {social.friendFaces.length === 0 && (
+              <Text size={13} color={colors.inkTertiary}>
+                Add friends from the Friends tab.
+              </Text>
+            )}
+            {social.friendFaces.map((f) => (
               <View key={f.name} style={styles.friend}>
                 <Avatar initials={f.initials} size={52} tone={f.tone} />
                 <Text weight="semibold" size={12} color={colors.inkSecondary}>
@@ -198,13 +213,13 @@ export default function ProfileScreen() {
           <Icon name="gift" size={26} color={colors.orange} />
           <View style={{ flex: 1, gap: 2 }}>
             <Text weight="extrabold" size={14} tracking={-0.14}>
-              Invite friends, you both get {INVITES.reward} credits
+              Invite friends, you both get {social.invites.reward} credits
             </Text>
             <Text size={12} color={colors.inkSecondary}>
-              {INVITES.joined} friends joined · {INVITES.earned.toLocaleString()} credits earned
+              {social.invites.joined} friends joined · {social.invites.earned.toLocaleString()} credits earned
             </Text>
           </View>
-          <Pressable onPress={inviteFriends} accessibilityRole="button" style={styles.inviteButton}>
+          <Pressable onPress={invite} accessibilityRole="button" style={styles.inviteButton}>
             <Text weight="bold" size={13} color={colors.surface}>
               Invite
             </Text>
@@ -235,9 +250,9 @@ export default function ProfileScreen() {
 }
 
 // Figma "Savings" (119:2524): total saved, this week's gain and a bar per week.
-function Savings() {
-  const weeks = PROFILE_STATS.weeklySaved;
-  const max = Math.max(...weeks);
+function Savings({ stats }: { stats: SocialData['stats'] }) {
+  const weeks = stats.weeklySaved;
+  const max = Math.max(1, ...weeks);
   const thisWeek = weeks[weeks.length - 1];
   return (
     <View style={styles.savings}>
@@ -246,10 +261,10 @@ function Savings() {
           SAVED SO FAR
         </Text>
         <Text weight="extrabold" size={30} tracking={-0.9}>
-          ${PROFILE_STATS.savedDollars}
+          ${stats.savedDollars}
         </Text>
         <Text weight="semibold" size={12} color={colors.inkSecondary}>
-          Since you joined in {PROFILE_STATS.joinedMonth}
+          {stats.joinedMonth ? `Since you joined in ${stats.joinedMonth}` : 'Since you joined'}
         </Text>
       </View>
       <View style={{ alignItems: 'flex-end', gap: 6 }}>

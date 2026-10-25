@@ -19,6 +19,7 @@ from pydantic import Field
 from .errors import AnthropicKeyMissing
 from .extractor import DEAL_RULES, DEAL_TYPES, DEFAULT_MODEL, _inline_refs, _parse_raw_deals
 from .schemas import RawDeal, SearchResponse, SearchResultSource, Usage
+from .linking import link_deals
 from .verify import normalize_url, verify_deals
 
 log = logging.getLogger(__name__)
@@ -210,10 +211,11 @@ class PhotoExtractor:
                 preset_flags.append([])
             fixed.append(RawDeal.model_validate({**deal.model_dump(exclude={"year_stated"}), **updates}))
 
-        source = SearchResultSource(url=url, title=filename)
+        source = SearchResultSource(url=url, title=filename, text=transcript, origin="photo")
         deals, rejected = verify_deals(
             fixed, [source], today, source_texts={normalize_url(url): transcript}, preset_flags=preset_flags
         )
+        shops = link_deals(deals, [], [])
 
         return SearchResponse(
             as_of=today,
@@ -225,4 +227,5 @@ class PhotoExtractor:
             usage=usage,
             provider="user_photo",
             transcript=transcript,
+            shops=shops,
         )

@@ -1,7 +1,7 @@
 import { router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useState, type ReactNode } from 'react';
-import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Alert, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { EventCard } from '@/components/event-card';
@@ -10,11 +10,11 @@ import { Overline } from '@/components/section-header';
 import { StoreLogo } from '@/components/store-logo';
 import { Text } from '@/components/text';
 import { Thumb } from '@/components/thumb';
-import { useDeals } from '@/lib/api';
+import { useSaved } from '@/lib/api';
 import { isLikelyExpired } from '@/lib/filters';
 import { endsIn, isSameDay, plural } from '@/lib/format';
-import { SAVED_LISTS, type SavedList } from '@/lib/social';
-import { useStore } from '@/lib/store';
+
+import { useStore, type SavedList } from '@/lib/store';
 import type { Deal } from '@/lib/types';
 import { useNow } from '@/lib/use-now';
 import { colors, gutter, radii } from '@/theme';
@@ -22,11 +22,37 @@ import { colors, gutter, radii } from '@/theme';
 const TABS = ['Deals', 'Events', 'Stores', 'Lists'] as const;
 type Tab = (typeof TABS)[number];
 
-const LIST_TONES = {
-  orange: { bg: colors.orange, title: colors.surface, sub: colors.orangeSoft },
-  soft: { bg: colors.orangeSoft, title: colors.ink, sub: colors.inkSecondary },
-  muted: { bg: colors.muted, title: colors.ink, sub: colors.inkSecondary },
-} as const;
+const LIST_TONES = [
+  { bg: colors.orange, title: colors.surface, sub: colors.orangeSoft },
+  { bg: colors.orangeSoft, title: colors.ink, sub: colors.inkSecondary },
+  { bg: colors.muted, title: colors.ink, sub: colors.inkSecondary },
+] as const;
+
+/** "Used it": what did it save? Defaults to the deal's estimate; the amount feeds $ saved and leaderboards. */
+function askSaved(deal: Deal, markUsed: (id: string, cents?: number) => void) {
+  const guess = deal.estSavingsCents ? (deal.estSavingsCents / 100).toFixed(2) : '';
+  if (Platform.OS !== 'ios' || !Alert.prompt) {
+    markUsed(deal.id);
+    return;
+  }
+  Alert.prompt(
+    'Nice! How much did you save?',
+    'Counts toward your $ saved and the leaderboard.',
+    [
+      { text: 'Skip', style: 'cancel', onPress: () => markUsed(deal.id) },
+      {
+        text: 'Save',
+        onPress: (value?: string) => {
+          const dollars = Number((value ?? '').replace(/[^0-9.]/g, ''));
+          markUsed(deal.id, Number.isFinite(dollars) && dollars > 0 ? Math.round(dollars * 100) : undefined);
+        },
+      },
+    ],
+    'plain-text',
+    guess,
+    'decimal-pad',
+  );
+}
 
 type Kind = 'ending' | 'live' | 'expired';
 
@@ -46,17 +72,16 @@ function pillLabel(deal: Deal, kind: Kind, now: Date) {
 export default function SavedScreen() {
   const insets = useSafeAreaInsets();
   const now = useNow();
-  const { deals, events } = useDeals();
-  const { saved, toggleSaved, used, markUsed, followed, toggleFollowed } = useStore();
+  const { deals: savedDeals, events: savedEvents, stores } = useSaved();
+  const { toggleSaved, used, markUsed, followed, toggleFollowed, lists, createList } = useStore();
   const [tab, setTab] = useState<Tab>('Deals');
 
-  const savedDeals = deals.filter((d) => saved.has(d.id));
-  const savedEvents = events.filter((e) => saved.has(e.id));
   const expired = savedDeals.filter((d) => isLikelyExpired(d, now));
   const live = savedDeals.filter((d) => !expired.includes(d));
   const endingSoon = live.filter((d) => endsToday(d, now));
   const stillLive = live.filter((d) => !endingSoon.includes(d));
-  const stores = [...followed].map((name) => ({ name, deal: deals.find((d) => d.store === name) }));
+  const newList = () =>
+    Alert.prompt?.('New list', 'Name it, e.g. "Cheap eats"', (name) => name?.trim() && createList(name.trim()));
 
   const row = (deal: Deal, kind: Kind) => (
     <SavedDeal
@@ -65,7 +90,7 @@ export default function SavedScreen() {
       kind={kind}
       pill={pillLabel(deal, kind, now)}
       used={used.has(deal.id)}
-      onUse={() => markUsed(deal.id)}
+      onUse={() => askSaved(deal, markUsed)}
       onRemove={() => toggleSaved(deal.id)}
     />
   );
@@ -141,18 +166,22 @@ export default function SavedScreen() {
 
         {tab === 'Stores' && (
           <View style={styles.pad}>
-            {stores.map(({ name, deal }) => (
-              <View key={name} style={styles.storeRow}>
-                <StoreLogo logo={deal?.logo ?? null} icon={deal?.icon ?? 'store'} size={46} />
+            {stores.map(({ key, name, icon, meta, deal }) => (
+              <View key={key} style={styles.storeRow}>
+                <StoreLogo logo={deal?.logo ?? null} icon={icon} size={46} />
                 <View style={{ flex: 1, gap: 2 }}>
                   <Text weight="extrabold" size={15} tracking={-0.15}>
                     {name}
                   </Text>
                   <Text size={12} color={colors.inkTertiary}>
-                    {deal ? `${deal.typeLabel} · ${deal.distanceMi} mi` : 'Following'}
+                    {meta}
                   </Text>
                 </View>
-                <PillButton label="Following" icon="check" onPress={() => toggleFollowed(name)} />
+                <PillButton
+                  label={followed.has(key) ? 'Following' : 'Follow'}
+                  icon={followed.has(key) ? 'check' : 'bell'}
+                  onPress={() => toggleFollowed(key)}
+                />
               </View>
             ))}
             {stores.length === 0 && <Empty text="Follow a store from any deal to see it here." />}
@@ -161,9 +190,15 @@ export default function SavedScreen() {
 
         {tab === 'Lists' && (
           <View style={[styles.pad, styles.listGrid]}>
-            {SAVED_LISTS.map((l) => (
-              <ListTile key={l.name} list={l} />
+            {lists.map((l, i) => (
+              <ListTile key={l.id} list={l} index={i} />
             ))}
+            <Pressable onPress={newList} accessibilityRole="button" style={[styles.listTile, styles.newList]}>
+              <Icon name="bookmark" size={22} color={colors.orange} />
+              <Text weight="extrabold" size={14} tracking={-0.14} color={colors.orange}>
+                New list
+              </Text>
+            </Pressable>
           </View>
         )}
       </ScrollView>
@@ -259,11 +294,12 @@ function PillButton({
   );
 }
 
-function ListTile({ list }: { list: SavedList }) {
-  const tone = LIST_TONES[list.tone];
+function ListTile({ list, index }: { list: SavedList; index: number }) {
+  const tone = LIST_TONES[index % LIST_TONES.length];
+  const icon = (list.icon ?? 'bookmark') as IconName;
   return (
     <View style={[styles.listTile, { backgroundColor: tone.bg }]}>
-      <Icon name={list.icon} size={22} color={tone.title} />
+      <Icon name={icon} size={22} color={tone.title} />
       <View>
         <Text weight="extrabold" size={14} tracking={-0.14} color={tone.title}>
           {list.name}
@@ -285,6 +321,7 @@ function Empty({ text }: { text: string }) {
 }
 
 const styles = StyleSheet.create({
+  newList: { borderWidth: 1.5, borderStyle: 'dashed', borderColor: colors.orange, backgroundColor: colors.surface },
   screen: { flex: 1, backgroundColor: colors.surface },
   header: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingTop: 6, paddingHorizontal: gutter },
   tabs: {

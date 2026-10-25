@@ -89,7 +89,7 @@ export default function EarnScreen() {
               Your submissions
             </Text>
             <Text weight="bold" size={14} color={colors.success}>
-              {credits.toLocaleString()} credits earned
+              {credits.balance.toLocaleString()} credits{credits.pending ? ` · ${credits.pending.toLocaleString()} pending` : ''}
             </Text>
           </View>
           {submissions.map((s) => (
@@ -99,6 +99,17 @@ export default function EarnScreen() {
       </ScrollView>
     </View>
   );
+}
+
+/** Mock submissions are verified or in review; backend ones also show checking, pending credits or a reversal. */
+function statusText(s: Submission) {
+  if (s.status === 'checking') return 'Checking…';
+  if (s.status === 'review') return 'In review';
+  if (s.status === 'rejected') return 'Not eligible';
+  if (s.credits === null) return 'Verified · confirmed';
+  if (s.credits?.status === 'pending') return `+${s.credits.amount} pending`;
+  if (s.credits?.status === 'reversed') return 'Reported ended';
+  return `Verified · +${s.credits?.amount ?? CREDITS_PER_DEAL}`;
 }
 
 function SubmissionRow({ submission: s }: { submission: Submission }) {
@@ -117,11 +128,7 @@ function SubmissionRow({ submission: s }: { submission: Submission }) {
           {s.offer}
         </Text>
       </View>
-      {s.status === 'verified' ? (
-        <StatusPill label={`Verified · +${CREDITS_PER_DEAL}`} tone="success" />
-      ) : (
-        <StatusPill label="In review" />
-      )}
+      <StatusPill label={statusText(s)} tone={s.status === 'verified' ? 'success' : 'orange'} />
     </View>
   );
 }

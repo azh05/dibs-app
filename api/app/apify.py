@@ -17,7 +17,7 @@ from urllib.parse import urlsplit, urlunsplit
 
 import httpx
 
-from .schemas import Shop
+from .schemas import OpeningHours, Shop
 
 log = logging.getLogger(__name__)
 
@@ -211,6 +211,18 @@ def _rows(items: Iterable[Any], errors: list[str], what: str) -> list[dict[str, 
 
 # --- parsers (one per Actor's output) ------------------------------------------------
 
+def _hours(value: Any) -> Optional[list[OpeningHours]]:
+    """Google Maps openingHours: [{"day": "Monday", "hours": "11 AM to 10 PM"}, ...]."""
+    if not isinstance(value, list):
+        return None
+    hours = [
+        OpeningHours(day=h["day"], hours=h["hours"])
+        for h in value
+        if isinstance(h, dict) and isinstance(h.get("day"), str) and isinstance(h.get("hours"), str)
+    ]
+    return hours or None
+
+
 def parse_places(items: Iterable[Any], errors: list[str], found_via: str = "google_maps") -> list[Shop]:
     shops: list[Shop] = []
     seen: set[str] = set()
@@ -236,6 +248,7 @@ def parse_places(items: Iterable[Any], errors: list[str], found_via: str = "goog
                 instagram=_first(row.get("instagrams"), instagram_handle) or (instagram_handle(website) if website else None),
                 tiktok=_first(row.get("tiktoks"), tiktok_handle),
                 facebook=_first(row.get("facebooks"), facebook_page),
+                hours=_hours(row.get("openingHours")),
                 found_via=found_via,
             )
         )

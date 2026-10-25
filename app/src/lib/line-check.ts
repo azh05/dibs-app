@@ -14,13 +14,15 @@ export const LINE_OPTIONS = [
   { minutes: 60, label: '60+' },
 ];
 
-export const GEOFENCE_METERS = 60;
+/** Fallback when a store has no geofence of its own (the backend's stores.geofence_m, default 75). */
+export const GEOFENCE_METERS = 75;
 export const DWELL_MS = 2 * 60_000;
 export const AUTO_DISMISS_MS = 10_000;
 export const REPORT_XP = 10;
 const REPORT_WINDOW_MS = 60 * 60_000;
 
-export type LineReport = { dealId: string; minutes: number; at: number };
+/** serverId: the backend's line_reports id, for undo. */
+export type LineReport = { dealId: string; minutes: number; at: number; serverId?: string };
 
 export function distanceMeters(a: LatLng, b: LatLng) {
   const rad = (deg: number) => (deg * Math.PI) / 180;
@@ -80,7 +82,7 @@ export function useLineCheck(deals: Deal[], position: LatLng | null) {
   const visit = useRef<{ dealId: string; since: number; asked: boolean } | null>(null);
 
   const inside = position
-    ? deals.find((d) => d.coords && distanceMeters(position, d.coords) <= GEOFENCE_METERS)
+    ? deals.find((d) => d.coords && distanceMeters(position, d.coords) <= (d.geofenceM ?? GEOFENCE_METERS))
     : undefined;
   const insideId = inside?.id ?? null;
 

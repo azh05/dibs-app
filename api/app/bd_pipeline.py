@@ -48,6 +48,7 @@ from .schemas import (
     Usage,
 )
 from .sources import SourceDoc, from_instagram, from_serp, post_dates, source_texts, to_search_sources
+from .linking import link_deals
 from .verify import verify_deals
 
 log = logging.getLogger(__name__)
@@ -475,6 +476,7 @@ class BrightDataPipeline:
         for d in deals:
             if fetched_codes and ig_shortcode(d.source_url) in fetched_codes:
                 d.flags.append("full_post_fetched")
+        shops = link_deals(deals, docs, [])
         return SearchResponse(
             as_of=today,
             deals=deals,
@@ -485,4 +487,5 @@ class BrightDataPipeline:
             usage=usage,
             provider=provider,
             brightdata_requests=counter.count,
+            shops=shops,
         )

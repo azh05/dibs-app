@@ -1,8 +1,13 @@
-// A user's photo of an in-store deal → POST /extract/photo → what the result screen shows.
-// Without EXPO_PUBLIC_API_URL the check is mocked with the Figma example (an expired Chipotle poster).
+// A user's photo of an in-store deal → what the result screen shows. In backend mode the photo is uploaded to
+// Convex storage and photos.submit hands it to the API (/extract/photo); the screen subscribes to the submission.
+// Without the backend, the check posts to the API directly when EXPO_PUBLIC_API_URL is set, and otherwise returns
+// the Figma example (an expired Chipotle poster).
 // The wording follows the API's own demo page (api/demo/index.html).
+import { useMutation } from 'convex/react';
 import * as ImagePicker from 'expo-image-picker';
 
+import { api } from '@convex/_generated/api';
+import type { Id } from '@convex/_generated/dataModel';
 import { API_URL, apiHeaders } from '@/lib/api';
 import type { ApiDeal, ApiSearchResponse } from '@/lib/types';
 
@@ -75,7 +80,7 @@ function mockResponse(photoDate: string): ApiSearchResponse {
   };
 }
 
-/** Read the deal off a photo. Takes 5 to 20 s against the real API. */
+/** Without the backend: read the deal off a photo through the API (5 to 20 s), or the Figma example. */
 export async function checkPhoto(photo: Photo): Promise<ApiSearchResponse> {
   if (!API_URL) {
     await new Promise((r) => setTimeout(r, 1500));
@@ -91,6 +96,24 @@ export async function checkPhoto(photo: Photo): Promise<ApiSearchResponse> {
   const body = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(typeof body.detail === 'string' ? body.detail : `Request failed (${res.status})`);
   return body as ApiSearchResponse;
+}
+
+/** Backend mode: upload the photo to Convex storage and submit it. Returns the submission to watch. */
+export function useSubmitPhoto() {
+  const generateUploadUrl = useMutation(api.photos.generateUploadUrl);
+  const submit = useMutation(api.photos.submit);
+  return async (photo: Photo): Promise<Id<'photo_submissions'>> => {
+    const uploadUrl = await generateUploadUrl({});
+    const blob = await (await fetch(photo.uri)).blob();
+    const res = await fetch(uploadUrl, { method: 'POST', headers: { 'Content-Type': photo.mimeType }, body: blob });
+    if (!res.ok) throw new Error(`Upload failed (${res.status})`);
+    const { storageId } = (await res.json()) as { storageId: Id<'_storage'> };
+    return submit({
+      storageId,
+      photo_date: photo.date,
+      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'America/Los_Angeles',
+    });
+  };
 }
 
 const REJECT_TEXT: Record<string, string> = {

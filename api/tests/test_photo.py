@@ -232,3 +232,15 @@ def test_missing_anthropic_key_is_a_clear_500(monkeypatch):
     finally:
         app.dependency_overrides.clear()
     assert r.status_code == 500 and "ANTHROPIC_API_KEY" in r.json()["detail"]
+
+
+def test_photo_deal_is_linked():
+    resp, _ = run([msg([record([CHIPOTLE])], stop_reason="tool_use")])
+    (deal,) = resp.deals
+    assert deal.id.startswith("deal:") and deal.shop_id == "name:chipotle"
+    assert [s.id for s in resp.shops] == ["name:chipotle"]
+
+
+def test_photo_source_carries_transcript():
+    resp, _ = run([msg([record([CHIPOTLE])], stop_reason="tool_use")])
+    assert resp.sources[0].text == TRANSCRIPT and resp.sources[0].origin == "photo"

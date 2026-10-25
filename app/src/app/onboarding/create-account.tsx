@@ -1,3 +1,4 @@
+import { useQuery } from 'convex/react';
 import { router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useState } from 'react';
@@ -18,10 +19,27 @@ import {
   parseBirthday,
   passwordStrength,
 } from '@/lib/account';
+import { api } from '@convex/_generated/api';
+import { usingBackend } from '@/lib/backend';
+import { pendingReferralCode, setPendingProfile } from '@/lib/backend-store';
+import { clerkError, useCodeAuth } from '@/lib/clerk-auth';
 import { useStore } from '@/lib/store';
 import { colors, gutter } from '@/theme';
 
 const STRENGTH_COLORS = [colors.border, colors.orange, colors.orange, colors.success, colors.success];
+
+/** Username availability: checked by Convex with the backend, against a local list in mock mode. */
+function useRemoteUsername(handle: string) {
+  const ok = useQuery(api.users.usernameAvailable, isUsernameValid(handle) ? { username: handle } : 'skip');
+  return isUsernameValid(handle) && ok !== false;
+}
+const useUsernameAvailable: (handle: string) => boolean = usingBackend ? useRemoteUsername : isUsernameAvailable;
+
+/** Backend: Clerk creates the account and emails a code; demo: signs straight in. */
+function useLocalSignUp() {
+  return { ready: true, startEmailSignUp: async () => undefined };
+}
+const useSignUpFlow = usingBackend ? useCodeAuth : useLocalSignUp;
 
 // 03 · Create account (Figma 66:2207), onboarding step 1 of 3. Validates locally; there is no
 // account backend yet.
@@ -35,21 +53,46 @@ export default function CreateAccount() {
   const [showPassword, setShowPassword] = useState(false);
   const [birthday, setBirthday] = useState('');
   const [agreed, setAgreed] = useState(false);
+  const [invite, setInvite] = useState(() => (usingBackend ? pendingReferralCode() : ''));
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const flow = useSignUpFlow();
 
   const handle = username.replace(/^@/, '').toLowerCase();
   const domain = eduDomain(email);
   const strength = passwordStrength(password);
   const birthdayISO = parseBirthday(birthday);
   const birthdayInvalid = birthday.replace(/\D/g, '').length === 8 && !birthdayISO;
+  const available = useUsernameAvailable(handle);
   const valid =
     name.trim().length > 1 &&
-    isUsernameAvailable(handle) &&
+    available &&
     isEmailValid(email) &&
     strength.score >= 2 &&
     (birthday === '' || birthdayISO !== null) &&
     agreed;
 
-  const create = () => {
+  const create = async () => {
+    if (usingBackend) {
+      setBusy(true);
+      setError(null);
+      try {
+        // Name, username, birthday and invite code are written to Convex once the code is confirmed.
+        setPendingProfile({
+          username: handle,
+          display_name: name.trim(),
+          birthday: birthdayISO,
+          referral_code: invite.trim() || undefined,
+        });
+        await flow.startEmailSignUp(email.trim(), password);
+        router.push({ pathname: '/onboarding/verify', params: { mode: 'email-up', to: email.trim() } });
+      } catch (e) {
+        setError(clerkError(e));
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
     signIn({
       name: name.trim(),
       username: handle,
@@ -77,7 +120,7 @@ export default function CreateAccount() {
           placeholder="@username"
           autoCapitalize="none"
           textContentType="username"
-          trailing={handle.length >= 3 && <UsernameStatus handle={handle} />}
+          trailing={handle.length >= 3 && <UsernameStatus handle={handle} available={available} />}
         />
         <TextField
           label="Email"
@@ -93,7 +136,7 @@ export default function CreateAccount() {
           label="Password"
           value={password}
           onChangeText={setPassword}
-          placeholder="8+ characters"
+          placeholder="Choose a password"
           secureTextEntry={!showPassword}
           autoCapitalize="none"
           textContentType="newPassword"
@@ -142,6 +185,21 @@ export default function CreateAccount() {
           }
         />
 
+        {usingBackend && (
+          <TextField
+            label="Invite code (optional)"
+            value={invite}
+            onChangeText={(t) => setInvite(t.toUpperCase())}
+            placeholder="ABC234"
+            autoCapitalize="characters"
+            hint={
+              <Text size={12} color={colors.inkTertiary}>
+                From a friend’s invite: you both get 500 credits.
+              </Text>
+            }
+          />
+        )}
+
         <Pressable
           onPress={() => setAgreed((v) => !v)}
           accessibilityRole="checkbox"
@@ -164,17 +222,25 @@ export default function CreateAccount() {
       </ScrollView>
 
       <View style={[styles.cta, { paddingBottom: Math.max(insets.bottom, 24) }]}>
+        {error && (
+          <Text weight="semibold" size={12} color={colors.orange}>
+            {error}
+          </Text>
+        )}
         <Button
-          label="Create account"
+          label={busy ? 'Creating…' : 'Create account'}
           onPress={create}
           style={styles.ctaButton}
-          disabled={!valid}
+          disabled={!valid || busy || !flow.ready}
         />
         <View style={styles.logIn}>
           <Text size={13} color={colors.inkSecondary}>
             Already have an account?
           </Text>
-          <Pressable onPress={() => router.back()} hitSlop={8} accessibilityRole="button">
+          <Pressable
+            onPress={() => (usingBackend ? router.replace('/onboarding/log-in') : router.back())}
+            hitSlop={8}
+            accessibilityRole="button">
             <Text weight="bold" size={13} color={colors.orange}>
               Log in
             </Text>
@@ -185,8 +251,7 @@ export default function CreateAccount() {
   );
 }
 
-function UsernameStatus({ handle }: { handle: string }) {
-  const available = isUsernameAvailable(handle);
+function UsernameStatus({ handle, available }: { handle: string; available: boolean }) {
   const label = available ? 'Available' : isUsernameValid(handle) ? 'Taken' : 'a–z, 0–9, _ .';
   return (
     <View style={styles.status}>

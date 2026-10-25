@@ -1,6 +1,6 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { ScrollView, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, ActionSheetIOS, Alert, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import VerifiedSuccess from '@/assets/shapes/verified-success.svg';
@@ -11,11 +11,12 @@ import { Icon } from '@/components/icon';
 import { StatusPill } from '@/components/pills';
 import { Text } from '@/components/text';
 import { Thumb } from '@/components/thumb';
-import { findDeal, useDeals } from '@/lib/api';
+import { useDeal } from '@/lib/api';
+import { usingBackend } from '@/lib/backend';
 import { SOURCE_ICONS, endsIn, expiryText, shortAgo } from '@/lib/format';
 import { combinedLine, lineLabel } from '@/lib/line-check';
 import { openDirections } from '@/lib/notifications';
-import { useStore } from '@/lib/store';
+import { followKey, useStore, type Store } from '@/lib/store';
 import type { Deal } from '@/lib/types';
 import { useNow } from '@/lib/use-now';
 import { colors, gutter } from '@/theme';
@@ -44,9 +45,17 @@ export default function DealDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const insets = useSafeAreaInsets();
   const now = useNow();
-  const { deals } = useDeals();
-  const { saved, toggleSaved, followed, toggleFollowed, lineReports } = useStore();
-  const deal = findDeal(deals, id);
+  const store = useStore();
+  const { saved, toggleSaved, followed, toggleFollowed, lineReports } = store;
+  const { deal, loading } = useDeal(id);
+
+  if (!deal && loading) {
+    return (
+      <View style={[styles.missing, { paddingTop: insets.top + 40 }]}>
+        <ActivityIndicator color={colors.orange} />
+      </View>
+    );
+  }
 
   if (!deal) {
     return (
@@ -104,7 +113,7 @@ export default function DealDetail() {
     });
   }
 
-  const following = followed.has(deal.store);
+  const following = followed.has(followKey(deal));
 
   return (
     <View style={styles.screen}>
@@ -136,6 +145,13 @@ export default function DealDetail() {
             <StatusPill label={deal.endsAt ? endsIn(deal.endsAt, now) : expiryText(deal, now)} />
           </View>
           <DetailList rows={rows} />
+          <StillRunning deal={deal} store={store} />
+          <Pressable onPress={() => addToList(store, deal.id)} accessibilityRole="button" style={styles.addToList}>
+            <Icon name="bookmark" size={16} color={colors.orange} />
+            <Text weight="bold" size={13} color={colors.orange}>
+              Add to a list
+            </Text>
+          </Pressable>
           <View style={styles.trust}>
             <Icon name="zap" size={16} color={colors.orange} />
             <Text weight="semibold" size={12} color={colors.inkSecondary} style={{ flex: 1 }}>
@@ -149,7 +165,7 @@ export default function DealDetail() {
           label={following ? 'Following' : 'Follow'}
           icon={following ? 'check' : 'bell'}
           variant="outline"
-          onPress={() => toggleFollowed(deal.store)}
+          onPress={() => toggleFollowed(followKey(deal))}
         />
         <Button label="Get directions" icon="navigation" onPress={() => openDirections(deal)} style={{ flex: 1 }} />
       </ActionBar>
@@ -157,7 +173,97 @@ export default function DealDetail() {
   );
 }
 
+/** "Add to list": pick one of your lists, or start a new one. */
+function addToList(store: Store, dealId: string) {
+  const create = () =>
+    Alert.prompt?.('New list', 'Name it, e.g. "Cheap eats"', (name) => name?.trim() && store.createList(name.trim()));
+  const names = store.lists.map((l) => l.name);
+  if (Platform.OS === 'ios') {
+    ActionSheetIOS.showActionSheetWithOptions(
+      { title: 'Add to list', options: [...names, 'New list…', 'Cancel'], cancelButtonIndex: names.length + 1 },
+      (i) => {
+        if (i < names.length) store.addToList(store.lists[i].id, dealId);
+        else if (i === names.length) create();
+      },
+    );
+    return;
+  }
+  Alert.alert('Add to list', undefined, [
+    ...store.lists.slice(0, 3).map((l) => ({ text: l.name, onPress: () => store.addToList(l.id, dealId) })),
+    { text: 'Cancel', style: 'cancel' as const },
+  ]);
+}
+
+// Community check on a deal: "Still running?" Yes / Ended, plus thumbs up or down.
+function StillRunning({ deal, store }: { deal: Deal; store: Store }) {
+  const answered = store.confirmedToday.has(deal.id);
+  const vote = deal.myVote ?? 0;
+  return (
+    <View style={styles.check}>
+      <View style={{ flex: 1, gap: 2 }}>
+        <Text weight="bold" size={14}>
+          {answered ? 'Thanks for checking!' : 'Still running?'}
+        </Text>
+        <Text size={12} color={colors.inkTertiary}>
+          {answered ? 'Your answer helps everyone nearby' : 'Seen it in store today? Let others know.'}
+        </Text>
+      </View>
+      {!answered && (
+        <>
+          <Pressable onPress={() => store.confirmDeal(deal.id, 'still_running')} accessibilityRole="button" style={styles.checkButton}>
+            <Text weight="bold" size={13}>
+              Yes
+            </Text>
+          </Pressable>
+          <Pressable onPress={() => store.confirmDeal(deal.id, 'ended')} accessibilityRole="button" style={styles.checkButton}>
+            <Text weight="bold" size={13} color={colors.orange}>
+              Ended
+            </Text>
+          </Pressable>
+        </>
+      )}
+      {usingBackend && (
+        <View style={styles.votes}>
+          <Pressable
+            onPress={() => store.vote(deal.id, vote === 1 ? 0 : 1)}
+            accessibilityRole="button"
+            accessibilityLabel="Upvote"
+            style={[styles.vote, vote === 1 && styles.voteOn]}>
+            <Text weight="bold" size={13} color={vote === 1 ? colors.surface : colors.ink}>
+              ▲ {deal.upvotes ?? 0}
+            </Text>
+          </Pressable>
+          <Pressable
+            onPress={() => store.vote(deal.id, vote === -1 ? 0 : -1)}
+            accessibilityRole="button"
+            accessibilityLabel="Downvote"
+            style={[styles.vote, vote === -1 && styles.voteOn]}>
+            <Text weight="bold" size={13} color={vote === -1 ? colors.surface : colors.ink}>
+              ▼
+            </Text>
+          </Pressable>
+        </View>
+      )}
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
+  check: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 8,
+    padding: 14,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  addToList: { flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start' },
+  checkButton: { paddingHorizontal: 14, paddingVertical: 9, borderRadius: 999, backgroundColor: colors.muted },
+  votes: { flexDirection: 'row', gap: 6 },
+  vote: { paddingHorizontal: 12, paddingVertical: 9, borderRadius: 999, borderWidth: 1, borderColor: colors.border },
+  voteOn: { backgroundColor: colors.orange, borderColor: colors.orange },
   screen: { flex: 1, backgroundColor: colors.surface },
   content: { paddingTop: 22, paddingHorizontal: gutter, gap: 18 },
   store: { flexDirection: 'row', alignItems: 'center', gap: 12 },

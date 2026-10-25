@@ -1,5 +1,5 @@
 import * as Location from 'expo-location';
-import { router } from 'expo-router';
+import { Redirect, router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useState } from 'react';
 import { Animated, Pressable, StyleSheet, useAnimatedValue, View } from 'react-native';
@@ -10,13 +10,15 @@ import { CategoryWheel } from '@/components/category-wheel';
 import { Icon } from '@/components/icon';
 import { Text } from '@/components/text';
 import { Wordmark } from '@/components/wordmark';
+import { useStore } from '@/lib/store';
 import { colors } from '@/theme';
 
 // 01 · Welcome (Figma 91:2223, location off) and 02 · Welcome · location on (3:97). Without
 // location the pill asks for it; "Find deals near me" asks too (the iOS prompt), then both
-// buttons lead to Sign in, as in the prototype.
+// buttons lead to Sign in, as in the prototype. Already signed in: straight to Deals.
 export default function Welcome() {
   const insets = useSafeAreaInsets();
+  const { signedIn } = useStore();
   const pulse = useAnimatedValue(1);
   const [located, setLocated] = useState(false);
 
@@ -42,11 +44,13 @@ export default function Welcome() {
     return () => loop.stop();
   }, [pulse]);
 
-  const signIn = () => router.push('/onboarding/sign-in');
+  const signIn = () => (signedIn ? router.replace('/deals') : router.push('/onboarding/sign-in'));
   const findDeals = async () => {
     if (!located) await askLocation();
     signIn();
   };
+
+  if (signedIn) return <Redirect href="/deals" />;
 
   return (
     <View style={[styles.screen, { paddingTop: insets.top, paddingBottom: Math.max(insets.bottom, 24) + 24 }]}>

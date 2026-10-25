@@ -1,0 +1,193 @@
+# Convex backend
+
+The app's backend: users (Clerk sign-in), saved places and interests, the stores and deals the agents find, photo confirmations with credits, community signals, push alerts and gamification. It implements the "Backend data model" doc. The schema is `schema.ts`; field names follow what the API returns (snake_case).
+
+```
+app (Expo)  ->  Convex (this folder)  ->  api/ (FastAPI)  ->  Anthropic, Bright Data, Apify
+```
+
+The app talks only to Convex. Convex actions call the Dibs API server to server with a shared key. Neither the app nor Convex holds Anthropic, Bright Data or Apify keys.
+
+## Setup, start to finish
+
+Five parts: Convex, the API, a tunnel between them, Clerk, then the app. About 20 minutes the first time.
+
+### 1. Convex cloud deployment
+
+```bash
+cd app
+npm install
+npx convex login
+npx convex dev --configure existing --team <team> --project <project> --dev-deployment cloud --once
+```
+
+The first `npx convex dev` asks you to create a project (or use the command above for an existing one). It writes `CONVEX_DEPLOYMENT`, `EXPO_PUBLIC_CONVEX_URL` and `EXPO_PUBLIC_CONVEX_SITE_URL` to `app/.env.local`. The first deploy fails with "CLERK_JWT_ISSUER_DOMAIN not set" until step 4.
+
+If `npx convex login` offers to link an existing anonymous deployment, that one is local (`127.0.0.1:3210`) and a phone can't reach it. Run the `--dev-deployment cloud` command above afterwards.
+
+No Convex account? `CONVEX_AGENT_MODE=anonymous npx convex dev` runs a local backend. It can call an API on the same machine (`DIBS_API_URL=http://127.0.0.1:8000`) with no tunnel, which is handy for testing scans.
+
+### 2. The API, with a shared key
+
+```bash
+cd api
+printf '\nDIBS_API_KEY=%s\n' "$(openssl rand -hex 24)" >> .env     # once
+uv run --env-file .env uvicorn app.main:app --port 8001
+```
+
+With `DIBS_API_KEY` set, every `/extract/*` call needs the header `X-Dibs-Key`. Convex sends it. Give Convex the same value:
+
+```bash
+cd app
+npx convex env set DIBS_API_KEY "$(grep '^DIBS_API_KEY=' ../api/.env | cut -d= -f2-)"
+```
+
+### 3. A tunnel so Convex can reach the API
+
+Convex runs in the cloud, so the API needs a public URL. During development, run in its own terminal and leave it open:
+
+```bash
+ngrok http 8001            # or: cloudflared tunnel --url http://localhost:8001
+npx convex env set DIBS_API_URL https://<id>.ngrok-free.app
+```
+
+Free ngrok URLs change each time ngrok restarts; set `DIBS_API_URL` again when that happens.
+
+To check the path without spending credits, send a deliberately invalid request. The run should fail with HTTP 422, which means Convex reached the API and the key was accepted:
+
+```bash
+npx convex run scans:startShops '{"area":{"scan_area_key":"wiring-check","neighborhood":"Westwood"},"trigger":"schedule","force":true,"request":{"max_shops":0}}'
+npx convex data agent_runs --limit 1 --order desc
+```
+
+For scans that run 24/7, the API needs a long-running host (Render, Railway, Fly). Serverless platforms won't work: scan jobs run 1 to 5 minutes in background threads and live in the server's memory.
+
+### 4. Clerk
+
+In the Clerk dashboard for your application:
+
+1. **Configure → Integrations → Convex**: turn it on. This adds `aud: "convex"` to session tokens, so no JWT template is needed. Copy the Frontend API URL (shown there, e.g. `https://verb-noun-00.clerk.accounts.dev`) and run `npx convex env set CLERK_JWT_ISSUER_DOMAIN <url>`.
+2. **Native applications**: turn on the Native API. Sign-in from the app fails without it.
+3. **User & authentication**: turn on email (password plus email verification code), phone (SMS code), Google and Apple. Recommended requirements:
+   - **Username off.** Dibs stores usernames in Convex.
+   - **Email on, but not required**, so phone-only accounts work.
+   - **Password not required for every account.**
+
+   Stricter settings still work. The app shows a "finish your account" step (`src/app/onboarding/finish.tsx`) for whatever Clerk still requires, then sends a code to any new email. Clerk also sets the minimum password length (15 on new apps); its message appears under the field.
+4. **Webhooks → Add endpoint**:
+   - URL: `https://<deployment>.convex.site/clerk-users-webhook`. Note `.site`, not `.cloud`.
+   - Events: `user.created`, `user.updated`, `user.deleted`.
+   - Copy the endpoint's **Signing Secret** (`whsec_...`) and run `npx convex env set CLERK_WEBHOOK_SECRET whsec_...`.
+   - The endpoint's **Testing** tab can send a sample event to check it.
+5. Admins (who review "In review" photo submissions): set `{"role": "admin"}` in the user's public metadata.
+
+The session token and the webhook do different jobs. Convex checks each call's Clerk session token with Clerk's public keys, found through `CLERK_JWT_ISSUER_DOMAIN`, so no secret is involved. The webhook is Clerk calling Convex: it keeps email, phone, username and role in sync, marks a user as a verified student once a `.edu` address on their Clerk account is verified, grants referral credits once a referred user verifies, and cleans up on deletion. `user.deleted` removes saved places, follows, devices, notifications and reminders; photo submissions and the credit ledger stay, with the user link removed. The signing secret proves each webhook call came from Clerk.
+
+Testing without real messages: Clerk development apps accept emails containing `+clerk_test` (e.g. `you+clerk_test@gmail.com`) and phone numbers like `+1 201-555-0100`. The code is always `424242`.
+
+### 5. The app
+
+`app/.env.local` needs both:
+
+```bash
+EXPO_PUBLIC_CONVEX_URL=https://<deployment>.convex.cloud        # written by `npx convex dev`
+EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_test_...                   # Clerk dashboard → API keys
+```
+
+Without both, the app runs in mock mode (`src/lib/mock.ts`). Expo reads env vars when Metro starts, so after changing `.env.local`, restart Metro with `npx expo start --clear`.
+
+```bash
+npx expo start --ios
+xcrun simctl location booted set 34.0628,-118.4455     # put the simulator in Westwood
+```
+
+Sign up, pick interests, then tap **Turn on live alerts**. That saves your location and starts the first scan of the area, which costs real money: about $0.30 to $1.20 of Apify for 8 shops, plus Claude tokens. Deals appear on their own 1 to 5 minutes later. To watch:
+
+- In the Convex dashboard, check `users`, then `agent_runs` going `running` to `done`, then `stores` and `deals`.
+- In Clerk → Webhooks, the `user.created` delivery should show as succeeded.
+
+Phone and social sign-ups skip Create account, so they have no birthday. **Verify 21+** asks for one the first time (`src/lib/age-gate.ts`).
+
+### Push
+
+Run `npx eas-cli@latest init` once, so `app.json` gets an EAS `projectId`; the app needs it for an Expo push token. Until then, alerts still show in the Alerts tab, but nothing reaches the lock screen. Android needs a development build for remote push. After sign-in, the app registers its token (`prefs.registerDevice`). Convex sends alerts and reminders through Expo's push service, 100 per request, and drops tokens Expo reports as `DeviceNotRegistered`.
+
+## Environment (Convex dashboard, or `npx convex env set NAME value`)
+
+| Variable | What |
+| --- | --- |
+| `CLERK_JWT_ISSUER_DOMAIN` | Clerk's Frontend API URL (`auth.config.ts`) |
+| `CLERK_WEBHOOK_SECRET` | Signing secret of the Clerk webhook (`whsec_...`) |
+| `DIBS_API_URL` | Where Convex reaches the Dibs API: a deployed URL, or the tunnel URL |
+| `DIBS_API_KEY` | Same value as the API's `DIBS_API_KEY`; sent as `X-Dibs-Key` |
+| `EXPO_ACCESS_TOKEN` | Optional: only if Expo enhanced push security is on |
+| `DIBS_SCAN_MAX_SHOPS` | Optional: shops per scheduled `/extract/shops` run (default 8; Apify cost grows with it) |
+
+Tests need none of these: `npm test` runs the convex-test suite with no keys and no network.
+
+## How data flows
+
+- **Scans** (`scans.ts`, `crons.ts`): every hour, up to 3 areas that people have saved and that weren't scanned in the last 6 hours get a `/extract/shops` job. The API runs it in the background (1 to 5 min). `pollShops` checks it every 15 s by rescheduling itself, because actions aren't retried, and gives up after 10 minutes. Saving a new place scans its area right away.
+- **Ingest** (`ingest.ts`): the result is written in batches.
+  - Stores are matched by `Shop.id`, then Instagram handle, then name within the scanned area.
+  - Sources are matched by normalized URL. Only the ones a deal cites are kept.
+  - Deals are matched by `Deal.id` (the evidence key, one post), then by store + offer + code (the same offer in several posts).
+  - Re-running a scan changes nothing but `last_verified_at`. A brand-new active deal triggers alerts.
+- **Feed** (`deals.ts`): the geospatial index `dealGeo` holds active deals (`live`, `needs_check`, `upcoming`) at their store's coordinates. Deals whose store has no coordinates are listed for the area they were scanned in. 21+ deals are hidden until the 21+ check passes.
+- **Status** (`lib/status.ts`): `verify.py`'s rules, recomputed hourly. `upcoming` means it starts in the future. `hidden` means 3 or more "ended" reports.
+- **Photos and credits** (`photos.ts`, `lib/credits.ts`): upload, then `/extract/photo`, then `finalize`.
+  - Only a confirmed (live, not low-confidence) photo that created a new deal earns 500 credits, at most 3 times a day.
+  - Credits start pending. They post after 24 hours, or as soon as 2 other users confirm the deal. An "ended" report before then reverses them.
+  - A photo of a deal we already know counts as a confirmation instead.
+  - The same image can't be submitted twice (sha256 from storage metadata).
+- **Alerts** (`notify.ts`): store followers, plus users with a saved place in range whose store type or deal-type picks match, and Instant alerts on. One notification per user, deal and reason.
+- **Gamification** (`lib/gamify.ts`):
+  - XP: deal used 50, verified photo 100, line check 10 (5 a day).
+  - Streaks in weeks, 24 badges, one weekly challenge.
+  - Monthly leaderboards for neighbourhood and school (rebuilt hourly) and friends (live).
+
+## Crons
+
+| Job | When |
+| --- | --- |
+| `scans.scheduleAreas` | hourly |
+| `deals.recomputeStatus` | hourly |
+| `leaderboards.rebuild` | hourly |
+| `credits.settleDue` | daily (safety net for missed settle jobs) |
+| `challenges.rollover` | Mondays |
+
+## Handy commands
+
+```bash
+# Scan an area now (spends Apify credits through the API)
+npx convex run scans:startShops '{"area":{"scan_area_key":"westwood|los angeles|california","neighborhood":"Westwood","city":"Los Angeles","region":"California"},"trigger":"schedule","force":true}'
+npx convex data agent_runs --limit 5
+npx convex run deals:recomputeStatus
+```
+
+## Layout
+
+```
+schema.ts        every table and index
+catalog.ts       store types and deal types, shared with the app; Google Maps category → store type
+users.ts         users.store, profile, 21+ check, Clerk webhook mutations
+http.ts          POST /clerk-users-webhook (Svix-verified)
+ingest.ts        writes an API response: stores, sources, deals, evidence, rejected
+scans.ts         /extract/shops jobs (cron), /extract/search (user, rate-limited), scan cache
+deals.ts         feed, deal detail, store deals, status recompute
+prefs.ts         saved places, interests, Instant alerts, store follows, push devices
+saves.ts         saved deals, Used it, lists
+reminders.ts     scheduled reminders (cancelled when turned off)
+photos.ts        photo upload, /extract/photo, result, admin review
+credits.ts       settle, history
+community.ts     votes, Still running? / Ended
+lineChecks.ts    line reports, blended estimates
+notify.ts        alert fanout, Expo push, inbox
+social.ts        friends, friends feed, cheers
+leaderboards.ts  monthly boards
+challenges.ts    weekly challenge
+profile.ts       $ saved, Deal DNA, badges, invites
+crons.ts         schedules
+lib/             auth, API client, geo, status, time, text matching (ports of verify.py / linking.py), gamify
+*.test.ts        convex-test suites
+```

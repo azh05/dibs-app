@@ -242,6 +242,11 @@ const icons = {
 
 export type IconName = keyof typeof icons;
 
+/** Names from the backend (badge icons) may not exist here; anything unknown shows as a tag. */
+export function iconOr(name: string | null | undefined, fallback: IconName = 'tag'): IconName {
+  return name && name in icons ? (name as IconName) : fallback;
+}
+
 export function Icon({ name, size = 24, color = colors.ink }: { name: IconName; size?: number; color?: string }) {
   const Glyph = icons[name];
   return <Glyph width={size} height={size} color={color} />;

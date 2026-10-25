@@ -4,7 +4,7 @@ from __future__ import annotations
 import re
 from datetime import date, datetime, time
 from enum import Enum
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -32,6 +32,33 @@ class DealStatus(str, Enum):
     expired = "expired"          # end date has passed
 
 
+class DealType(str, Enum):
+    """Same values as the app's "Deal types" chips and the Convex deal_type_follows table."""
+
+    bogo = "bogo"
+    percent_off = "percent_off"
+    free = "free"
+    student = "student"
+    happy_hour = "happy_hour"
+    late_night = "late_night"
+    new_opening = "new_opening"
+    event = "event"
+
+
+class RecurringWindow(BaseModel):
+    """A deal that repeats, e.g. "20% off before 10 AM on weekdays"."""
+
+    days: list[Literal["mon", "tue", "wed", "thu", "fri", "sat", "sun"]] = Field(
+        default_factory=list, description="Days it runs; empty = every day"
+    )
+    start_time: Optional[time] = Field(None, description="Local HH:MM")
+    end_time: Optional[time] = Field(None, description="Local HH:MM")
+
+
+HEADLINE_MAX = 12
+TITLE_MAX = 40
+
+
 class RawDeal(BaseModel):
     """What Claude returns through the record_deals tool. Never trusted as-is."""
 
@@ -50,6 +77,67 @@ class RawDeal(BaseModel):
     source_post_date: Optional[date] = Field(None, description="When the source was posted, if shown")
     verbatim_quote: str = Field(..., description="Exact text from the source that supports the offer")
     confidence: Confidence = Confidence.medium
+    # Display fields for the app. Never verified and never trusted for status; a bad value is cleared, not fatal.
+    headline: Optional[str] = Field(
+        None, description=f"Map-pin text, at most {HEADLINE_MAX} characters: 'BOGO', '30% off', '$9', 'Free drink'"
+    )
+    title: Optional[str] = Field(None, description=f"Short name, at most {TITLE_MAX} characters: 'BOGO on all milk teas'")
+    deal_types: list[DealType] = Field(default_factory=list, description="Every type that applies; empty if none fit")
+    kind: Literal["deal", "event"] = Field(
+        "deal", description="event: a dated pop-up, collab, opening party or similar happening, rather than a discount"
+    )
+    student_only: bool = Field(False, description="Only for students (student ID or .edu required)")
+    age_21: bool = Field(False, description="Alcohol, cannabis or anything else 21+ only")
+    est_savings_cents: Optional[int] = Field(
+        None,
+        description="What one person saves using it once, in US cents, only when the source states the prices "
+        "(e.g. BOGO on a $6 drink = 600). Null when prices aren't stated; never guessed",
+    )
+    recurring_window: Optional[RecurringWindow] = Field(None, description="Only for deals that repeat on a schedule")
+
+    @field_validator("headline", "title", mode="before")
+    @classmethod
+    def _short_text(cls, value: Any, info: Any) -> Optional[str]:
+        if not isinstance(value, str) or not value.strip():
+            return None
+        limit = HEADLINE_MAX if info.field_name == "headline" else TITLE_MAX
+        value = " ".join(value.split())
+        return value if len(value) <= limit else value[: limit - 1].rstrip() + "…"
+
+    @field_validator("deal_types", mode="before")
+    @classmethod
+    def _known_types(cls, value: Any) -> list[str]:
+        known = {t.value for t in DealType}
+        if not isinstance(value, list):
+            return []
+        return list(dict.fromkeys(v for v in value if isinstance(v, str) and v in known))
+
+    @field_validator("kind", mode="before")
+    @classmethod
+    def _kind(cls, value: Any) -> str:
+        return value if value in ("deal", "event") else "deal"
+
+    @field_validator("student_only", "age_21", mode="before")
+    @classmethod
+    def _flag(cls, value: Any) -> bool:
+        return value is True
+
+    @field_validator("est_savings_cents", mode="before")
+    @classmethod
+    def _cents(cls, value: Any) -> Optional[int]:
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0:
+            return None
+        return int(value)
+
+    @field_validator("recurring_window", mode="before")
+    @classmethod
+    def _window(cls, value: Any) -> Any:
+        if value is None:
+            return None
+        try:
+            return RecurringWindow.model_validate(value)
+        except ValueError:
+            return None
 
 
 class Deal(RawDeal):
@@ -57,8 +145,8 @@ class Deal(RawDeal):
 
     status: DealStatus
     flags: list[str] = Field(default_factory=list)
-    id: Optional[str] = Field(None, description="/extract/shops: stable id (same deal, same id across runs), for upserts")
-    shop_id: Optional[str] = Field(None, description="/extract/shops: id of the Shop in `shops` this deal is at")
+    id: Optional[str] = Field(None, description="Stable id (same source post + quote + code = same id across runs), for upserts")
+    shop_id: Optional[str] = Field(None, description="Id of the Shop in `shops` this deal is at")
 
 
 class RejectedDeal(BaseModel):
@@ -92,6 +180,11 @@ class SearchResultSource(BaseModel):
     url: str
     title: Optional[str] = None
     page_age: Optional[str] = None
+    text: Optional[str] = Field(
+        None, description="Full text we read (caption, snippet, page or photo transcript); null for Claude web search"
+    )
+    origin: Optional[Literal["serp", "instagram", "tiktok", "facebook", "website", "photo"]] = None
+    handle: Optional[str] = Field(None, description="Account that posted it, without @ (social posts)")
 
 
 class Usage(BaseModel):
@@ -109,6 +202,11 @@ def _slug(text: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
 
 
+class OpeningHours(BaseModel):
+    day: str = Field(..., description="As Google Maps writes it, e.g. 'Monday'")
+    hours: str = Field(..., description="As Google Maps writes it, e.g. '11 AM to 10 PM' or 'Closed'")
+
+
 class Shop(BaseModel):
     """A shop found on Google Maps, with the social accounts its listing or website links to."""
 
@@ -124,6 +222,7 @@ class Shop(BaseModel):
     instagram: Optional[str] = Field(None, description="Handle without @")
     tiktok: Optional[str] = Field(None, description="Handle without @")
     facebook: Optional[str] = Field(None, description="Page URL")
+    hours: Optional[list[OpeningHours]] = Field(None, description="Opening hours from Google Maps, one entry per day")
     found_via: Literal["google_maps", "named", "mention", "deal"] = Field(
         "google_maps", description="mention: tagged in a creator post; deal: only known from a deal that named it"
     )
@@ -153,7 +252,7 @@ class SearchResponse(BaseModel):
     provider: Provider = "claude_web_search"
     brightdata_requests: int = 0
     apify_runs: int = 0
-    shops: list[Shop] = Field(default_factory=list, description="apify_shops only: the shops that were scraped")
+    shops: list[Shop] = Field(default_factory=list, description="Shops the deals link to (apify_shops: also every shop that was scraped)")
     transcript: Optional[str] = Field(None, description="user_photo only: all text Claude read in the image")
 
 
