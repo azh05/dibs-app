@@ -68,18 +68,9 @@ export default function ProfileScreen() {
           <Text weight="bold" size={15}>
             @{account.username}
           </Text>
-          <View style={styles.topIcons}>
-            <Pressable
-              onPress={() => router.navigate('/friends')}
-              hitSlop={8}
-              accessibilityRole="button"
-              accessibilityLabel="Friends">
-              <Icon name="users" size={22} />
-            </Pressable>
-            <Pressable onPress={openSettings} hitSlop={8} accessibilityRole="button" accessibilityLabel="Settings">
-              <Icon name="gear" size={22} />
-            </Pressable>
-          </View>
+          <Pressable onPress={openSettings} hitSlop={8} accessibilityRole="button" accessibilityLabel="Settings">
+            <Icon name="gear" size={22} />
+          </Pressable>
         </View>
 
         <View style={styles.identity}>
@@ -389,7 +380,6 @@ const styles = StyleSheet.create({
   content: { gap: 16, paddingTop: 4, paddingHorizontal: gutter, paddingBottom: 32 },
   rowBetween: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   topBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  topIcons: { flexDirection: 'row', gap: 16 },
   identity: { flexDirection: 'row', alignItems: 'center', gap: 14 },
   identityMeta: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   studentPill: {
