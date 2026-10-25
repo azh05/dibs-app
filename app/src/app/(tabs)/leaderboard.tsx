@@ -100,7 +100,11 @@ export default function LeaderboardScreen() {
                   {person.name}
                 </Text>
                 <View style={[styles.block, { height: p.height, backgroundColor: p.block }]}>
-                  <Text weight="extrabold" size={p.place === 1 ? 34 : 28} tracking={-1} color={p.text}>
+                  <Text
+                    weight="extrabold"
+                    size={p.place === 1 ? 34 : 28}
+                    tracking={p.place === 1 ? -1.02 : -0.84}
+                    color={p.text}>
                     {p.place}
                   </Text>
                   <Text weight="bold" size={13} color={p.text}>
@@ -173,7 +177,12 @@ const styles = StyleSheet.create({
   content: { gap: 16, paddingTop: 4, paddingHorizontal: gutter },
   header: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   metric: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  metricPill: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: radii.pill, backgroundColor: colors.orangeSoft },
+  metricPill: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: radii.pill,
+    backgroundColor: colors.orangeSoft,
+  },
   podium: { flexDirection: 'row', alignItems: 'flex-end', gap: 10 },
   place: { flex: 1, alignItems: 'center', gap: 8 },
   block: {
@@ -198,8 +207,9 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     backgroundColor: colors.orangeSoft,
     shadowColor: '#17171A',
-    shadowOpacity: 0.08,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 8 },
+    // Figma: 0 6 18 rgba(23,23,26,0.1).
+    shadowOpacity: 0.1,
+    shadowRadius: 9,
+    shadowOffset: { width: 0, height: 6 },
   },
 });

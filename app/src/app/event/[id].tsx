@@ -18,7 +18,7 @@ import { useStore } from '@/lib/store';
 import { useNow } from '@/lib/use-now';
 import { colors, gutter, radii } from '@/theme';
 
-// 10 · Upcoming event (Figma 9:766)
+// 11 · Upcoming event (Figma 9:766)
 export default function EventDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const insets = useSafeAreaInsets();
@@ -53,6 +53,7 @@ export default function EventDetail() {
           post={event.post}
           height={276}
           imageHeight={160}
+          postTop={26}
           saved={saved.has(event.id)}
           onToggleSaved={() => toggleSaved(event.id)}
         />

@@ -54,7 +54,8 @@ export default function FiltersScreen() {
   const { deals } = useDeals();
   const store = useStore();
   const [draft, setDraft] = useState<Filters>(store.filters);
-  const [openGroup, setOpenGroup] = useState<string | null>(null);
+  // Any number of groups can be open at once, as in Figma (Nightlife and Beauty both open).
+  const [openGroups, setOpenGroups] = useState(new Set<string>());
 
   const update = (patch: Partial<Filters>) => setDraft((d) => ({ ...d, ...patch }));
   const count = applyFilters(deals, draft, '', store.topics).length;
@@ -63,7 +64,7 @@ export default function FiltersScreen() {
 
   const toggleGroup = async (section: InterestSection) => {
     if (section.adult && !(await verifyAge(store))) return;
-    setOpenGroup((g) => (g === section.title ? null : section.title));
+    setOpenGroups((g) => toggled(g, section.title));
   };
 
   const apply = () => {
@@ -110,7 +111,7 @@ export default function FiltersScreen() {
             {GROUPS.map((section, i) => {
               const picked = section.interests.filter((t) => draft.storeTypes.has(t.label)).length;
               const locked = section.adult && !store.adultUnlocked;
-              const open = openGroup === section.title;
+              const open = openGroups.has(section.title);
               return (
                 <View key={section.title} style={i < GROUPS.length - 1 && styles.groupDivider}>
                   <Pressable onPress={() => toggleGroup(section)} accessibilityRole="button" style={styles.groupRow}>
@@ -197,7 +198,6 @@ export default function FiltersScreen() {
             ))}
           </View>
         </Section>
-
       </ScrollView>
 
       <View style={[styles.cta, { paddingBottom: Math.max(insets.bottom, 20) }]}>

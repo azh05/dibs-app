@@ -13,7 +13,14 @@ import { SearchBar } from '@/components/search-bar';
 import { Segmented } from '@/components/segmented';
 import { Text } from '@/components/text';
 import { useDeals } from '@/lib/api';
-import { DEAL_TYPES, DEFAULT_INTERESTS, RADIUS_OPTIONS, STORE_SECTIONS, STORE_TYPE_COUNT, type Interest } from '@/lib/interests';
+import {
+  DEAL_TYPES,
+  DEFAULT_INTERESTS,
+  RADIUS_OPTIONS,
+  STORE_SECTIONS,
+  STORE_TYPE_COUNT,
+  type Interest,
+} from '@/lib/interests';
 import { currentPlace, NEIGHBORHOODS } from '@/lib/location';
 import { verifyAge as checkAge } from '@/lib/age-gate';
 import { requestAlertPermission, sendDealAlert } from '@/lib/notifications';
@@ -26,7 +33,7 @@ const COLLAPSED_CHIPS = 4;
 /** The first alert lands while Live alerts is on screen. */
 const FIRST_ALERT_DELAY_S = 4;
 
-// 04 · Pick interests (Figma 27:887), onboarding step 2 of 3.
+// 05 · Pick interests (Figma 27:887), onboarding step 2 of 3.
 // Alerts and Profile → Edit open it again with ?edit=1: no progress bar, and the button just closes it.
 export default function PickInterests() {
   const insets = useSafeAreaInsets();
@@ -83,7 +90,12 @@ export default function PickInterests() {
           </Text>
         </View>
 
-        <SearchBar value={query} onChangeText={setQuery} placeholder={`Search ${STORE_TYPE_COUNT} store types`} compact />
+        <SearchBar
+          value={query}
+          onChangeText={setQuery}
+          placeholder={`Search ${STORE_TYPE_COUNT} store types`}
+          compact
+        />
 
         {sections.map((section) => {
           const labels = section.interests.map((i) => i.label);
@@ -94,14 +106,16 @@ export default function PickInterests() {
           return (
             <View key={section.title} style={{ gap: 10 }}>
               <View style={styles.sectionHeader}>
-                <Text weight="extrabold" size={16} tracking={-0.16}>
-                  {section.title}{' '}
+                <View style={styles.sectionTitle}>
+                  <Text weight="extrabold" size={16} tracking={-0.16}>
+                    {section.title}
+                  </Text>
                   {section.collapsible && (
-                    <Text size={12} color={colors.inkTertiary}>
+                    <Text weight="semibold" size={13} color={colors.inkTertiary}>
                       {section.interests.length}
                     </Text>
                   )}
-                </Text>
+                </View>
                 <Pressable onPress={() => store.setTopicsOn(labels, !allOn)} hitSlop={8} accessibilityRole="button">
                   <Text weight="bold" size={13} color={colors.orange}>
                     {allOn ? 'Clear' : 'Select all'}
@@ -123,7 +137,7 @@ export default function PickInterests() {
                     onPress={() => setExpanded((s) => new Set(s).add(section.title))}
                     accessibilityRole="button"
                     style={styles.more}>
-                    <Text weight="bold" size={13} color={colors.inkSecondary}>
+                    <Text weight="bold" size={14} color={colors.inkSecondary}>
                       +{hidden} more
                     </Text>
                   </Pressable>
@@ -196,7 +210,8 @@ const styles = StyleSheet.create({
   content: { paddingTop: 6, paddingHorizontal: gutter, paddingBottom: 24, gap: 22 },
   sectionHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  more: { paddingHorizontal: 14, paddingVertical: 10, borderRadius: radii.pill, backgroundColor: colors.muted },
+  sectionTitle: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  more: { paddingHorizontal: 14, paddingVertical: 9, borderRadius: radii.pill, backgroundColor: colors.muted },
   gate: {
     flexDirection: 'row',
     alignItems: 'center',

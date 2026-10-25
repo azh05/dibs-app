@@ -55,6 +55,19 @@ export function localToEpoch(date: string, time: string, timeZone = DEFAULT_TIME
   return guess;
 }
 
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/** "Oct 24, 6 PM" (or "Oct 24" at the end of the day), local to the store: the app's `dayAndTime`. */
+export function dayAndTime(ms: number, timeZone = DEFAULT_TIMEZONE): string {
+  const p = parts(ms, timeZone);
+  const day = `${MONTHS[Number(p.month) - 1]} ${Number(p.day)}`;
+  const h = Number(p.hour);
+  const m = Number(p.minute);
+  if ((h === 23 && m === 59) || (h === 0 && m === 0)) return day;
+  const clock = `${h % 12 || 12}${m ? `:${String(m).padStart(2, "0")}` : ""} ${h < 12 ? "AM" : "PM"}`;
+  return `${day}, ${clock}`;
+}
+
 /** Days between two YYYY-MM-DD dates (b - a). */
 export function daysBetween(a: string, b: string): number {
   return Math.round((Date.parse(`${b}T00:00:00Z`) - Date.parse(`${a}T00:00:00Z`)) / DAY);

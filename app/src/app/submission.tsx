@@ -74,7 +74,8 @@ function useBackendCheck(photo: Photo, key: string): CheckResult {
   if (sub?.key !== key) return { check: { state: 'reading' } };
   if (sub.error) return { check: { state: 'error', message: sub.error } };
   if (!row || row.state === 'processing') return { check: { state: 'reading' } };
-  if (row.state === 'failed') return { check: { state: 'error', message: row.error ?? 'We couldn’t read this photo.' } };
+  if (row.state === 'failed')
+    return { check: { state: 'error', message: row.error ?? 'We couldn’t read this photo.' } };
   const res: ApiSearchResponse = {
     as_of: '',
     deals: row.extracted ? [row.extracted as ApiDeal] : [],
@@ -88,7 +89,7 @@ function useBackendCheck(photo: Photo, key: string): CheckResult {
 const usePhotoCheck = usingBackend ? useBackendCheck : useMockCheck;
 
 function rewardNote(result: CheckResult, deal: ApiDeal | undefined) {
-  if (!usingBackend) return 'Only new, live deals earn 500 credits. Nothing is stored in demo mode.';
+  if (!usingBackend) return 'Only live deals earn credits. Nothing is stored yet.';
   if (result.credit?.status === 'pending')
     return `+${result.credit.amount} credits pending: they post after 24 hours, or as soon as 2 people confirm the deal.`;
   if (result.credit?.status === 'posted') return `+${result.credit.amount} credits added.`;
@@ -135,7 +136,7 @@ function rowsFor(deal: ApiDeal): DetailRow[] {
   return rows;
 }
 
-// 07b · Submission result (Figma 25:820): what /extract/photo read off a snapped deal.
+// 16 · Submission result (Figma 25:820): what /extract/photo read off a snapped deal.
 export default function SubmissionResult() {
   const params = useLocalSearchParams<Photo>();
   const insets = useSafeAreaInsets();

@@ -118,7 +118,7 @@ export default function ProfileScreen() {
               <Text weight="extrabold" size={11} tracking={1.1} color={colors.orange}>
                 LEVEL {level.level}
               </Text>
-              <Text weight="extrabold" size={22} tracking={-0.44} color={colors.surface}>
+              <Text weight="extrabold" size={22} tracking={-0.44}>
                 {level.name}
               </Text>
             </View>
@@ -128,9 +128,9 @@ export default function ProfileScreen() {
               </Text>
             </View>
           </View>
-          <ProgressBar value={level.progress / level.goal} track="rgba(255,255,255,0.14)" />
+          <ProgressBar value={level.progress / level.goal} track={colors.border} />
           <View style={styles.rowBetween}>
-            <Text weight="bold" size={12} color={colors.surface}>
+            <Text weight="bold" size={12}>
               {level.progress.toLocaleString()} / {level.goal.toLocaleString()} XP
             </Text>
             {level.next && (
@@ -162,15 +162,18 @@ export default function ProfileScreen() {
               </View>
             ))}
           </View>
-          <Text weight="semibold" size={13}>
-            {social.dealDna.summary}
-          </Text>
         </View>
 
         <View style={{ gap: 12 }}>
           <SectionTitle title="My lists" action="See all" onAction={() => router.push('/saved')} />
           <View style={styles.lists}>
-            <ListTile icon="bookmark" count={saved.size} label="Saved" tone="orange" onPress={() => router.push('/saved')} />
+            <ListTile
+              icon="bookmark"
+              count={saved.size}
+              label="Saved"
+              tone="orange"
+              onPress={() => router.push('/saved')}
+            />
             <ListTile
               icon="calendar"
               count={lists[0]?.spots ?? 0}
@@ -286,14 +289,24 @@ function Savings({ stats }: { stats: SocialData['stats'] }) {
   );
 }
 
-function SectionTitle({ title, meta, action, onAction }: { title: string; meta?: string; action?: string; onAction?: () => void }) {
+function SectionTitle({
+  title,
+  meta,
+  action,
+  onAction,
+}: {
+  title: string;
+  meta?: string;
+  action?: string;
+  onAction?: () => void;
+}) {
   return (
     <View style={styles.rowBetween}>
       <Text weight="extrabold" size={18} tracking={-0.18}>
         {title}
       </Text>
       {meta && (
-        <Text weight="bold" size={13} color={colors.inkTertiary}>
+        <Text weight="bold" size={12} color={colors.inkTertiary}>
           {meta}
         </Text>
       )}
@@ -389,7 +402,7 @@ const styles = StyleSheet.create({
     borderRadius: radii.pill,
     backgroundColor: colors.orangeSoft,
   },
-  level: { gap: 12, padding: 16, borderRadius: 22, backgroundColor: colors.ink },
+  level: { gap: 12, padding: 16, borderRadius: 22, backgroundColor: colors.muted },
   levelBadge: {
     width: 52,
     height: 52,
@@ -398,7 +411,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  savings: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 16, borderRadius: 22, backgroundColor: colors.orangeSoft },
+  savings: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    padding: 16,
+    borderRadius: 22,
+    backgroundColor: colors.orangeSoft,
+  },
   weekPill: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: radii.pill, backgroundColor: colors.surface },
   bars: { flexDirection: 'row', alignItems: 'flex-end', gap: 4 },
   bar: { width: 7, borderRadius: 2, backgroundColor: colors.orange },
@@ -412,7 +432,14 @@ const styles = StyleSheet.create({
   legendDot: { width: 8, height: 8, borderRadius: 4 },
   lists: { flexDirection: 'row', gap: 10 },
   listTile: { flex: 1, gap: 2, padding: 12, borderRadius: 18 },
-  invite: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 16, borderRadius: 22, backgroundColor: colors.orangeSoft },
+  invite: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    padding: 16,
+    borderRadius: 22,
+    backgroundColor: colors.orangeSoft,
+  },
   inviteButton: { paddingHorizontal: 14, paddingVertical: 9, borderRadius: radii.pill, backgroundColor: colors.orange },
   settings: { borderWidth: 1, borderColor: colors.border, borderRadius: radii.card, overflow: 'hidden' },
   settingRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, paddingVertical: 14 },

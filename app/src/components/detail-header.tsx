@@ -12,6 +12,8 @@ type Props = {
   /** Height below the status bar: 286 for deals, 276 for events (Figma 340 / 330 incl. status bar). */
   height: number;
   imageHeight: number;
+  /** Gap from the status bar to the post card: 24 on deals, 26 on events (Figma). */
+  postTop?: number;
   /** A submitted photo shown in place of the post image. */
   imageUri?: string;
   /** The bookmark button shows only when there is something to save. */
@@ -20,10 +22,18 @@ type Props = {
 };
 
 // Orange-soft header with the source post and back / bookmark buttons (deal and event detail).
-export function DetailHeader({ post, height, imageHeight, imageUri, saved = false, onToggleSaved }: Props) {
+export function DetailHeader({
+  post,
+  height,
+  imageHeight,
+  postTop = 24,
+  imageUri,
+  saved = false,
+  onToggleSaved,
+}: Props) {
   const insets = useSafeAreaInsets();
   return (
-    <View style={[styles.header, { height: insets.top + height, paddingTop: insets.top + 24 }]}>
+    <View style={[styles.header, { height: insets.top + height, paddingTop: insets.top + postTop }]}>
       <PostPreview post={post} imageHeight={imageHeight} imageUri={imageUri} />
       <View style={[styles.actions, { top: insets.top + 2 }]}>
         <CircleButton
