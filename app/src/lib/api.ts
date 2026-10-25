@@ -15,7 +15,7 @@ import { interestIcon } from '@/lib/interests';
 import { distanceMeters } from '@/lib/line-check';
 import { HOME, MOCK_DEALS, MOCK_EVENTS } from '@/lib/mock';
 import { useStore } from '@/lib/store';
-import type { ApiDeal, ApiSearchResponse, Deal, DealEvent, DealTag, SourceKind } from '@/lib/types';
+import type { ApiDeal, ApiSearchResponse, Deal, DealEvent, DealTag, LatLng, SourceKind } from '@/lib/types';
 import { colors } from '@/theme';
 
 export const API_URL = process.env.EXPO_PUBLIC_API_URL?.replace(/\/$/, '');
@@ -240,6 +240,37 @@ function useApiDeals(): DealsState {
 }
 
 export const useDeals: () => DealsState = usingBackend ? useBackendDeals : usingLiveApi ? useApiDeals : useMockDeals;
+
+/** The map's deals, measured from a point (the map's centre) instead of your place, like Beli: distances, the
+ *  Filters radius and "nearest" sorting all count from where the map is looking. */
+function useBackendDealsAround(center: LatLng): DealsState {
+  const views = useQuery(api.deals.feed, {
+    lat: center.latitude,
+    lng: center.longitude,
+    radius_miles: FEED_RADIUS_MILES,
+  });
+  return useMemo(
+    () => ({
+      ...(views ? splitFeed(views, center) : { deals: [], events: [] }),
+      loading: views === undefined,
+      error: null,
+    }),
+    [views, center],
+  );
+}
+
+function useLocalDealsAround(center: LatLng): DealsState {
+  const state = useDeals();
+  return useMemo(() => {
+    const from = (coords: LatLng | null) =>
+      coords ? Math.round((distanceMeters(center, coords) / 1609.344) * 10) / 10 : null;
+    return { ...state, deals: state.deals.map((d) => ({ ...d, distanceMi: from(d.coords) ?? d.distanceMi })) };
+  }, [state, center]);
+}
+
+export const useDealsAround: (center: LatLng) => DealsState = usingBackend
+  ? useBackendDealsAround
+  : useLocalDealsAround;
 
 export function findDeal(deals: Deal[], id: string) {
   return deals.find((d) => d.id === id) ?? seen.get(id) ?? MOCK_DEALS.find((d) => d.id === id);

@@ -1,6 +1,6 @@
 import { router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import MapView, { Circle, Marker } from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -14,7 +14,7 @@ import { LineCheckCard } from '@/components/line-check-card';
 import { MapPin, pinAnchor, pinCenterOffset, type PinDetail } from '@/components/map-pin';
 import { SearchBar } from '@/components/search-bar';
 import { Text } from '@/components/text';
-import { useDeals } from '@/lib/api';
+import { useDeals, useDealsAround } from '@/lib/api';
 import { appliedFilters, applyEventFilters, applyFilters, SORTS } from '@/lib/filters';
 import { SOURCE_ICONS, eventWeekday, plural, recency, shortAgo } from '@/lib/format';
 import { combinedLine, GEOFENCE_METERS, useLineCheck, useUserLocation } from '@/lib/line-check';
@@ -46,7 +46,8 @@ function detailFor(latitudeDelta: number): PinDetail {
 export default function MapScreen() {
   const insets = useSafeAreaInsets();
   const map = useRef<MapView>(null);
-  const { deals, events } = useDeals();
+  // Deals near you, for the line check; the map shows deals around its centre (below).
+  const { deals: nearYou } = useDeals();
   const store = useStore();
   const { saved, toggleSaved, filters, lineReports, place } = store;
   const home = place.coords;
@@ -59,7 +60,17 @@ export default function MapScreen() {
   const [mapWidth, setMapWidth] = useState(0);
   const position = useUserLocation();
   const you = position ?? home;
-  const lineCheck = useLineCheck(deals, position);
+  const lineCheck = useLineCheck(nearYou, position);
+  // Like Beli: distances and the Filters radius count from where the map is centred, not from your phone.
+  // Rounded to ~500 m so small pans don't reload the deals.
+  const center = useMemo(
+    () => ({
+      latitude: Math.round(region.latitude * 200) / 200,
+      longitude: Math.round(region.longitude * 200) / 200,
+    }),
+    [region.latitude, region.longitude],
+  );
+  const { deals, events } = useDealsAround(center);
 
   const shown = applyFilters(deals, filters, query, store.topics);
   const placed = shown.filter((d) => d.coords);
@@ -94,6 +105,12 @@ export default function MapScreen() {
   const prompted = lineCheck.store;
   // A line-check prompt always shows on the map, over the list if that was open.
   const list = !prompted && view === 'list';
+
+  // Picking another place (Change location) moves the map there.
+  const { latitude: homeLat, longitude: homeLng } = home;
+  useEffect(() => {
+    map.current?.animateToRegion(regionAround({ latitude: homeLat, longitude: homeLng }), 400);
+  }, [homeLat, homeLng]);
 
   // Zoom in on the store while asking about its line, so its geofence shows (Figma 11 · Line check).
   useEffect(() => {
@@ -155,7 +172,7 @@ export default function MapScreen() {
         initialRegion={regionAround(home)}
         // Keeps the visible middle of the map between the search bar and the bottom sheet.
         mapPadding={{ top: topHeight, bottom: bottomHeight, left: 0, right: 0 }}
-        onMapReady={() => map.current?.animateToRegion(regionAround(you), 0)}
+        onMapReady={() => map.current?.animateToRegion(regionAround(home), 0)}
         onRegionChangeComplete={setRegion}
         onPress={(e) => {
           // Tapping empty map clears the selection; marker taps also reach here on iOS.
