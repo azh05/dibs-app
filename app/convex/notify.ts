@@ -10,6 +10,7 @@ import { isAdultStoreType } from "./catalog";
 import { getUser, requireUser } from "./lib/auth";
 import { haversineMeters, locationGeo, METERS_PER_MILE } from "./lib/geo";
 import { isActive } from "./lib/status";
+import { dayAndTime } from "./lib/time";
 
 /** The app registers this category with Get Directions / Save / Remind Me buttons. */
 export const DEAL_ALERT_CATEGORY = "deal-alert";
@@ -27,11 +28,16 @@ const SOURCE_NAMES: Record<string, string> = {
   photo: "the dibs community",
 };
 
+/** Figma "6 · Notifications": the store, then the deal over "Ends Oct 24, 6 PM". Without an end, the second
+ * line says where it was found (and how far away, added by the caller). */
 async function alertText(ctx: MutationCtx, deal: Doc<"deals">, store: Doc<"stores">) {
   const source = await ctx.db.get("sources", deal.primary_source_id);
+  const offer = deal.title ?? deal.offer;
   return {
     title: store.name,
-    body: `${deal.title ?? deal.offer} · via ${SOURCE_NAMES[source?.kind ?? "website"]}`,
+    body: offer,
+    when: deal.ends_at !== undefined ? `Ends ${dayAndTime(deal.ends_at, deal.timezone)}` : null,
+    via: `via ${SOURCE_NAMES[source?.kind ?? "website"]}`,
   };
 }
 
@@ -57,7 +63,7 @@ export const planFanout = internalMutation({
     const deal = await ctx.db.get("deals", dealId);
     if (!deal || !isActive(deal.status)) return [];
     const store = (await ctx.db.get("stores", deal.store_id))!;
-    const { title, body } = await alertText(ctx, deal, store);
+    const { title, body: offer, when, via } = await alertText(ctx, deal, store);
     const recipients = new Map<Id<"users">, { reason: Doc<"notifications">["reason"]; locationId?: Id<"saved_locations"> }>();
 
     for (const f of await ctx.db.query("store_follows").withIndex("by_store", (q) => q.eq("store_id", store._id)).collect()) {
@@ -118,11 +124,17 @@ export const planFanout = internalMutation({
         saved_location_id: locationId,
         channel: "push",
         title,
-        body: body + distance,
+        body: `${offer}\n${when ?? via + distance}`,
         sent_at: now,
       });
       for (const device of await devicesOf(ctx, userId)) {
-        pushes.push({ to: device.push_token, title, body: body + distance, data: { dealId }, categoryId: DEAL_ALERT_CATEGORY });
+        pushes.push({
+          to: device.push_token,
+          title,
+          body: `${offer}\n${when ?? via + distance}`,
+          data: { dealId },
+          categoryId: DEAL_ALERT_CATEGORY,
+        });
       }
     }
     return pushes;
@@ -242,7 +254,8 @@ export const inbox = query({
           id: n._id,
           deal_id: n.deal_id,
           title: deal?.title ?? n.title,
-          subtitle: n.body,
+          // Pushes put the end time on a second line; the inbox row has one.
+          subtitle: n.body.replace("\n", " · "),
           store_type: deal?.store_type ?? null,
           reason: n.reason,
           sent_at: n.sent_at,

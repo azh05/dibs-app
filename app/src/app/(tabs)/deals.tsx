@@ -125,7 +125,7 @@ export default function DealsScreen() {
           </Text>
           <View style={styles.agents}>
             <Text weight="bold" size={15}>
-              Agents searching{' '}
+              Agents searching live,{' '}
               <Text weight="extrabold" size={15} color={colors.orange}>
                 24/7
               </Text>

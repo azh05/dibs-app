@@ -24,12 +24,21 @@ const TONES = {
 } as const;
 
 // Dot + label pill: "Ends 6 PM", "Ends in 2h 14m", "Verified · +500", "In review".
-export function StatusPill({ label, tone = 'orange' }: { label: string; tone?: keyof typeof TONES }) {
+export function StatusPill({
+  label,
+  tone = 'orange',
+  small = false,
+}: {
+  label: string;
+  tone?: keyof typeof TONES;
+  /** The "Live" tag in the deal detail's line row: 11px text, tighter padding. */
+  small?: boolean;
+}) {
   const { bg, fg, Dot } = TONES[tone];
   return (
-    <View style={[styles.pill, { backgroundColor: bg }]}>
+    <View style={[styles.pill, small && styles.small, { backgroundColor: bg }]}>
       <Dot width={6} height={6} />
-      <Text weight="bold" size={12} color={fg}>
+      <Text weight="bold" size={small ? 11 : 12} color={fg}>
         {label}
       </Text>
     </View>
@@ -45,4 +54,5 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     borderRadius: radii.pill,
   },
+  small: { gap: 4, paddingLeft: 8, paddingRight: 10, paddingVertical: 5 },
 });
