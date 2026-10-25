@@ -169,7 +169,8 @@ Tests need none of these: `npm test` runs the convex-test suite with no keys and
   - Only a confirmed (live, not low-confidence) photo that created a new deal earns 500 credits, at most 3 times a day.
   - Credits start pending. They post after 24 hours, or as soon as 2 other users confirm the deal. An "ended" report before then reverses them.
   - A photo of a deal we already know counts as a confirmation instead.
-  - The same image can't be submitted twice (sha256 from storage metadata).
+  - The same image (sha256 from storage metadata) can't be submitted twice: your own reopens the earlier submission, someone else's is refused. A failed one can be retried.
+  - The `/extract/photo` call times out after 2 minutes. A submission still processing after 15 minutes (its action was killed) is failed by `failIfStuck`, so the app stops waiting.
 - **Alerts** (`notify.ts`): store followers, plus users with a saved place in range whose store type or deal-type picks match. One notification per user, deal and reason.
 - **Gamification** (`lib/gamify.ts`):
   - XP: deal used 50, verified photo 100, line check 10 (5 a day).

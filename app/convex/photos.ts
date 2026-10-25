@@ -14,10 +14,15 @@ import { awardXp, bumpChallenges, checkBadges, XP } from "./lib/gamify";
 import { rateLimiter } from "./lib/rateLimits";
 import { isActive } from "./lib/status";
 import { normalizeUrl } from "./lib/text";
-import { DAY, DEFAULT_TIMEZONE, localDate } from "./lib/time";
+import { DAY, DEFAULT_TIMEZONE, localDate, MINUTE } from "./lib/time";
 import { ingestResponse } from "./scans";
 
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+// A stalled API call is abandoned after this, so the submission fails instead of spinning.
+const PHOTO_TIMEOUT = 2 * MINUTE;
+// Past Convex's 10-minute action limit: a submission still processing by then lost its job.
+const STUCK_AFTER = 15 * MINUTE;
+const TIMED_OUT = "Checking this photo took too long. Try again.";
 
 export const generateUploadUrl = mutation({
   args: {},
@@ -73,6 +78,7 @@ export const submit = mutation({
       created_at: Date.now(),
     });
     await ctx.scheduler.runAfter(0, internal.photos.processPhoto, { submissionId: id });
+    await ctx.scheduler.runAfter(STUCK_AFTER, internal.photos.failIfStuck, { submissionId: id });
     return id;
   },
 });
@@ -108,7 +114,13 @@ export const processPhoto = internalAction({
       form.append("photo_date", sub.photo_date);
       form.append("timezone", sub.timezone);
       if (sub.shop_hint) form.append("shop", sub.shop_hint);
-      const resp = await dibsApi<ApiSearchResponse>("/extract/photo", { method: "POST", body: form });
+      const abort = new AbortController();
+      const timer = setTimeout(() => abort.abort(), PHOTO_TIMEOUT);
+      const resp = await dibsApi<ApiSearchResponse>("/extract/photo", { method: "POST", body: form, signal: abort.signal })
+        .catch((err: unknown) => {
+          throw abort.signal.aborted ? new Error(TIMED_OUT) : err;
+        })
+        .finally(() => clearTimeout(timer));
       const runId = await ctx.runMutation(internal.ingest.startRun, {
         provider: "user_photo",
         trigger: "photo",
@@ -128,7 +140,7 @@ export const processPhoto = internalAction({
         rejectReason: resp.rejected[0]?.reason,
       });
     } catch (err) {
-      await ctx.runMutation(internal.photos.fail, { submissionId, error: String(err) });
+      await ctx.runMutation(internal.photos.fail, { submissionId, error: err instanceof Error ? err.message : String(err) });
     }
   },
 });
@@ -137,6 +149,16 @@ export const fail = internalMutation({
   args: { submissionId: v.id("photo_submissions"), error: v.string() },
   handler: async (ctx, { submissionId, error }) => {
     await ctx.db.patch("photo_submissions", submissionId, { state: "failed", error: error.slice(0, 500) });
+  },
+});
+
+// Scheduled by submit: if processPhoto died without failing the submission (killed at the action limit),
+// fail it here so the app stops waiting and the same photo can be resubmitted.
+export const failIfStuck = internalMutation({
+  args: { submissionId: v.id("photo_submissions") },
+  handler: async (ctx, { submissionId }) => {
+    const sub = await ctx.db.get("photo_submissions", submissionId);
+    if (sub?.state === "processing") await ctx.db.patch("photo_submissions", submissionId, { state: "failed", error: TIMED_OUT });
   },
 });
 

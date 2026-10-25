@@ -2,7 +2,7 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
 import { api } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
-import { DAY } from "./lib/time";
+import { DAY, MINUTE } from "./lib/time";
 import { identity, json, makeTest, stubFetch, type T } from "./test.setup";
 
 let restore: () => void = () => {};
@@ -181,6 +181,37 @@ test("a photo whose processing failed can be submitted again", async () => {
   restore();
   restore = stubFetch(() => json(photoResponse(1))).restore;
   await expect(as.mutation(api.photos.submit, { storageId: b })).resolves.toBeDefined();
+});
+
+test("an API call that never answersfails the photo after 2 minutes", async () => {
+  const t = makeTest();
+  const { as } = await signIn(t, 1);
+  const hang = (_url: string, init?: RequestInit) =>
+    new Promise<Response>((_, reject) => init?.signal?.addEventListener("abort", () => reject(new Error("aborted"))));
+  restore = stubFetch(hang).restore;
+  const storageId = await t.run((ctx) => ctx.storage.store(new Blob(["slow bytes"], { type: "image/png" })));
+  const id = await as.mutation(api.photos.submit, { storageId });
+  for (let i = 0; i < 13; i++) await vi.advanceTimersByTimeAsync(10_000); // 10 s steps past 2 minutes
+  await t.finishInProgressScheduledFunctions();
+  expect(await as.query(api.photos.get, { id })).toMatchObject({ state: "failed", error: "Checking this photo took too long. Try again." });
+});
+
+test("a submission whose job died is failed after 15 minutes and can be resubmitted", async () => {
+  const t = makeTest();
+  const { as } = await signIn(t, 1);
+  const a = await t.run((ctx) => ctx.storage.store(new Blob(["lost bytes"], { type: "image/png" })));
+  const b = await t.run((ctx) => ctx.storage.store(new Blob(["lost bytes"], { type: "image/png" })));
+  const first = await as.mutation(api.photos.submit, { storageId: a });
+  await t.run(async (ctx) => {
+    const jobs = await ctx.db.system.query("_scheduled_functions").collect();
+    for (const job of jobs.filter((j) => j.name.includes("processPhoto"))) await ctx.scheduler.cancel(job._id);
+  });
+  expect(await as.mutation(api.photos.submit, { storageId: b })).toBe(first); // still processing: reopens it
+  await settle(t, 16 * MINUTE); // past the 15-minute check
+  expect((await as.query(api.photos.get, { id: first }))!.state).toBe("failed");
+  const c = await t.run((ctx) => ctx.storage.store(new Blob(["lost bytes"], { type: "image/png" })));
+  restore = stubFetch(() => json(photoResponse(1))).restore;
+  expect(await as.mutation(api.photos.submit, { storageId: c })).not.toBe(first);
 });
 
 test("an expired poster is recorded but earns nothing", async () => {
