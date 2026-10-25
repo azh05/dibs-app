@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, expect, test } from "vitest";
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
 import { api, internal } from "./_generated/api";
 import { identity, json, makeTest, shopsResponse, stubFetch, type T } from "./test.setup";
@@ -7,7 +7,10 @@ let restore: () => void = () => {};
 beforeEach(() => {
   process.env.DIBS_API_URL = "http://api.test";
 });
-afterEach(() => restore());
+afterEach(() => {
+  restore();
+  vi.useRealTimers();
+});
 
 async function seed(t: T) {
   restore = stubFetch(() => json({ job_id: "j", status: "done", progress: [], result: shopsResponse() })).restore;
@@ -34,6 +37,9 @@ async function signIn(t: T, n: number, username: string, neighborhood = "Westwoo
 }
 
 test("saving and using a deal: XP, $ saved, a badge, the friends feed and challenge progress", async () => {
+  // Midday Wednesday in Los Angeles, so a late-night run doesn't also earn the night-owl badge.
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date("2026-10-21T19:00:00Z"));
   const t = makeTest();
   const { boba } = await seed(t);
   await t.mutation(internal.challenges.rollover, {});

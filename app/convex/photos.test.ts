@@ -156,6 +156,20 @@ test("the same photo can't be submitted twice", async () => {
   await expect(as.mutation(api.photos.submit, { storageId: b })).rejects.toThrow("already submitted");
 });
 
+test("a photo whose processing failed can be submitted again", async () => {
+  const t = makeTest();
+  const { as } = await signIn(t, 1);
+  const a = await t.run((ctx) => ctx.storage.store(new Blob(["retry bytes"], { type: "image/png" })));
+  const b = await t.run((ctx) => ctx.storage.store(new Blob(["retry bytes"], { type: "image/png" })));
+  restore = stubFetch(() => json({ detail: "upstream down" }, 502)).restore;
+  const first = await as.mutation(api.photos.submit, { storageId: a });
+  await t.finishAllScheduledFunctions(vi.runAllTimers);
+  expect((await as.query(api.photos.get, { id: first }))!.state).toBe("failed");
+  restore();
+  restore = stubFetch(() => json(photoResponse(1))).restore;
+  await expect(as.mutation(api.photos.submit, { storageId: b })).resolves.toBeDefined();
+});
+
 test("an expired poster is recorded but earns nothing", async () => {
   const t = makeTest();
   const { as, userId } = await signIn(t, 1);

@@ -44,10 +44,13 @@ export const submit = mutation({
       await ctx.storage.delete(args.storageId);
       throw new Error("Photos must be under 5 MB");
     }
-    const duplicate = await ctx.db
-      .query("photo_submissions")
-      .withIndex("by_sha256", (q) => q.eq("image_sha256", meta.sha256))
-      .first();
+    // A submission that failed to process (API down, timeout) doesn't block retrying the same photo.
+    const duplicate = (
+      await ctx.db
+        .query("photo_submissions")
+        .withIndex("by_sha256", (q) => q.eq("image_sha256", meta.sha256))
+        .collect()
+    ).find((s) => s.state !== "failed");
     if (duplicate) {
       await ctx.storage.delete(args.storageId);
       throw new Error("This photo was already submitted");
