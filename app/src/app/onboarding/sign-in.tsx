@@ -1,6 +1,7 @@
 import { router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { useState } from 'react';
+import { Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Button } from '@/components/button';
@@ -9,19 +10,65 @@ import { StudentVerify } from '@/components/student-verify';
 import { Text } from '@/components/text';
 import { Wordmark } from '@/components/wordmark';
 import { DEMO_ACCOUNT } from '@/lib/account';
+import { usingBackend } from '@/lib/backend';
+import { clerkError, useSocialSignIn } from '@/lib/clerk-auth';
 import { useStore } from '@/lib/store';
 import { colors } from '@/theme';
 
-const PROVIDERS: { label: string; icon?: IconName; variant: 'dark' | 'outline' }[] = [
-  { label: 'Continue with Apple', variant: 'dark' },
-  { label: 'Continue with Google', variant: 'outline' },
-  { label: 'Continue with phone', icon: 'phone', variant: 'outline' },
+type Provider = { label: string; icon?: IconName; variant: 'dark' | 'outline'; key: 'apple' | 'google' | 'phone' };
+
+const PROVIDERS: Provider[] = [
+  { key: 'apple', label: 'Continue with Apple', variant: 'dark' },
+  { key: 'google', label: 'Continue with Google', variant: 'outline' },
+  { key: 'phone', label: 'Continue with phone', icon: 'phone', variant: 'outline' },
 ];
 
-// 02 · Sign in (Figma 49:1450). Apple, Google and phone sign in as the demo account until there
-// is an auth backend; email goes through Create account.
+// 02 · Sign in (Figma 49:1450). With the backend: Apple and Google through Clerk, phone by text code, email
+// through Create account. Without it, everything signs in as the demo account.
 export default function SignIn() {
-  const insets = useSafeAreaInsets();
+  return usingBackend ? <ClerkSignIn /> : <DemoSignIn />;
+}
+
+function ClerkSignIn() {
+  const social = useSocialSignIn();
+  const [busy, setBusy] = useState(false);
+
+  const choose = async (p: Provider) => {
+    if (p.key === 'phone') {
+      router.push('/onboarding/phone');
+      return;
+    }
+    setBusy(true);
+    try {
+      const result = await social(p.key === 'apple' ? 'oauth_apple' : 'oauth_google');
+      if (!result) return;
+      if (result.isNew) router.push('/onboarding/interests');
+      else {
+        router.dismissAll();
+        router.replace('/deals');
+      }
+    } catch (e) {
+      Alert.alert('Couldn’t sign in', clerkError(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <SignInLayout
+      onProvider={choose}
+      onLogIn={() => router.push('/onboarding/log-in')}
+      busy={busy}
+      student={
+        <Text size={12} color={colors.inkTertiary} style={{ textAlign: 'center' }}>
+          Students: sign up with your .edu email, or verify it later from your profile, to unlock student deals.
+        </Text>
+      }
+    />
+  );
+}
+
+function DemoSignIn() {
   const { signIn, studentDomain, setStudentDomain } = useStore();
 
   const continueWithProvider = () => {
@@ -36,6 +83,27 @@ export default function SignIn() {
   };
 
   return (
+    <SignInLayout
+      onProvider={continueWithProvider}
+      onLogIn={logIn}
+      student={<StudentVerify domain={studentDomain} onVerified={setStudentDomain} />}
+    />
+  );
+}
+
+function SignInLayout({
+  onProvider,
+  onLogIn,
+  student,
+  busy = false,
+}: {
+  onProvider: (p: Provider) => void;
+  onLogIn: () => void;
+  student: React.ReactNode;
+  busy?: boolean;
+}) {
+  const insets = useSafeAreaInsets();
+  return (
     <View style={styles.screen}>
       <StatusBar style="light" />
       <View style={[styles.hero, { paddingTop: insets.top + 14 }]}>
@@ -43,7 +111,7 @@ export default function SignIn() {
       </View>
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         {PROVIDERS.map((p) => (
-          <Button key={p.label} label={p.label} icon={p.icon} variant={p.variant} onPress={continueWithProvider} />
+          <Button key={p.label} label={p.label} icon={p.icon} variant={p.variant} onPress={() => onProvider(p)} disabled={busy} />
         ))}
         <Button
           label="Continue with email"
@@ -60,13 +128,13 @@ export default function SignIn() {
           <View style={styles.rule} />
         </View>
 
-        <StudentVerify domain={studentDomain} onVerified={setStudentDomain} />
+        {student}
 
         <View style={styles.logIn}>
           <Text size={14} color={colors.inkSecondary}>
             Already have an account?
           </Text>
-          <Pressable onPress={logIn} hitSlop={8} accessibilityRole="button">
+          <Pressable onPress={onLogIn} hitSlop={8} accessibilityRole="button">
             <Text weight="bold" size={14} color={colors.orange}>
               Log in
             </Text>

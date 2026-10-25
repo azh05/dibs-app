@@ -9,7 +9,8 @@ import { DetailList } from '@/components/detail-list';
 import { Icon } from '@/components/icon';
 import { Overline } from '@/components/section-header';
 import { Text } from '@/components/text';
-import { findEvent } from '@/lib/api';
+import { useEvent } from '@/lib/api';
+import { usingBackend } from '@/lib/backend';
 import { countdown, eventRange } from '@/lib/format';
 import { interestIcon } from '@/lib/interests';
 import { scheduleEventReminder } from '@/lib/notifications';
@@ -23,7 +24,7 @@ export default function EventDetail() {
   const insets = useSafeAreaInsets();
   const now = useNow();
   const { saved, toggleSaved, reminders, toggleReminder } = useStore();
-  const event = findEvent(id);
+  const { event } = useEvent(id);
 
   if (!event) {
     return (
@@ -104,7 +105,7 @@ export default function EventDetail() {
                 key: 'when',
                 icon: <Icon name="calendar" size={20} />,
                 title: eventRange(event),
-                subtitle: 'Collab pop-up announced on Instagram',
+                subtitle: `Announced on ${event.sourceName ?? 'Instagram'}`,
               },
               {
                 key: 'where',
@@ -134,7 +135,8 @@ export default function EventDetail() {
           label={reminding ? 'Reminder on' : 'Remind me'}
           icon={reminding ? 'check' : 'bell'}
           onPress={() => {
-            if (!reminding) scheduleEventReminder(event).catch(() => undefined);
+            // The backend sends the reminder as a push; mock mode schedules it on the device.
+            if (!reminding && !usingBackend) scheduleEventReminder(event).catch(() => undefined);
             toggleReminder(event.id);
           }}
           style={{ flex: 1, paddingHorizontal: 16 }}

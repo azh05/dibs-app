@@ -10,16 +10,8 @@ import { ProgressBar } from '@/components/progress-bar';
 import { Segmented } from '@/components/segmented';
 import { Text } from '@/components/text';
 import { initials, shortName } from '@/lib/account';
-import {
-  LEADERBOARDS,
-  PROFILE_STATS,
-  SCOPES,
-  WEEKLY_CHALLENGE,
-  daysUntilReset,
-  type AvatarTone,
-  type Ranked,
-  type Scope,
-} from '@/lib/social';
+import { daysUntilReset, type AvatarTone, type Ranked } from '@/lib/social';
+import { useBoard } from '@/lib/social-data';
 import { useStore } from '@/lib/store';
 import { colors, gutter, radii } from '@/theme';
 
@@ -36,19 +28,24 @@ function change(delta: number) {
   return { text: '— no change', color: colors.inkTertiary };
 }
 
-// 17 · Leaderboard (Figma 51:1657): ranked by dollars saved this month. Mock data for now.
+// 17 · Leaderboard (Figma 51:1657): ranked by dollars saved this month (Convex leaderboards, or mock data).
 export default function LeaderboardScreen() {
   const insets = useSafeAreaInsets();
-  const params = useLocalSearchParams<{ scope?: Scope }>();
+  const params = useLocalSearchParams<{ scope?: string }>();
   const { account } = useStore();
-  const [scope, setScope] = useState<Scope>(params.scope && SCOPES.includes(params.scope) ? params.scope : 'Westwood');
+  const [scope, setScope] = useState(params.scope === 'Friends' ? 0 : 1);
+  const board = useBoard(scope);
+  const you = board.you;
 
-  const board = LEADERBOARDS[scope];
   const myLabel = account ? `You · ${shortName(account.name)}` : 'You';
   const tenth = board.ranked[9]?.saved;
-  const myChange = change(board.you.change);
-  const toTopTen =
-    board.you.rank <= 10 || tenth == null ? 'in the top 10' : `$${tenth - PROFILE_STATS.savedDollars} to top 10`;
+  const myChange = change(you?.change ?? 0);
+  const toTopTen = !you
+    ? 'use a deal to get ranked'
+    : you.rank <= 10 || tenth == null
+      ? 'in the top 10'
+      : `$${tenth - you.saved} to top 10`;
+  const challenge = board.challenge;
 
   return (
     <View style={[styles.screen, { paddingTop: insets.top }]}>
@@ -66,7 +63,7 @@ export default function LeaderboardScreen() {
           </Text>
         </View>
 
-        <Segmented options={SCOPES.map((s) => ({ value: s, label: s }))} value={scope} onChange={setScope} />
+        <Segmented options={board.scopes.map((s, i) => ({ value: i, label: s }))} value={scope} onChange={setScope} />
 
         <View style={styles.metric}>
           <Text size={13} color={colors.inkTertiary}>
@@ -82,6 +79,7 @@ export default function LeaderboardScreen() {
         <View style={styles.podium}>
           {PODIUM.map((p) => {
             const person = board.ranked[p.place - 1];
+            if (!person) return <View key={p.place} style={styles.place} />;
             return (
               <View key={p.place} style={styles.place}>
                 <Avatar
@@ -112,6 +110,13 @@ export default function LeaderboardScreen() {
           ))}
         </View>
 
+        {board.ranked.length === 0 && (
+          <Text size={14} color={colors.inkTertiary}>
+            No one has saved anything here this month yet. Mark a deal “Used it” to start.
+          </Text>
+        )}
+
+        {challenge && (
         <View style={styles.challenge}>
           <View style={styles.challengeHeader}>
             <Icon name="zap" size={20} color={colors.orange} />
@@ -120,20 +125,21 @@ export default function LeaderboardScreen() {
                 WEEKLY CHALLENGE
               </Text>
               <Text weight="extrabold" size={14} tracking={-0.14}>
-                {WEEKLY_CHALLENGE.title} · +{WEEKLY_CHALLENGE.reward} XP
+                {challenge.title} · +{challenge.reward} XP
               </Text>
             </View>
             <Text weight="extrabold" size={15} color={colors.orange}>
-              {WEEKLY_CHALLENGE.done}/{WEEKLY_CHALLENGE.goal}
+              {challenge.done}/{challenge.goal}
             </Text>
           </View>
-          <ProgressBar value={WEEKLY_CHALLENGE.done / WEEKLY_CHALLENGE.goal} track={colors.surface} />
+          <ProgressBar value={challenge.done / challenge.goal} track={colors.surface} />
         </View>
+        )}
       </ScrollView>
 
       <View style={[styles.you, { bottom: Math.max(insets.bottom, 16) }]}>
         <Text weight="extrabold" size={15} color={colors.orange}>
-          {board.you.rank}
+          {you?.rank ?? '–'}
         </Text>
         <Avatar initials={account ? initials(account.name) : 'ME'} size={36} tone="orange" />
         <View style={{ flex: 1, gap: 1 }}>
@@ -145,7 +151,7 @@ export default function LeaderboardScreen() {
           </Text>
         </View>
         <Text weight="extrabold" size={15} color={colors.surface}>
-          ${PROFILE_STATS.savedDollars}
+          ${you?.saved ?? 0}
         </Text>
       </View>
     </View>

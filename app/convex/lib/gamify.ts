@@ -131,7 +131,7 @@ export const BADGES: BadgeDef[] = [
   { id: "first_dibs", name: "First Dibs", icon: "tag", description: "Use your first deal", trigger: "deal_used", earned: usedCount(1) },
   { id: "regular", name: "Regular", icon: "store", description: "Use 10 deals", trigger: "deal_used", earned: usedCount(10) },
   { id: "deal_hunter", name: "Deal Hunter", icon: "zap", description: "Use 50 deals", trigger: "deal_used", earned: usedCount(50) },
-  { id: "century_club", name: "Century Club", icon: "trophy", description: "Use 100 deals", trigger: "deal_used", earned: usedCount(100) },
+  { id: "century_club", name: "Century Club", icon: "verified", description: "Use 100 deals", trigger: "deal_used", earned: usedCount(100) },
   { id: "boba_boss", name: "Boba Boss", icon: "boba", description: "Use 5 boba deals", trigger: "deal_used", earned: usedInTypes(["boba_tea"], 5) },
   { id: "caffeine_fiend", name: "Caffeine Fiend", icon: "coffee", description: "Use 5 cafe deals", trigger: "deal_used", earned: usedInTypes(["cafes"], 5) },
   { id: "glow_getter", name: "Glow Getter", icon: "nails", description: "Use 3 beauty deals", trigger: "deal_used", earned: usedInTypes(inSection("Beauty & self-care"), 3) },

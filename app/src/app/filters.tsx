@@ -42,8 +42,8 @@ export default function FiltersScreen() {
   const allDealTypes = DEAL_TYPES.map((t) => t.label);
   const allDealTypesOn = allDealTypes.every((t) => draft.dealTypes.has(t));
 
-  const toggleGroup = (section: InterestSection) => {
-    if (section.adult && !store.adultUnlocked && store.unlockAdult() !== 'unlocked') {
+  const toggleGroup = async (section: InterestSection) => {
+    if (section.adult && !store.adultUnlocked && (await store.unlockAdult()) !== 'unlocked') {
       Alert.alert('21+ only', 'Add a birthday showing you’re 21 or older to see these stores.');
       return;
     }

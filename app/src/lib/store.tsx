@@ -1,16 +1,32 @@
-// In-memory app state: account, interests and alerts, browse filters, saved and used deals,
-// line reports and XP. Nothing is persisted yet; it resets when the app restarts.
+// App state behind one hook, useStore(). Two implementations share this interface:
+// - mock mode (this file): in memory, seeded from src/lib/mock.ts and src/lib/social.ts; resets on restart.
+// - backend mode (src/lib/backend-store.tsx): Convex queries and mutations, signed in with Clerk.
 import { createContext, useContext, useState, type ReactNode } from 'react';
 
 import { ageOn, type Account } from '@/lib/account';
 import { DEFAULT_FILTERS, type Filters } from '@/lib/filters';
 import { DEFAULT_INTERESTS } from '@/lib/interests';
 import { REPORT_XP, type LineReport } from '@/lib/line-check';
-import { MOCK_ACTIVITY, MOCK_EARNED, MOCK_SUBMISSIONS } from '@/lib/mock';
-import { STARTING_XP } from '@/lib/social';
-import type { Activity, Submission } from '@/lib/types';
+import { HOME, MOCK_ACTIVITY, MOCK_EARNED, MOCK_SUBMISSIONS } from '@/lib/mock';
+import { SAVED_LISTS, STARTING_XP } from '@/lib/social';
+import type { Activity, Deal, LatLng, Submission } from '@/lib/types';
 
-type Store = {
+export type AdultResult = 'unlocked' | 'too-young' | 'no-birthday';
+
+/** Where the feed is centred: the primary saved location, or Westwood until there is one. */
+export type Place = { label: string; coords: LatLng; areaKey: string | null };
+
+export type NewPlace = {
+  label: string;
+  coords: LatLng;
+  neighborhood?: string;
+  city?: string;
+  region?: string;
+};
+
+export type SavedList = { id: string; name: string; icon: string | null; spots: number };
+
+export type Store = {
   account: Account | null;
   signIn: (account: Account) => void;
   signOut: () => void;
@@ -19,16 +35,19 @@ type Store = {
   setStudentDomain: (domain: string) => void;
   /** 21+ sections unlock once the account's birthday says so. */
   adultUnlocked: boolean;
-  unlockAdult: () => 'unlocked' | 'too-young' | 'no-birthday';
+  unlockAdult: () => Promise<AdultResult>;
+  /** Invite code for the referral link (backend only). */
+  referralCode: string | null;
 
   saved: Set<string>;
   toggleSaved: (id: string) => void;
   used: Set<string>;
-  markUsed: (id: string) => void;
+  markUsed: (id: string, savedCents?: number) => void;
+  /** Followed stores: store ids in backend mode, store names in mock mode (see followKey). */
   followed: Set<string>;
-  toggleFollowed: (store: string) => void;
+  toggleFollowed: (key: string) => void;
   reminders: Set<string>;
-  toggleReminder: (eventId: string) => void;
+  toggleReminder: (id: string) => void;
   cheered: Set<string>;
   toggleCheer: (activityId: string) => void;
 
@@ -40,6 +59,8 @@ type Store = {
   setTopicsOn: (topics: string[], on: boolean) => void;
   alertRadiusMi: number;
   setAlertRadiusMi: (mi: number) => void;
+  place: Place;
+  savePlace: (place: NewPlace) => Promise<void>;
 
   filters: Filters;
   setFilters: (filters: Filters) => void;
@@ -48,15 +69,30 @@ type Store = {
   markRead: (id: string) => void;
   submissions: Submission[];
   addSubmission: (s: Submission) => void;
-  earned: number;
+  /** Posted dibs credits, and credits still waiting on the 24-hour check. */
+  credits: { balance: number; pending: number };
 
   lineReports: LineReport[];
-  reportLine: (dealId: string, minutes: number) => LineReport;
+  reportLine: (deal: Deal, minutes: number, position: LatLng | null) => LineReport;
   undoLineReport: (report: LineReport) => void;
   xp: number;
+
+  vote: (dealId: string, value: -1 | 0 | 1) => void;
+  /** "Still running?" on a deal: yes or it ended. */
+  confirmDeal: (dealId: string, kind: 'still_running' | 'ended') => void;
+  confirmedToday: Set<string>;
+
+  lists: SavedList[];
+  createList: (name: string) => void;
+  addToList: (listId: string, dealId: string) => void;
 };
 
-const StoreContext = createContext<Store | null>(null);
+export const StoreContext = createContext<Store | null>(null);
+
+/** The key follows use for a deal's store. */
+export function followKey(deal: { storeId?: string; store: string }) {
+  return deal.storeId ?? deal.store;
+}
 
 function useToggleSet(initial: string[] = []) {
   const [set, setSet] = useState(() => new Set(initial));
@@ -89,7 +125,7 @@ const SEEDED_SAVES = [
   'kda-chicha-popup',
 ];
 
-export function StoreProvider({ children }: { children: ReactNode }) {
+export function MockStoreProvider({ children }: { children: ReactNode }) {
   const [account, setAccount] = useState<Account | null>(null);
   const [studentDomain, setStudentDomain] = useState<string | null>(null);
   const [adultUnlocked, setAdultUnlocked] = useState(false);
@@ -98,14 +134,19 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [followed, toggleFollowed] = useToggleSet(['Tapioca Lab', 'Polish Bar']);
   const [reminders, toggleReminder] = useToggleSet(['kda-chicha-popup']);
   const [cheered, toggleCheer] = useToggleSet();
+  const [confirmedToday, , setConfirmed] = useToggleSet();
   const [instant, setInstant] = useState(true);
   const [topics, toggleTopic, setTopicsOn] = useToggleSet(DEFAULT_INTERESTS);
   const [alertRadiusMi, setAlertRadiusMi] = useState(1);
+  const [place, setPlace] = useState<Place>({ label: HOME.label, coords: HOME, areaKey: null });
   const [filters, setFilters] = useState(DEFAULT_FILTERS);
   const [activity, setActivity] = useState(MOCK_ACTIVITY);
   const [submissions, setSubmissions] = useState(MOCK_SUBMISSIONS);
   const [lineReports, setLineReports] = useState<LineReport[]>([]);
   const [xp, setXp] = useState(STARTING_XP);
+  const [lists, setLists] = useState<SavedList[]>(() =>
+    SAVED_LISTS.map((l, i) => ({ id: `list-${i}`, name: l.name, icon: l.icon, spots: l.spots })),
+  );
 
   const value: Store = {
     account,
@@ -121,12 +162,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     studentDomain,
     setStudentDomain,
     adultUnlocked,
-    unlockAdult: () => {
+    unlockAdult: async () => {
       if (!account?.birthday) return 'no-birthday';
       if (ageOn(account.birthday) < 21) return 'too-young';
       setAdultUnlocked(true);
       return 'unlocked';
     },
+    referralCode: null,
     saved,
     toggleSaved,
     used,
@@ -144,16 +186,18 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setTopicsOn,
     alertRadiusMi,
     setAlertRadiusMi,
+    place,
+    savePlace: async (p) => setPlace({ label: p.label, coords: p.coords, areaKey: null }),
     filters,
     setFilters,
     activity,
     markRead: (id) => setActivity((list) => list.map((a) => (a.id === id ? { ...a, unread: false } : a))),
     submissions,
     addSubmission: (s) => setSubmissions((list) => [s, ...list]),
-    earned: MOCK_EARNED,
+    credits: { balance: MOCK_EARNED * 100, pending: 500 },
     lineReports,
-    reportLine: (dealId, minutes) => {
-      const report = { dealId, minutes, at: Date.now() };
+    reportLine: (deal, minutes) => {
+      const report = { dealId: deal.id, minutes, at: Date.now() };
       setLineReports((list) => [...list, report]);
       setXp((n) => n + REPORT_XP);
       return report;
@@ -163,6 +207,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       setXp((n) => n - REPORT_XP);
     },
     xp,
+    vote: () => undefined,
+    confirmDeal: (dealId) => setConfirmed([dealId], true),
+    confirmedToday,
+    lists,
+    createList: (name) => setLists((l) => [...l, { id: `list-${Date.now()}`, name, icon: 'bookmark', spots: 0 }]),
+    addToList: (listId) => setLists((l) => l.map((x) => (x.id === listId ? { ...x, spots: x.spots + 1 } : x))),
   };
 
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;
@@ -170,6 +220,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
 export function useStore() {
   const store = useContext(StoreContext);
-  if (!store) throw new Error('useStore must be used inside StoreProvider');
+  if (!store) throw new Error('useStore must be used inside a store provider');
   return store;
 }

@@ -3,6 +3,7 @@ import { router } from 'expo-router';
 import { useEffect, useRef } from 'react';
 
 import { findDeal, useDeals } from '@/lib/api';
+import { usingBackend } from '@/lib/backend';
 import { ACTIONS, configureNotifications, scheduleReminder } from '@/lib/notifications';
 import { useStore } from '@/lib/store';
 
@@ -27,7 +28,19 @@ export function useNotificationActions() {
         return;
       }
       const { deals: current, store: s } = latest.current;
-      const deal = typeof dealId === 'string' ? findDeal(current, dealId) : undefined;
+      if (typeof dealId !== 'string') return;
+      if (usingBackend) {
+        // Pushes from Convex: the deal may not be in this device's feed, so act on the id.
+        if (response.actionIdentifier === ACTIONS.save) {
+          if (!s.saved.has(dealId)) s.toggleSaved(dealId);
+        } else if (response.actionIdentifier === ACTIONS.remind) {
+          if (!s.reminders.has(dealId)) s.toggleReminder(dealId);
+        } else {
+          router.push(`/deal/${dealId}`);
+        }
+        return;
+      }
+      const deal = findDeal(current, dealId);
       if (!deal) return;
       if (response.actionIdentifier === ACTIONS.save) {
         if (!s.saved.has(deal.id)) s.toggleSaved(deal.id);

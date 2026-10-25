@@ -40,7 +40,7 @@ export function EventCard({ event, onPress, width }: Props) {
           {event.store} · {event.area}
         </Text>
         <View style={{ paddingTop: 5, alignItems: 'flex-start' }}>
-          <SourcePill icon="instagram" label="Instagram · scheduled" />
+          <SourcePill icon="instagram" label={`${event.sourceName ?? 'Instagram'} · scheduled`} />
         </View>
       </View>
     </Pressable>

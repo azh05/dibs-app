@@ -11,34 +11,31 @@ import { ProgressBar } from '@/components/progress-bar';
 import { StudentVerify } from '@/components/student-verify';
 import { Text } from '@/components/text';
 import { initials, schoolName, shortName } from '@/lib/account';
-import {
-  BADGES,
-  BADGE_TOTAL,
-  BADGES_EARNED,
-  DEAL_DNA,
-  FRIEND_ACTIVITY,
-  INVITES,
-  LEADERBOARDS,
-  PROFILE_STATS,
-  levelFor,
-} from '@/lib/social';
+import { usingBackend } from '@/lib/backend';
+import { levelFor } from '@/lib/social';
+import { useProfile } from '@/lib/social-data';
 import { useStore } from '@/lib/store';
 import { colors, gutter, radii } from '@/theme';
 
-const INVITE_MESSAGE = `Join me on dibs: it finds the best deals near you before they’re gone. We both get $${INVITES.reward}.`;
+function inviteMessage(code: string | null, reward: string) {
+  const link = code ? ` dibs://invite/${code} (code ${code})` : '';
+  return `Join me on dibs: it finds the best deals near you before they’re gone. We both get ${reward}.${link}`;
+}
 
 const ACTIVITY_BUTTON = { save: ['Save', 'Saved'], cheer: ['Cheer', 'Cheered'] } as const;
 
 const editInterests = () => router.push({ pathname: '/onboarding/interests', params: { edit: '1' } });
-const invite = () => Share.share({ message: INVITE_MESSAGE }).catch(() => undefined);
 
-// 16 · Profile (Figma 50:1552). Stats, badges, friends and the leaderboard are mock data until
-// there is a social backend.
+// 16 · Profile (Figma 50:1552). Stats, badges, friends and ranks come from Convex (src/lib/social-data.ts), or
+// mock data without a backend.
 export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
   const store = useStore();
-  const { account, studentDomain, xp, saved, used, topics, instant, alertRadiusMi, cheered } = store;
+  const { account, studentDomain, xp, saved, topics, instant, alertRadiusMi, cheered, lists, place } = store;
+  const profile = useProfile();
   const [verifying, setVerifying] = useState(false);
+  const invite = () => Share.share({ message: inviteMessage(profile.invites.code, profile.rewardLabel) }).catch(() => undefined);
+  const findFriends = () => (usingBackend ? router.push('/friends') : invite());
 
   if (!account) {
     return (
@@ -52,9 +49,10 @@ export default function ProfileScreen() {
   }
 
   const level = levelFor(xp);
-  const rank = LEADERBOARDS.Westwood.you.rank;
+  const { rank, where, percentile } = profile.rank;
   const school = studentDomain ? schoolName(studentDomain) : null;
-  const dealsUsed = PROFILE_STATS.dealsUsed + used.size;
+  const dealsUsed = profile.stats.dealsUsed;
+  const area = place.label.split(',')[0];
 
   const openSettings = () =>
     Alert.alert('Settings', undefined, [
@@ -105,7 +103,7 @@ export default function ProfileScreen() {
               {shortName(account.name)}
             </Text>
             <Text size={13} color={colors.inkTertiary}>
-              {school ? `${school} · Westwood` : 'Westwood'}
+              {school ? `${school} · ${area}` : area}
             </Text>
             <View style={styles.identityMeta}>
               {school && (
@@ -117,7 +115,7 @@ export default function ProfileScreen() {
                 </View>
               )}
               <Text weight="bold" size={12} color={colors.inkSecondary}>
-                {PROFILE_STATS.friends} friends
+                {profile.stats.friends} friends
               </Text>
             </View>
           </View>
@@ -153,18 +151,18 @@ export default function ProfileScreen() {
         </View>
 
         <View style={styles.stats}>
-          <Stat value={`$${PROFILE_STATS.savedDollars}`} label="saved so far" highlight />
+          <Stat value={`$${profile.stats.savedDollars}`} label="saved so far" highlight />
           <Stat value={String(dealsUsed)} label="deals used" />
-          <Stat value={String(PROFILE_STATS.weekStreak)} label="week streak" icon="flame" />
+          <Stat value={String(profile.stats.weekStreak)} label="week streak" icon="flame" />
         </View>
 
         <View style={styles.rank}>
           <View style={{ flex: 1 }}>
             <Text weight="extrabold" size={22} tracking={-0.44} color={colors.surface}>
-              #{rank} in Westwood
+              {rank ? `#${rank} in ${where}` : `Not ranked in ${where} yet`}
             </Text>
             <Text weight="semibold" size={13} color={colors.orangeSoft}>
-              Top 3% at {school ?? 'school'} this month
+              {rank && percentile ? `Top ${percentile}% this month` : 'Use a deal to get on the board'}
             </Text>
           </View>
           <Pressable onPress={() => router.push('/leaderboard')} accessibilityRole="button" style={styles.rankButton}>
@@ -176,9 +174,9 @@ export default function ProfileScreen() {
         </View>
 
         <View style={{ gap: 12 }}>
-          <SectionTitle title="Badges" meta={`${BADGES_EARNED} of ${BADGE_TOTAL}`} />
+          <SectionTitle title="Badges" meta={`${profile.badgesEarned} of ${profile.badgeTotal}`} />
           <View style={styles.badges}>
-            {BADGES.map((b) => (
+            {profile.badges.map((b) => (
               <View key={b.name} style={styles.badge}>
                 <View
                   style={[
@@ -206,12 +204,12 @@ export default function ProfileScreen() {
         <View style={styles.dna}>
           <SectionTitle title="Your deal DNA" meta="This month" />
           <View style={styles.dnaBar}>
-            {DEAL_DNA.slices.map((s) => (
+            {profile.dealDna.slices.map((s) => (
               <View key={s.label} style={[styles.dnaSlice, { flex: s.percent, backgroundColor: s.color }]} />
             ))}
           </View>
           <View style={styles.legend}>
-            {DEAL_DNA.slices.map((s) => (
+            {profile.dealDna.slices.map((s) => (
               <View key={s.label} style={styles.legendItem}>
                 <View style={[styles.legendDot, { backgroundColor: s.color }]} />
                 <Text weight="semibold" size={12} color={colors.inkSecondary}>
@@ -221,7 +219,7 @@ export default function ProfileScreen() {
             ))}
           </View>
           <Text weight="semibold" size={13}>
-            {DEAL_DNA.summary}
+            {profile.dealDna.summary}
           </Text>
         </View>
 
@@ -229,14 +227,25 @@ export default function ProfileScreen() {
           <SectionTitle title="My lists" action="See all" onAction={() => router.push('/saved')} />
           <View style={styles.lists}>
             <ListTile icon="bookmark" count={saved.size} label="Saved" tone="orange" onPress={() => router.push('/saved')} />
-            <ListTile icon="calendar" count={12} label="Want to try" tone="soft" />
+            <ListTile
+              icon="calendar"
+              count={lists[0]?.spots ?? 0}
+              label={lists[0]?.name ?? 'Lists'}
+              tone="soft"
+              onPress={() => router.push('/saved')}
+            />
             <ListTile icon="check" count={dealsUsed} label="Used" tone="muted" />
           </View>
         </View>
 
         <View style={{ gap: 4 }}>
-          <SectionTitle title="Friends" action="Find friends" onAction={invite} />
-          {FRIEND_ACTIVITY.map((a) => {
+          <SectionTitle title="Friends" action="Find friends" onAction={findFriends} />
+          {profile.friendActivity.length === 0 && (
+            <Text size={13} color={colors.inkTertiary}>
+              Add friends to see the deals they use.
+            </Text>
+          )}
+          {profile.friendActivity.map((a) => {
             const done = a.savesId ? saved.has(a.savesId) : cheered.has(a.id);
             return (
               <View key={a.id} style={styles.activity}>
@@ -273,10 +282,10 @@ export default function ProfileScreen() {
           <Icon name="gift" size={26} color={colors.orange} />
           <View style={{ flex: 1, gap: 2 }}>
             <Text weight="extrabold" size={14} tracking={-0.14}>
-              Invite friends, you both get ${INVITES.reward}
+              Invite friends, you both get {profile.rewardLabel}
             </Text>
             <Text size={12} color={colors.inkSecondary}>
-              {INVITES.joined} friends joined · ${INVITES.earned} earned
+              {profile.invites.joined} friends joined · {profile.invites.earned.toLocaleString()} credits earned
             </Text>
           </View>
           <Pressable onPress={invite} accessibilityRole="button" style={styles.inviteButton}>

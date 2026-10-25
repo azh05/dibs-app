@@ -15,7 +15,8 @@ import { Icon } from '@/components/icon';
 import { SearchBar } from '@/components/search-bar';
 import { SectionHeader } from '@/components/section-header';
 import { Text } from '@/components/text';
-import { useDeals, usingLiveApi } from '@/lib/api';
+import { useDeals, useSpotsWatched } from '@/lib/api';
+import { usingBackend } from '@/lib/backend';
 import {
   ALL_DEALS,
   QUICK_FILTERS,
@@ -27,7 +28,6 @@ import {
   type QuickFilter,
 } from '@/lib/filters';
 import { combinedLine } from '@/lib/line-check';
-import { HOME } from '@/lib/mock';
 import { useStore } from '@/lib/store';
 import { colors, gutter } from '@/theme';
 
@@ -35,7 +35,8 @@ import { colors, gutter } from '@/theme';
 export default function DealsScreen() {
   const insets = useSafeAreaInsets();
   const { deals, events, loading, error } = useDeals();
-  const { saved, toggleSaved, activity, filters, lineReports } = useStore();
+  const { saved, toggleSaved, activity, filters, lineReports, place } = useStore();
+  const spots = useSpotsWatched();
   const [quick, setQuick] = useState<QuickFilter>(ALL_DEALS);
   const [query, setQuery] = useState('');
 
@@ -43,20 +44,24 @@ export default function DealsScreen() {
   const shownEvents = quickFilterEvents(applyEventFilters(events, filters, query), quick);
   const unread = activity.some((a) => a.unread);
 
-  let agentStatus = 'Watching 1,284 spots near you';
-  if (loading) agentStatus = 'Your agent is scanning Instagram and the web near you…';
+  let agentStatus = spots ? `Watching ${spots.toLocaleString()} spots near you` : 'Your agent is learning this area';
+  if (loading) agentStatus = 'Loading deals near you…';
   else if (error) agentStatus = `Couldn't reach your agent: ${error}`;
-  else if (usingLiveApi) agentStatus = `Your agent found ${deals.length} verified deals on the web just now`;
+  else if (usingBackend && !place.areaKey) agentStatus = 'Set your location so your agent knows where to look';
 
   return (
     <View style={[styles.screen, { paddingTop: insets.top }]}>
       <StatusBar style="dark" />
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         <View style={styles.header}>
-          <Pressable style={styles.location} accessibilityRole="button" accessibilityLabel="Change location">
+          <Pressable
+            style={styles.location}
+            onPress={() => router.push('/location')}
+            accessibilityRole="button"
+            accessibilityLabel="Change location">
             <Icon name="pin" size={18} color={colors.orange} />
             <Text weight="bold" size={16}>
-              {HOME.label}
+              {place.label}
             </Text>
             <Caret width={16} height={16} color={colors.ink} />
           </Pressable>

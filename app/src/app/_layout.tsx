@@ -9,7 +9,7 @@ import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { useEffect } from 'react';
 
-import { StoreProvider } from '@/lib/store';
+import { AppProviders } from '@/lib/providers';
 import { useNotificationActions } from '@/lib/use-notification-actions';
 import { colors } from '@/theme';
 
@@ -30,9 +30,9 @@ export default function RootLayout() {
   if (!loaded && !error) return null;
 
   return (
-    <StoreProvider>
+    <AppProviders>
       <AppStack />
-    </StoreProvider>
+    </AppProviders>
   );
 }
 
@@ -43,6 +43,7 @@ function AppStack() {
       <Stack.Screen name="index" options={{ animation: 'fade' }} />
       <Stack.Screen name="(tabs)" options={{ animation: 'fade', gestureEnabled: false }} />
       <Stack.Screen name="filters" options={{ presentation: 'modal' }} />
+      <Stack.Screen name="location" options={{ presentation: 'modal' }} />
     </Stack>
   );
 }

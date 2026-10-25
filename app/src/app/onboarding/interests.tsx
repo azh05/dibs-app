@@ -1,6 +1,6 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -12,7 +12,8 @@ import { SearchBar } from '@/components/search-bar';
 import { Segmented } from '@/components/segmented';
 import { Text } from '@/components/text';
 import { useDeals } from '@/lib/api';
-import { DEAL_TYPES, RADIUS_OPTIONS, STORE_SECTIONS, STORE_TYPE_COUNT, type Interest } from '@/lib/interests';
+import { DEAL_TYPES, DEFAULT_INTERESTS, RADIUS_OPTIONS, STORE_SECTIONS, STORE_TYPE_COUNT, type Interest } from '@/lib/interests';
+import { currentPlace, NEIGHBORHOODS } from '@/lib/location';
 import { requestAlertPermission, sendDealAlert } from '@/lib/notifications';
 import { useStore } from '@/lib/store';
 import { colors, gutter, radii } from '@/theme';
@@ -34,6 +35,13 @@ export default function PickInterests() {
   const [query, setQuery] = useState('');
   const [expanded, setExpanded] = useState(new Set<string>());
 
+  // A new account starts with the Figma picks ("15 picked").
+  const empty = topics.size === 0;
+  useEffect(() => {
+    if (!editing && empty) store.setTopicsOn(DEFAULT_INTERESTS, true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once, for a new account
+  }, [editing, empty]);
+
   const q = query.trim().toLowerCase();
   const matches = (i: Interest) => !q || i.label.toLowerCase().includes(q);
   // Store sections collapse to a few chips with a count; deal types always show in full.
@@ -44,14 +52,17 @@ export default function PickInterests() {
     .map((s) => ({ ...s, interests: s.interests.filter(matches) }))
     .filter((s) => s.interests.length > 0);
 
-  const verifyAge = () => {
-    const result = store.unlockAdult();
+  const verifyAge = async () => {
+    const result = await store.unlockAdult();
     if (result === 'too-young') Alert.alert('21+ only', 'Nightlife and 21+ shops open up on your 21st birthday.');
     if (result === 'no-birthday') Alert.alert('Add your birthday', 'We need it once to show 21+ deals. It never appears on your profile.');
   };
 
   const turnOn = async () => {
     store.setInstant(true);
+    // Alerts and scans need a place: where the user is now, else Westwood.
+    const here = await currentPlace().catch(() => null);
+    store.savePlace(here ?? NEIGHBORHOODS[0]).catch(() => undefined);
     if (await requestAlertPermission()) {
       const first = deals.find((d) => topics.has(d.storeType) || d.tags.some((t) => topics.has(t)));
       if (first) sendDealAlert(first, FIRST_ALERT_DELAY_S).catch(() => undefined);

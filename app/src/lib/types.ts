@@ -20,9 +20,16 @@ export type ApiDeal = {
   confidence: 'high' | 'medium' | 'low';
   status: 'live' | 'needs_check' | 'stale' | 'expired';
   flags: string[];
-  /** /extract/shops only: stable deal id, and the id of its shop in the response's `shops`. */
+  /** Stable deal id, and the id of its shop in the response's `shops`. */
   id?: string | null;
   shop_id?: string | null;
+  /** Display fields Claude fills (see api/README.md, "Display fields"). */
+  headline?: string | null;
+  title?: string | null;
+  deal_types?: string[];
+  kind?: 'deal' | 'event';
+  student_only?: boolean;
+  est_savings_cents?: number | null;
 };
 
 export type ApiSearchResponse = {
@@ -96,6 +103,17 @@ export type Deal = {
   /** Line reports from other dibs users in the last hour. */
   line: LineEstimate | null;
   post: SourcePost;
+  /** Backend only: the store's id (follows, line checks) and community signals. */
+  storeId?: string;
+  geofenceM?: number;
+  upvotes?: number;
+  downvotes?: number;
+  myVote?: -1 | 0 | 1;
+  status?: 'live' | 'needs_check' | 'stale' | 'expired' | 'upcoming' | 'hidden';
+  /** What using it once saves, when the source states prices. */
+  estSavingsCents?: number | null;
+  /** Student-only and the viewer hasn't verified a .edu email. */
+  locked?: boolean;
 };
 
 export type DealEvent = {
@@ -115,6 +133,9 @@ export type DealEvent = {
   coords: LatLng;
   foundDaysEarly: number;
   post: SourcePost;
+  storeId?: string;
+  /** Where the event was announced, e.g. "Instagram". */
+  sourceName?: string;
 };
 
 export type Activity = {
@@ -132,7 +153,9 @@ export type Submission = {
   store: string;
   offer: string;
   icon: IconName;
-  status: 'verified' | 'review';
-  /** Local photo the user snapped, for new submissions. */
+  status: 'verified' | 'review' | 'rejected' | 'checking';
+  /** The photo: a local file for new mock submissions, a URL from the backend. */
   photoUri?: string;
+  /** Backend: credits this submission earned, and whether they've posted yet. */
+  credits?: { amount: number; status: 'pending' | 'posted' | 'reversed' } | null;
 };
