@@ -25,11 +25,7 @@ import { colors, fonts, gutter, radii } from '@/theme';
 
 type Turn = { id: number; question: string; answer?: string; deals?: Deal[]; error?: string };
 
-const SUGGESTIONS = [
-  'Boba deals ending today near me?',
-  'Cheap haircut this week?',
-  'Tell me when ramen deals show up',
-];
+const SUGGESTIONS = ['Boba deals ending today near me?', 'Cheap haircut this week?', 'Ramen deals near me?'];
 
 // Ask dibs (not in Figma yet): a chat with the Elastic Agent Builder agent. It answers from the deal index
 // (Jina search, distance, ending soon) and can act through workflows: watch for deals or scan an area.
@@ -92,7 +88,7 @@ export default function AskScreen() {
         {turns.length === 0 && (
           <View style={{ gap: 10 }}>
             <Text size={14} color={colors.inkSecondary} style={{ lineHeight: 21 }}>
-              Ask about deals near you in any language. dibs can also watch for new ones or scan an area right now.
+              Ask about deals near you in any language, then save the ones you want.
             </Text>
             {SUGGESTIONS.map((s) => (
               <Pressable key={s} onPress={() => ask(s)} accessibilityRole="button" style={styles.suggestion}>
@@ -110,9 +106,10 @@ export default function AskScreen() {
                 {turn.question}
               </Text>
             </View>
-            {turn.answer != null && (
-              <Text size={15} style={{ lineHeight: 22 }}>
-                {turn.answer}
+            {/* Cards only: the agent's prose isn't shown, so every answer is something you can save. */}
+            {turn.answer != null && !turn.deals?.length && (
+              <Text size={14} color={colors.inkSecondary}>
+                No deals to save for that right now. Try another search.
               </Text>
             )}
             {turn.error && (

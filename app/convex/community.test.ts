@@ -82,6 +82,16 @@ test("everyone sees a line report, and two reports blend", async () => {
   expect(line.minutes).toBeLessThanOrEqual(30);
 });
 
+test("byEvidenceKeys turns the API's deal ids (Elastic results) into feed deals, skipping unknown ids", async () => {
+  const t = makeTest();
+  const { dealId } = await seed(t);
+  const key = await t.run(
+    async (ctx) => (await ctx.db.query("deal_evidence").withIndex("by_deal", (q) => q.eq("deal_id", dealId)).first())!.evidence_key,
+  );
+  const views = await t.query(api.deals.byEvidenceKeys, { keys: ["deal:unknown", key, key] });
+  expect(views.map((v) => v.id)).toEqual([dealId]);
+});
+
 test("line-check XP stops at 5 a day", async () => {
   const t = makeTest();
   const { storeId } = await seed(t);

@@ -52,6 +52,29 @@ export const feed = query({
   },
 });
 
+/** Deals the Elastic index returned (search, Ask dibs), by the API's Deal.id, as feed views, so the app can save
+ * and open them like any feed deal. Keys with no deal here (not stored yet, hidden, inactive) are skipped. */
+export const byEvidenceKeys = query({
+  args: { keys: v.array(v.string()) },
+  handler: async (ctx, { keys }) => {
+    const viewer = await getUser(ctx);
+    const seen = new Set<Id<"deals">>();
+    const views = [];
+    for (const key of keys.slice(0, 50)) {
+      const evidence = await ctx.db
+        .query("deal_evidence")
+        .withIndex("by_evidence_key", (q) => q.eq("evidence_key", key))
+        .first();
+      if (!evidence || seen.has(evidence.deal_id)) continue;
+      seen.add(evidence.deal_id);
+      const deal = await ctx.db.get("deals", evidence.deal_id);
+      if (!deal || !ACTIVE_STATUSES.includes(deal.status) || hiddenFor(deal, viewer)) continue;
+      views.push(await dealView(ctx, deal, viewer, null));
+    }
+    return views;
+  },
+});
+
 /** One deal for the detail screen, with every piece of evidence behind it. */
 export const get = query({
   args: { id: v.string() },

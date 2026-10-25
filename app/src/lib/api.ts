@@ -9,7 +9,7 @@ import { useEffect, useMemo, useState } from 'react';
 
 import { api } from '@convex/_generated/api';
 import type { IconName } from '@/components/icon';
-import { usingBackend } from '@/lib/backend';
+import { convex, usingBackend } from '@/lib/backend';
 import { isEvent, splitFeed, storeTypeLabel, toDeal, toEvent } from '@/lib/feed';
 import { interestIcon } from '@/lib/interests';
 import { distanceMeters } from '@/lib/line-check';
@@ -142,6 +142,16 @@ function remember(deals: Deal[]) {
 
 type Coords = { latitude: number; longitude: number };
 
+/** With the backend, Elastic's deals are swapped for the same deals from Convex (matched by the API's Deal.id),
+ *  so saving and opening them work like any feed deal. Deals Convex doesn't have yet are left out. */
+async function toAppDeals(found: ApiDeal[], at: Coords): Promise<Deal[]> {
+  if (!usingBackend || !convex) return remember(found.map(fromApiDeal));
+  const keys = found.map((d) => d.id).filter((id): id is string => Boolean(id));
+  if (keys.length === 0) return [];
+  const views = await convex.query(api.deals.byEvidenceKeys, { keys });
+  return views.map((v) => toDeal(v, at));
+}
+
 /** Hybrid search over every indexed deal (meaning in any language + keywords + distance). */
 export async function searchIndexedDeals(query: string, at: Coords, radiusMi: number): Promise<Deal[]> {
   const body = await postJson<{ deals: ApiDeal[] }>('/search/deals', {
@@ -150,7 +160,7 @@ export async function searchIndexedDeals(query: string, at: Coords, radiusMi: nu
     lng: at.longitude,
     radius_miles: radiusMi,
   });
-  return remember(body.deals.map(fromApiDeal));
+  return toAppDeals(body.deals, at);
 }
 
 export type AgentAnswer = { answer: string; conversationId: string | null; deals: Deal[] };
@@ -169,7 +179,7 @@ export async function askDibs(
     lng: at.longitude,
     push_token: pushToken,
   });
-  return { answer: body.answer, conversationId: body.conversation_id, deals: remember(body.deals.map(fromApiDeal)) };
+  return { answer: body.answer, conversationId: body.conversation_id, deals: await toAppDeals(body.deals, at) };
 }
 
 /** The feed covers 5 miles; the Filters distance narrows it on the device. */

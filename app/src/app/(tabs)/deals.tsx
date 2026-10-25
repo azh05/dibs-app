@@ -44,7 +44,8 @@ export default function DealsScreen() {
   useEffect(() => {
     if (!usingLiveApi || !q) return;
     const id = setTimeout(() => {
-      searchIndexedDeals(q, place.coords, filters.radiusMi).then(
+      // At least the feed's 5 miles: the Filters distance (1 mi by default) left most searches empty.
+      searchIndexedDeals(q, place.coords, Math.max(filters.radiusMi, 5)).then(
         (found) => setIndexed({ query: q, deals: found }),
         () => setIndexed({ query: q, deals: [] }),
       );
@@ -61,10 +62,13 @@ export default function DealsScreen() {
   const quick = quickFilters(filters, pickedStores, pickedTypes);
   // "See all" on Coming up, or the Upcoming events chip on its own, shows events only.
   const eventsOnly = upcomingOnly || (pickedTypes.size === 1 && pickedTypes.has(UPCOMING_EVENTS));
-  const searchedDeals = usingLiveApi && q ? (indexed?.query === q ? indexed.deals : []) : null;
-  const shownDeals = eventsOnly
-    ? []
-    : (searchedDeals ?? applyFilters(applyFilters(deals, filters, query, topics), quick, '', topics));
+  // A search shows the feed's matches first, then deals only the Elastic index found (by meaning, any language).
+  const localDeals = applyFilters(applyFilters(deals, filters, query, topics), quick, '', topics);
+  const indexedExtra =
+    usingLiveApi && q && indexed?.query === q
+      ? indexed.deals.filter((d) => !localDeals.some((l) => l.id === d.id))
+      : [];
+  const shownDeals = eventsOnly ? [] : [...localDeals, ...indexedExtra];
   const shownEvents = applyEventFilters(applyEventFilters(events, filters, query), quick);
   const allOn = pickedStores.size === 0 && pickedTypes.size === 0 && !upcomingOnly;
   const unread = activity.some((a) => a.unread);
