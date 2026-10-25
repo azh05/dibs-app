@@ -74,7 +74,7 @@ export default function MapScreen() {
 
   const shown = applyFilters(deals, filters, query, store.topics);
   const placed = shown.filter((d) => d.coords);
-  const shownEvents = applyEventFilters(events, filters, query);
+  const shownEvents = applyEventFilters(events, filters, query, store.topics);
   const selected = placed.find((d) => d.id === selectedId);
   const eventTime = (e: DealEvent) => eventWeekday(e).charAt(0) + eventWeekday(e).slice(1).toLowerCase();
 
