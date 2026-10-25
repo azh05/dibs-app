@@ -2,13 +2,13 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-Dibs finds short-lived local deals, has Claude extract them as structured JSON, and checks every deal with deterministic Python rules before returning it. This is a monorepo: the FastAPI backend lives in `api/` and the Expo mobile app (screens built from the Figma design) lives in `app/` (see `app/README.md` and `app/AGENTS.md`). A Convex backend comes next and is not in the repo yet: the app will read and write through Convex (Clerk sign-in, the tables in the "Backend data model" doc), and Convex actions will call this API and store what it returns. The API itself stays stateless. Neither the app nor Convex calls Anthropic, Bright Data or Apify directly; only `api/` holds those keys. Until Convex exists the app calls the API directly via `EXPO_PUBLIC_API_URL`.
+Dibs finds short-lived local deals, has Claude extract them as structured JSON, and checks every deal with deterministic Python rules before returning it. This is a monorepo: the FastAPI backend lives in `api/` and the Expo mobile app (screens built from the Figma design) lives in `app/` (see `app/README.md` and `app/AGENTS.md`). The Convex backend lives in `app/convex/` (see `app/convex/README.md`): the app reads and writes only through Convex (Clerk sign-in, the tables in the "Backend data model" doc), and Convex actions call this API with the shared `DIBS_API_KEY` and store what it returns. The API itself stays stateless. Neither the app nor Convex calls Anthropic, Bright Data or Apify directly; only `api/` holds those keys. Without `EXPO_PUBLIC_CONVEX_URL` and `EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY` the app runs on mock data.
 
 `docs/apis-and-auth.md` lists every outside API, how it is authenticated, and the sign-in options (mirrors the "APIs & auth" tab of the Dibs App doc).
 
 `api/README.md` documents the HTTP API, verification rules tables, and Bright Data setup in detail; keep it in sync when behavior changes. The root `README.md` only describes the folder layout.
 
-All paths below are relative to `api/`, and every command runs from there.
+All paths below are relative to `api/`, and every command runs from there, except the "Convex backend" section (relative to `app/`).
 
 ## Commands
 
@@ -38,14 +38,24 @@ Five extract endpoints, one shared verification layer:
 - Apify caps memory across all running Actors (16 GB free plan). `ApifyClient.run` passes per-Actor `memory` (`ACTOR_MEMORY_MB`), waits on a process-wide `MemoryGate`, and retries 402 "memory limit" responses; out-of-credit 402s fail at once.
 - **`/extract/photo`** → `app/photo.py` `PhotoExtractor`. Multipart upload; Claude gets the image and calls `record_photo_deals` with a full `transcript` plus deals (`PhotoRawDeal` adds `year_stated`). The transcript is passed to `verify_deals` as `source_texts`, so quotes are machine-checked like the Bright Data path. Dates without a year are fixed in Python (`resolve_missing_year`, nearest to `photo_date`) and flagged `year_inferred`; status is judged against today. `GET /demo` serves `demo/index.html`, a dependency-free phone-sized page that drives this endpoint from a webcam or upload.
 - **`app/verify.py` `verify_deals`** is the AI-free gate every path goes through: rejects deals lacking a quote or citing a URL not in the fetched sources, strips promo codes not in the quote, assigns `live`/`needs_check`/`stale`/`expired`, dedupes, and sorts. The Bright Data path additionally passes `source_texts` and `authoritative_post_dates` (keyed by `normalize_url()`) so quotes must appear in the source text and Bright Data post dates override Claude's.
-- **`app/schemas.py`**: `RawDeal` (what Claude emits) vs `Deal` (verified, adds `status`/`flags`); request/response models. Every endpoint returns `SearchResponse` with a `provider` field. `../app/src/lib/types.ts` in the Expo app mirrors `Deal` (`ApiDeal`), so a new enum value (e.g. a `Category`) also needs an entry in `../app/src/lib/api.ts` `CATEGORY`.
+- **`app/schemas.py`**: `RawDeal` (what Claude emits) vs `Deal` (verified, adds `status`/`flags`); request/response models. Every endpoint returns `SearchResponse` with a `provider` field and links its deals with `app/linking.py` `link_deals` (stable `Deal.id`, `Deal.shop_id`, `shops`). `RawDeal` also carries display fields for the app (`headline`, `title`, `deal_types`, `kind`, `student_only`, `age_21`, `est_savings_cents`, `recurring_window`): never verified, and a bad value is cleared by a field validator rather than dropping the deal. `SearchResultSource` carries the full `text`, `origin` and `handle` so Convex can store sources. Convex mirrors these shapes in `../app/convex/lib/api.ts` and `../app/convex/ingest.ts` validators, and the Expo app in `../app/src/lib/types.ts` (`ApiDeal`); a new enum value (e.g. a `Category` or `DealType`) needs updating there too (`../app/src/lib/api.ts` `CATEGORY`, `../app/convex/schema.ts` `dealType`).
 - **`app/errors.py` `http_error`** maps upstream exceptions (Anthropic, Bright Data and Apify auth/timeout/other errors) to HTTP status codes; `main._call` and `JobStore` both use it.
 
-### Convex integration (planned)
+### Convex backend (`app/convex/`, paths relative to `app/`)
 
-- Convex owns storage and auth; the API writes nothing. The README "Storing results (Convex)" section is the contract: `agent_runs`, `stores` (upsert by `Shop.id` as `external_id`), `sources` (by normalized URL), `deals` (by `dedupe_key`, same rule as `verify.py`) and `deal_evidence` (by `Deal.id`). Field names stay snake_case as the API returns them; keep that section in sync with `schemas.py` and the "Backend data model" doc.
-- Convex actions call the slow endpoints as jobs (`POST /extract/shops` or `/extract/instagram`, then poll the `status_url`); `JobStore` is in-memory and is what `agent_runs` replaces. `ShopCache` (`.cache/shops.json`) is the piece that moves into `stores`.
-- The API has no auth yet. Before Convex calls it from the cloud, add a shared-secret check (planned `DIBS_API_KEY`); the unmerged `auth` branch holds an OIDC token check (SpacetimeAuth, works with Clerk's issuer) if the app ever needs to call the API directly.
+```bash
+cd app
+npx convex dev                                   # deploy + codegen (CONVEX_AGENT_MODE=anonymous for a local backend, no account)
+npm test                                         # convex-test + vitest, convex/**/*.test.ts
+npx vitest run convex/photos.test.ts -t "credits"   # one test
+npx tsc --noEmit && npx expo lint                # app typecheck + lint (also covers convex/)
+```
+
+- Convex owns storage and auth; the API writes nothing. `convex/ingest.ts` upserts a `SearchResponse`: `stores` by `external_id` (= `Shop.id`, else Instagram handle, else name within `scan_area_key`), `sources` by normalized URL (only cited ones), `deals` by `deal_evidence.evidence_key` (= `Deal.id`) then `dedupe_key` (store id + offer + code). `convex/lib/text.ts` ports `normalize_url`, `names_match` and `SequenceMatcher.ratio`; `convex/lib/status.ts` ports `verify.py` status rules (plus `upcoming`, `hidden`). Keep them in step with the Python and keep api/README "Storing results" in sync.
+- `convex/scans.ts` runs `/extract/shops` as an API job and polls by rescheduling itself every 15 s (actions aren't retried and time out); `agent_runs` mirrors each job (`api_job_id`), `scan_cache` skips repeats within 6 h. The API's `JobStore` and `ShopCache` stay in the API.
+- Convex has no unique indexes: every "unique" is an index plus `.unique()` check inside the writing mutation. `ctx.db.get/patch/delete` take the table name first (Convex 1.48 style). Geo queries use the `@convex-dev/geospatial` component (`dealGeo` for active deals, `locationGeo` for saved places); `deals.geo_indexed` tracks membership. Push goes straight to Expo's API over the `devices` table (multi-device), not the expo-push component.
+- Files with two dots (`*.test.ts`, `test.setup.ts`) aren't deployed. Tests use `makeTest()` from `convex/test.setup.ts` (registers the components), `t.withIdentity`, `stubFetch` for the API and Expo, and fake timers + `finishInProgressScheduledFunctions` for scheduled work. Pure helpers live in `convex/lib/` so tests can import them without loading Convex runtime code.
+- The app (`src/lib/backend.ts`) picks backend mode when `EXPO_PUBLIC_CONVEX_URL` and `EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY` are both set; `useStore()` keeps one interface for `MockStoreProvider` and `BackendStoreProvider`. Hooks that differ by mode are chosen once at module load (`usingBackend ? useX : useY`), which keeps hook order stable. The app imports Convex code via the `@convex/*` path alias.
 
 ### Non-obvious constraints
 

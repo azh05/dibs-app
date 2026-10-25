@@ -24,6 +24,7 @@ import type * as lib_deals from "../lib/deals.js";
 import type * as lib_gamify from "../lib/gamify.js";
 import type * as lib_geo from "../lib/geo.js";
 import type * as lib_levels from "../lib/levels.js";
+import type * as lib_line from "../lib/line.js";
 import type * as lib_rateLimits from "../lib/rateLimits.js";
 import type * as lib_status from "../lib/status.js";
 import type * as lib_text from "../lib/text.js";
@@ -63,6 +64,7 @@ declare const fullApi: ApiFromModules<{
   "lib/gamify": typeof lib_gamify;
   "lib/geo": typeof lib_geo;
   "lib/levels": typeof lib_levels;
+  "lib/line": typeof lib_line;
   "lib/rateLimits": typeof lib_rateLimits;
   "lib/status": typeof lib_status;
   "lib/text": typeof lib_text;

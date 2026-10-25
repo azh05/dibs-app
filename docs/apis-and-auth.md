@@ -40,7 +40,7 @@ The app never calls Anthropic, Bright Data or Apify itself and never holds their
 
 ## Dibs API (our FastAPI server)
 
-- Today it has no auth. Anyone who can reach it can spend our Anthropic, Bright Data and Apify credits, so it stays on 127.0.0.1 (localhost only). CORS allows any origin.
+- Auth: a shared secret with Convex. With `DIBS_API_KEY` set, every `/extract/*` call needs the header `X-Dibs-Key: <key>` (401 otherwise); `/health`, `/docs` and `/demo` stay open. Without it the API is open, so it must stay on 127.0.0.1. CORS allows any origin.
 - Endpoints: each one, with the outside services it uses, is in "Endpoints Convex can call" below.
 
 ## Endpoints Convex can call
@@ -82,10 +82,10 @@ Every endpoint takes JSON (except `/extract/photo`, a file upload) and returns t
 
 - `GET /health` (is it up), `GET /docs` (interactive API docs), `GET /demo` (the photo demo page).
 
-### Before Convex can call it
+### Connecting Convex
 
-- Convex runs in the cloud, so the API has to be reachable from the internet (deployed, or a tunnel during the hackathon). Today it only listens on `127.0.0.1`.
-- Add the shared key (`DIBS_API_KEY`) first: without it, anyone who finds the URL can spend our Apify, Bright Data and Claude credits.
+- Convex runs in the cloud, so the API has to be reachable from the internet (deployed, or a tunnel during the hackathon). Set the Convex env vars `DIBS_API_URL` and `DIBS_API_KEY` (see `app/convex/README.md`).
+- Set `DIBS_API_KEY` on the API before exposing it: without it, anyone who finds the URL can spend our Apify, Bright Data and Claude credits.
 
 ## User sign-in: the two options
 
@@ -99,7 +99,12 @@ Every endpoint takes JSON (except `/extract/photo`, a file upload) and returns t
 - SpacetimeDB's hosted login: magic link, Google, GitHub, Discord. SpacetimeDB is a headline sponsor with a "most impressive use of Spacetime" prize.
 - The auth branch (commit 2aed0bb) makes every /extract endpoint require a SpacetimeAuth ID token (`Authorization: Bearer <id_token>`), checked in `api/app/auth.py` against SpacetimeAuth's public keys. It adds `GET /me`, `DIBS_AUTH=off` for local dev, and tests.
 
-### Recommendation
+### Decision: Clerk + Convex (built, in `app/convex/`)
+
+- Sign-in: Google, Apple, phone code, and email with password through Clerk's Expo SDK (`@clerk/expo`). Convex verifies Clerk's session token (native Convex integration, `aud: "convex"`). A Svix-verified webhook keeps users in sync.
+- Student verification: the `.edu` address is added to the user's Clerk account and confirmed with Clerk's emailed code; the webhook then marks the user as a verified student. No email provider needed.
+
+### Recommendation (as written before the build)
 
 - Use one sign-in for users: Clerk + Convex, since the data model is already built around it.
 - Then the app talks to Convex, and Convex actions call the Dibs API server to server. The Dibs API needs a shared secret with Convex, not user tokens: one `DIBS_API_KEY` header check on the /extract endpoints.
@@ -112,4 +117,5 @@ Every endpoint takes JSON (except `/extract/photo`, a file upload) and returns t
 - `BRIGHTDATA_API_KEY` (or `BRIGHTDATA_API_TOKEN`), `BRIGHTDATA_SERP_ZONE`: Bright Data.
 - `APIFY_TOKEN`, `APIFY_MEMORY_MB` (default 16384): Apify.
 - `DIBS_SHOP_CACHE`: Google Maps shop-list cache file (default `api/.cache/shops.json`; "off" disables).
+- `DIBS_API_KEY`: shared secret with Convex (`X-Dibs-Key` header).
 - Auth branch only: `SPACETIMEAUTH_CLIENT_ID`, `SPACETIMEAUTH_ISSUER`, `DIBS_AUTH=off`.

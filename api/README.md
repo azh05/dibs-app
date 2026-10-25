@@ -210,102 +210,18 @@ A deal with no address gets its shop's.
 
 ### Storing results (Convex)
 
-The API stores nothing: results live in the job until the server restarts. Storage belongs to the Convex backend (not in the repo yet; see "How it fits together" in the root README), which calls the extract endpoints and writes what they return. The response is already split the way a database wants it. The tables and field names follow the "Backend data model" tab of the Dibs App doc (snake_case, as the API returns them); this is the part of it the extract endpoints write, as a Convex schema (`convex/schema.ts`):
+The API stores nothing: results live in the job until the server restarts. Storage is the Convex backend in [`app/convex/`](../app/convex/README.md). Its actions call the extract endpoints with `X-Dibs-Key` and write what they return. The full schema is `app/convex/schema.ts`, with field names as the API returns them (snake_case). The parts the extract endpoints write:
 
-```ts
-import { defineSchema, defineTable } from "convex/server";
-import { v } from "convex/values";
+| Table | Upsert key | From |
+| --- | --- | --- |
+| `agent_runs` | one per job or response | `provider`, `usage`, `brightdata_requests`, `apify_runs`, `search_errors`; the API job id while polling |
+| `stores` | `external_id` = `Shop.id`, else Instagram handle, else name within the scanned area | `shops[]`; `Shop.category` → the app's store type (`app/convex/catalog.ts`), `Shop.hours` |
+| `sources` | normalized URL (`verify.normalize_url`, ported) | `sources[]` that a deal cites, with `text`, `origin` and `handle` |
+| `deals` | `dedupe_key` = store id + offer + code (`verify.py`'s rule, with the store's id instead of its name) | `deals[]`, including the display fields |
+| `deal_evidence` | `evidence_key` = `Deal.id` | one row per post behind a deal: quote, post date, `second_hand` |
+| `rejected_extractions` | one per rejected deal | `rejected[]` |
 
-const provider = v.union(
-  v.literal("claude_web_search"), v.literal("brightdata_serp"), v.literal("brightdata_instagram"),
-  v.literal("user_photo"), v.literal("apify_shops"),
-);
-
-export default defineSchema({
-  agent_runs: defineTable({          // one job / one response
-    provider,
-    trigger: v.string(),             // schedule | user_search | photo
-    status: v.string(),              // queued | running | done | failed
-    error: v.optional(v.string()),
-    search_errors: v.array(v.string()),
-    input_tokens: v.number(),
-    output_tokens: v.number(),
-    web_search_requests: v.number(),
-    brightdata_requests: v.number(),
-    apify_runs: v.number(),
-    started_at: v.number(),
-    finished_at: v.optional(v.number()),
-  }),
-
-  stores: defineTable({              // Shop
-    external_id: v.string(),         // Shop.id, e.g. "gmaps:ChIJ...", "ig:milksha_ca"
-    name: v.string(),
-    normalized_name: v.string(),
-    store_type: v.optional(v.string()),  // Shop.category
-    google_place_id: v.optional(v.string()),
-    maps_url: v.optional(v.string()),
-    address: v.optional(v.string()),
-    lat: v.optional(v.number()),
-    lng: v.optional(v.number()),
-    website: v.optional(v.string()),
-    instagram_handle: v.optional(v.string()),
-    tiktok_handle: v.optional(v.string()),
-    facebook_url: v.optional(v.string()),
-    found_via: v.string(),           // google_maps | named | mention | deal
-    last_scanned_at: v.number(),
-  })
-    .index("by_external_id", ["external_id"])
-    .index("by_instagram_handle", ["instagram_handle"]),
-
-  sources: defineTable({             // every page or post a run read
-    store_id: v.optional(v.id("stores")),
-    provider,
-    url: v.string(),                 // normalize_url()
-    title: v.optional(v.string()),
-    full_text: v.string(),
-    posted_at: v.optional(v.string()),   // YYYY-MM-DD
-    fetched_at: v.number(),
-    first_seen_run_id: v.id("agent_runs"),
-  }).index("by_url", ["url"]),
-
-  deals: defineTable({
-    dedupe_key: v.string(),          // store + offer + code, the same rule as verify.py
-    store_id: v.id("stores"),        // Deal.shop_id, resolved to the stores row
-    offer: v.string(),
-    category: v.string(),            // food | drink | retail | entertainment | beauty | fitness | other
-    code: v.optional(v.string()),
-    conditions: v.array(v.string()),
-    start_date: v.optional(v.string()),  // YYYY-MM-DD
-    end_date: v.optional(v.string()),
-    start_time: v.optional(v.string()),  // HH:MM
-    end_time: v.optional(v.string()),
-    status: v.string(),              // live | needs_check | stale | expired
-    confidence: v.string(),          // high | medium | low
-    flags: v.array(v.string()),
-    second_hand: v.boolean(),        // true only if every piece of evidence is second-hand
-    primary_source_id: v.id("sources"),
-    first_seen_at: v.number(),
-    last_verified_at: v.number(),
-  })
-    .index("by_dedupe_key", ["dedupe_key"])
-    .index("by_store", ["store_id"])
-    .index("by_status_end_date", ["status", "end_date"]),
-
-  deal_evidence: defineTable({       // deal <-> source; the same BOGO can be on Instagram and TikTok
-    evidence_key: v.string(),        // Deal.id: hash of source URL + quote + code
-    deal_id: v.id("deals"),
-    source_id: v.id("sources"),
-    verbatim_quote: v.string(),
-    source_post_date: v.optional(v.string()),
-    second_hand: v.boolean(),        // Deal.flags has "second_hand" (else "shop_own_post")
-    extracted_run_id: v.id("agent_runs"),
-  })
-    .index("by_evidence_key", ["evidence_key"])
-    .index("by_deal", ["deal_id"]),
-});
-```
-
-To save a job result: insert an `agent_runs` row; upsert each shop into `stores` by `external_id`; upsert each source by `url`; for each deal, upsert into `deals` by `dedupe_key` (keep `first_seen_at`, bump `last_verified_at`, overwrite `status`) and into `deal_evidence` by `evidence_key` (`Deal.id`). Two keys because `Deal.id` names one post's evidence, while `dedupe_key` merges the same offer seen in several posts. The API itself stays storage-free for now; the shop-list cache (`ShopCache` in `app/shop_pipeline.py`) is the one piece that would move into the `stores` table.
+A deal is first looked up by `Deal.id` (same post), then by the dedupe key (same offer in another post). `first_seen_at` is kept and `last_verified_at` bumped. A deal is `second_hand` only while every piece of its evidence is. Status is recomputed hourly with `verify.py`'s rules, plus `upcoming` and `hidden` (see `app/convex/lib/status.ts`). The shop-list cache (`ShopCache`) still lives in the API; Convex's own scan cache (`scan_cache`) stops it from re-running the same area within 6 hours.
 
 ### Apify setup
 
