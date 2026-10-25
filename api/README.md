@@ -362,13 +362,55 @@ JOB=$(curl -s -X POST localhost:8000/extract/instagram -H 'content-type: applica
 curl -s localhost:8000$JOB | python -m json.tool   # repeat until "status": "done"
 ```
 
+## Elastic: search, agent and workflows
+
+Optional. With `ELASTIC_URL`, `KIBANA_URL` and `ELASTIC_API_KEY` set (an Elastic Cloud **Serverless** project; free for Cal Hacks via ela.st/calhacks), every verified deal from every `/extract/*` call is indexed into `dibs-deals` (`app/elastic.py`). Without them nothing changes, and the endpoints below answer 503.
+
+- **Jina embeddings:** `search_text` is a `semantic_text` field pinned to `.jina-embeddings-v5-text-small`, so Elastic chunks and embeds it; there's no embedding code here. It holds the deal's original quote, so a post written in Chinese or Spanish is found by an English query. Tested live: "milk tea buy one get one free" finds "今天所有奶茶买一送一！".
+- **Ids and time:** documents are keyed by `Deal.id` (`deal:<hash>`), so a re-scan overwrites instead of duplicating. `ends_at` is the end as an instant in `DIBS_TIMEZONE` (default `America/Los_Angeles`), so "today" means today in California, not in UTC.
+- **Failures:** an indexing failure is a note in `search_errors`, never a failed extract.
+
+### `POST /search/deals`
+
+Hybrid search: an `rrf` retriever over a `semantic` query (Jina) and a keyword `multi_match`, filtered to `live`/`needs_check`, not yet ended, and within `radius_miles` of `lat`/`lng` when given. An empty `query` returns the newest deals.
+
+```bash
+curl -s -X POST localhost:8000/search/deals -H 'content-type: application/json' \
+  -d '{"query":"cheap haircut","lat":34.0628,"lng":-118.4455,"radius_miles":1}' | python -m json.tool
+```
+
+### `POST /agent/ask`
+
+Talks to the Agent Builder agent `dibs` (Kibana `POST /api/agent_builder/converse`).
+
+- Body: `{question, conversation_id?, lat?, lng?, push_token?}`; coordinates and the push token are passed to the agent as context.
+- Returns `{answer, conversation_id, deal_ids, deals}`. `deals` are the full deals its tools returned, for cards.
+- Its ES|QL tools: `dibs.search_deals` (MATCH on `search_text`), `dibs.deals_near` (ST_DISTANCE), `dibs.ending_soon` and `dibs.deals_at_shop`.
+- Its workflow tools (it acts): `dibs.watch_deals` saves a watch in `dibs-watches`; `dibs.scan_area` starts a `/extract/shops` job.
+
+### `POST /alerts/check`
+
+Called by the hourly `dibs-watch-matcher` workflow, once per watch.
+
+- It finds deals indexed since the watch last matched, scoring at least `DIBS_WATCH_MIN_SCORE` (Jina similarity, default 0.75) and within the watch's radius.
+- It pushes them to the watch's Expo push token, with the same text as the app's alerts ("Tapioca Lab / BOGO on all milk teas / Ends Oct 24, 6 PM").
+
+### Setup
+
+1. `uv run --env-file .env python -m app.elastic setup`. It creates or extends both indices, then recreates the four ES|QL tools and the agent. Safe to re-run.
+2. In Kibana → **Workflows**, create one workflow per file in `elastic/workflows/` (paste the YAML). In `dibs-scan` and `dibs-watch-matcher`, set `api_url` to the API's public URL and `api_key` to its `DIBS_API_KEY`.
+3. In Kibana → Agents → Tools → **New tool → Workflow**, create `dibs.watch_deals` (workflow `dibs-watch`) and `dibs.scan_area` (workflow `dibs-scan`).
+4. Run step 1 again to attach the workflow tools to the agent.
+
+The act workflows call the API from Elastic Cloud, so the API needs a public URL during the hackathon (for example `cloudflared tunnel --url http://localhost:8000`) and `DIBS_API_KEY` set in `.env`. With `DIBS_API_KEY` set, every endpoint except `/health` and `/demo` needs an `X-Dibs-Key` header; the app sends it from `EXPO_PUBLIC_DIBS_API_KEY`.
+
 ## Tests
 
 ```bash
 uv run pytest -q
 ```
 
-215 tests: every verification rule, the multi-turn tool loop (pause_turn, forced tool, give-up), malformed output, search errors, the Bright Data client (retries, polling, timeouts, error rows), both Bright Data pipelines, the Apify client (request shape, errors, memory cap, each Actor's output), the shop pipeline (attribution, sweep, cache, batching, per-channel failures), the Bright Data Google steps (handle matching, account lookup, deal search) and deal-to-shop linking, photo extraction (year inference, time windows, upload checks), the job flow, and the API. They use a fake Claude client returning real SDK `Message` objects and `httpx.MockTransport` for Bright Data and Apify, so no keys or credits are needed.
+229 tests: every verification rule, the multi-turn tool loop (pause_turn, forced tool, give-up), malformed output, search errors, the Bright Data client (retries, polling, timeouts, error rows), both Bright Data pipelines, the Apify client (request shape, errors, memory cap, each Actor's output), the shop pipeline (attribution, sweep, cache, batching, per-channel failures), the Bright Data Google steps (handle matching, account lookup, deal search) and deal-to-shop linking, photo extraction (year inference, time windows, upload checks), Elastic indexing, search, the agent, setup and Expo pushes, the shared API key, the job flow, and the API. They use a fake Claude client returning real SDK `Message` objects and `httpx.MockTransport` for Bright Data, Apify, Elastic and Expo, so no keys or credits are needed.
 
 ## Cost and settings
 
@@ -380,7 +422,7 @@ uv run pytest -q
 
 ## Not in this MVP
 
-Storing photo submissions and rewards, Instagram stories, speech-to-text for TikTok/reels, storage, scheduling, and auth. The mobile app is in `../app/`. CORS is wide open for the hackathon; tighten it before launch.
+Storing photo submissions and rewards, Instagram stories, speech-to-text for TikTok/reels, storage (Elastic is a search index, not the source of truth), scheduled scans, and user auth (only the shared `DIBS_API_KEY`). The mobile app is in `../app/`. CORS is wide open for the hackathon; tighten it before launch.
 
 ## Layout
 
@@ -396,7 +438,10 @@ app/linking.py    Deal -> shop links, stable shop and deal ids
 app/google_lookup.py Bright Data Google search for /extract/shops: missing accounts, deal posts
 app/photo.py      User photo -> Claude transcript + deals -> verification
 app/jobs.py       In-memory background jobs (Instagram, shops)
+app/elastic.py    Elastic: deal index (Jina semantic_text), hybrid search, Agent Builder agent + tools, setup
+app/push.py       Expo push for watch matches
 app/errors.py     Upstream error -> HTTP status mapping
+elastic/workflows/ Workflow YAML for Kibana: dibs-watch, dibs-scan, dibs-watch-matcher
 app/verify.py     Deterministic verification rules
 app/main.py       FastAPI app
 tests/            pytest suite

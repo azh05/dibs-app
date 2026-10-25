@@ -229,6 +229,49 @@ class ShopsRequest(BaseModel):
     )
 
 
+class DealSearchRequest(BaseModel):
+    """Hybrid search over indexed deals: meaning (Jina) + keywords, filtered by status, distance and category."""
+
+    query: str = Field("", description="Free text in any language, e.g. 'cheap haircut'. Empty: newest deals")
+    lat: Optional[float] = None
+    lng: Optional[float] = None
+    radius_miles: float = Field(1.0, gt=0, le=25)
+    categories: list[Category] = Field(default_factory=list)
+    statuses: list[DealStatus] = Field(default_factory=lambda: [DealStatus.live, DealStatus.needs_check])
+    limit: int = Field(20, ge=1, le=50)
+
+
+class DealSearchResponse(BaseModel):
+    deals: list[Deal]
+    total: int
+
+
+class AskRequest(BaseModel):
+    question: str = Field(..., min_length=1, max_length=500)
+    conversation_id: Optional[str] = Field(None, description="From a previous answer, to continue the chat")
+    lat: Optional[float] = None
+    lng: Optional[float] = None
+    push_token: Optional[str] = Field(None, description="Expo push token, so the agent's watch tool can alert you")
+
+
+class AskResponse(BaseModel):
+    answer: str
+    conversation_id: Optional[str] = None
+    deal_ids: list[str] = Field(default_factory=list, description="Deals the agent's tools returned")
+    deals: list[Deal] = Field(default_factory=list, description="Those deals in full, for cards in the app")
+
+
+class WatchCheckRequest(BaseModel):
+    """From the dibs-watch-matcher workflow: check one saved watch for new matching deals."""
+
+    watch_id: str
+
+
+class WatchCheckResponse(BaseModel):
+    matched: list[str] = Field(default_factory=list, description="Deal ids pushed to the watch's device")
+    sent: int = 0
+
+
 class JobError(BaseModel):
     status_code: int
     detail: str

@@ -47,7 +47,9 @@ Stateless: it fetches, has Claude extract deals as JSON, verifies them, and retu
 | `POST /extract/shops` (job) | Shops found on Google Maps, then their Instagram, TikTok, Facebook and websites, plus a hashtag and TikTok sweep of the area |
 | `POST /extract/photo` | A user's photo of an in-store poster or menu |
 
-Every deal must cite a source the API actually fetched, with a word-for-word quote. For scraped pages and photos, that quote must also appear in the fetched text. Each deal gets a status (`live`, `needs_check`, `stale`, `expired`) and is marked as the shop's own post or second-hand. `/extract/shops` also returns shop records with stable ids, so a database can upsert shops and deals without duplicates. The API has no auth yet, so it stays on 127.0.0.1.
+With an Elastic Serverless project configured, every verified deal is also indexed with Jina embeddings. `POST /search/deals` searches them by meaning in any language, plus distance. `POST /agent/ask` talks to an Elastic Agent Builder agent that answers from that index, and through Elastic Workflows can watch for new deals (with a push alert) or scan an area. See [api/README.md, "Elastic"](api/README.md#elastic-search-agent-and-workflows).
+
+Every deal must cite a source the API actually fetched, with a word-for-word quote. For scraped pages and photos, that quote must also appear in the fetched text. Each deal gets a status (`live`, `needs_check`, `stale`, `expired`) and is marked as the shop's own post or second-hand. `/extract/shops` also returns shop records with stable ids, so a database can upsert shops and deals without duplicates. The API's only auth is an optional shared key (`DIBS_API_KEY`), so without it the API stays on 127.0.0.1.
 
 ### app/ (built, mock data)
 
