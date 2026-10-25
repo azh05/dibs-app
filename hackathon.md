@@ -10,9 +10,9 @@
 * Components: @convex-dev/geospatial (as dealGeo, locationGeo, areaGeo), @convex-dev/rate-limiter
 * Convex features: schema, indexes, queries, mutations, actions, HTTP actions, crons, scheduled functions, file storage, full text search, realtime useQuery, paginated queries
 * Auth: Clerk
-* AI models: claude-opus-5-5 (deal extraction, in `api/`), jina-embeddings-v5-text-small (Elastic search)
+* AI models: claude-opus-5-5, jina-embeddings-v5-text-small (Elastic search)
 * Started: 2026-10-24T05:44:04Z
-* Last updated: 2026-10-25T08:30:00Z
+* Last updated: 2026-10-25T08:35:00Z
 
 ## How we use Convex
 
@@ -45,4 +45,4 @@ Dates are UTC.
 - 2026-10-25 `4dd6a8e` Map measures from its centre (`app/src/app/(tabs)/map.tsx`, `lib/location.ts`)
 - 2026-10-25 `02dfc19` Map shows what's on screen; alerts always on (`map.tsx`, `alerts.tsx`)
 - 2026-10-25 `5151cd2` Deals filtered by your interests (`app/src/lib/filters.ts`)
-- 2026-10-25 Hackathon log (`hackathon.md`, `README.md`)
+- 2026-10-25 `ae59550` Hackathon log (`hackathon.md`, `README.md`)
