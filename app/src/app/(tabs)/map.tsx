@@ -17,7 +17,7 @@ import { Text } from '@/components/text';
 import { useDeals, useDealsAround } from '@/lib/api';
 import { appliedFilters, applyEventFilters, applyFilters, SORTS } from '@/lib/filters';
 import { SOURCE_ICONS, eventWeekday, plural, recency, shortAgo } from '@/lib/format';
-import { combinedLine, GEOFENCE_METERS, useLineCheck, useUserLocation } from '@/lib/line-check';
+import { combinedLine, distanceMeters, GEOFENCE_METERS, useLineCheck, useUserLocation } from '@/lib/line-check';
 import { layoutPins } from '@/lib/pin-layout';
 import { useStore } from '@/lib/store';
 import type { Deal, DealEvent, LatLng } from '@/lib/types';
@@ -31,6 +31,28 @@ function regionAround(center: LatLng) {
 /** Close enough to see a store's geofence while asking about its line. */
 function regionAtStore(center: LatLng) {
   return { ...center, latitudeDelta: 0.006, longitudeDelta: 0.0035 };
+}
+
+type Region = ReturnType<typeof regionAround>;
+
+function inView(coords: LatLng, region: Region) {
+  return (
+    Math.abs(coords.latitude - region.latitude) <= region.latitudeDelta / 2 &&
+    Math.abs(coords.longitude - region.longitude) <= region.longitudeDelta / 2
+  );
+}
+
+/** Steps the map loads deals in, so zooming within a step doesn't reload them; the feed stops at 25 mi. */
+const LOAD_MILES = [1, 2, 4, 8, 16, 25];
+
+/** The smallest step that reaches the screen's corners from `center` (plus slack for its rounding). */
+function loadMiles(center: LatLng, region: Region) {
+  const corner = {
+    latitude: region.latitude + region.latitudeDelta / 2,
+    longitude: region.longitude + region.longitudeDelta / 2,
+  };
+  const miles = distanceMeters(center, corner) / 1609.344 + 0.5;
+  return LOAD_MILES.find((m) => m >= miles) ?? LOAD_MILES[LOAD_MILES.length - 1];
 }
 
 /** Pins show less as the map zooms out (by visible latitude span) so they stop piling up. */
@@ -61,8 +83,8 @@ export default function MapScreen() {
   const position = useUserLocation();
   const you = position ?? home;
   const lineCheck = useLineCheck(nearYou, position);
-  // Like Beli: distances and the Filters radius count from where the map is centred, not from your phone.
-  // Rounded to ~500 m so small pans don't reload the deals.
+  // Like Beli: distances count from where the map is centred, not from your phone, and the map shows every
+  // deal on screen (the Filters radius doesn't apply here). Rounded to ~500 m so small pans don't reload.
   const center = useMemo(
     () => ({
       latitude: Math.round(region.latitude * 200) / 200,
@@ -70,17 +92,18 @@ export default function MapScreen() {
     }),
     [region.latitude, region.longitude],
   );
-  const { deals, events } = useDealsAround(center);
+  const { deals, events } = useDealsAround(center, loadMiles(center, region));
 
-  const shown = applyFilters(deals, filters, query, store.topics);
-  const placed = shown.filter((d) => d.coords);
-  const shownEvents = applyEventFilters(events, filters, query);
-  const selected = placed.find((d) => d.id === selectedId);
+  const shown = applyFilters(deals, { ...filters, radiusMi: Infinity }, query, store.topics).filter(
+    (d) => d.coords && inView(d.coords, region),
+  );
+  const shownEvents = applyEventFilters(events, filters, query).filter((e) => inView(e.coords, region));
+  const selected = shown.find((d) => d.id === selectedId);
   const eventTime = (e: DealEvent) => eventWeekday(e).charAt(0) + eventWeekday(e).slice(1).toLowerCase();
 
   // Each pin gets the most detail that fits without overlapping; the tapped deal is laid out first.
   const pinSpecs = [
-    ...placed.map((d) => ({
+    ...shown.map((d) => ({
       id: d.id,
       coords: d.coords!,
       label: d.pinLabel,
@@ -130,12 +153,7 @@ export default function MapScreen() {
 
   const sheetTop = (
     <>
-      <SheetHeader
-        count={shown.length}
-        radiusMi={filters.radiusMi}
-        sortedBy={sortedBy}
-        onEdit={() => router.push('/filters')}
-      />
+      <SheetHeader count={shown.length} sortedBy={sortedBy} onEdit={() => router.push('/filters')} />
       {applied.length > 0 && (
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.applied}>
           {applied.map((f) => (
@@ -196,7 +214,7 @@ export default function MapScreen() {
             </View>
           </View>
         </Marker>
-        {placed.map((d) => {
+        {shown.map((d) => {
           const placement = placements.get(d.id);
           if (!placement) return null;
           // The store a line check is asking about shows as selected (Figma 12 · Line check).
@@ -338,22 +356,12 @@ function ViewToggle({ toList, onPress }: { toList: boolean; onPress: () => void 
   );
 }
 
-function SheetHeader({
-  count,
-  radiusMi,
-  sortedBy,
-  onEdit,
-}: {
-  count: number;
-  radiusMi: number;
-  sortedBy: string;
-  onEdit: () => void;
-}) {
+function SheetHeader({ count, sortedBy, onEdit }: { count: number; sortedBy: string; onEdit: () => void }) {
   return (
     <View style={styles.sheetHeader}>
       <View style={{ gap: 2 }}>
         <Text weight="extrabold" size={17} tracking={-0.17}>
-          {plural(count, 'deal')} within {radiusMi} mi
+          {plural(count, 'deal')} in this area
         </Text>
         <Text size={13} color={colors.inkTertiary}>
           Sorted by {sortedBy}
