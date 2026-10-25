@@ -15,17 +15,34 @@ export function publicProfile(u: Doc<"users">) {
   return { id: u._id, name, username: u.username ?? null, initials: initials(name), avatar_url: u.avatar_url ?? null };
 }
 
-export const findByUsername = query({
-  args: { prefix: v.string() },
-  handler: async (ctx, { prefix }) => {
+const MAX_PEOPLE = 20;
+
+/** Find friends: usernames starting with the text ("@may" or "may"), then names matching it ("maya r"). */
+export const findPeople = query({
+  args: { query: v.string() },
+  handler: async (ctx, { query: text }) => {
     const me = await getUser(ctx);
-    const p = prefix.toLowerCase().replace(/^@/, "").trim();
+    const typed = text.trim();
+    const p = typed.toLowerCase().replace(/^@/, "");
     if (!me || p.length < 2) return [];
-    const rows = await ctx.db
+    const byUsername = await ctx.db
       .query("users")
       .withIndex("by_username", (q) => q.gte("username", p).lt("username", p + "￿"))
-      .take(20);
-    return rows.filter((u) => u._id !== me._id && !u.deleted_at).map(publicProfile);
+      .take(MAX_PEOPLE);
+    const byName = typed.startsWith("@")
+      ? []
+      : await ctx.db
+          .query("users")
+          .withSearchIndex("search_display_name", (q) => q.search("display_name", typed))
+          .take(MAX_PEOPLE);
+    const seen = new Set<Id<"users">>();
+    const people: ReturnType<typeof publicProfile>[] = [];
+    for (const u of [...byUsername, ...byName]) {
+      if (u._id === me._id || u.deleted_at || seen.has(u._id)) continue;
+      seen.add(u._id);
+      people.push(publicProfile(u));
+    }
+    return people.slice(0, MAX_PEOPLE);
   },
 });
 
@@ -40,6 +57,7 @@ export const request = mutation({
   args: { userId: v.id("users") },
   handler: async (ctx, { userId }) => {
     const me = await requireUser(ctx);
+    if (!me.username) throw new Error("Pick a username first, so friends can find you"); // the app asks for one
     if (userId === me._id) throw new Error("That's you");
     await rateLimiter.limit(ctx, "friendRequest", { key: me._id, throws: true });
     const other = await ctx.db.get("users", userId);

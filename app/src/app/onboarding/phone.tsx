@@ -5,6 +5,7 @@ import { KeyboardAvoidingView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Button } from '@/components/button';
+import { OnboardingProgress } from '@/components/onboarding-progress';
 import { Text } from '@/components/text';
 import { TextField } from '@/components/text-field';
 import { alreadySignedIn, clerkError, useCodeAuth } from '@/lib/clerk-auth';
@@ -45,9 +46,10 @@ export default function PhoneSignIn() {
   };
 
   return (
-    <KeyboardAvoidingView behavior="padding" style={[styles.screen, { paddingTop: insets.top + 24 }]}>
+    <KeyboardAvoidingView behavior="padding" style={[styles.screen, { paddingTop: insets.top }]}>
       <StatusBar style="dark" />
       <View style={styles.content}>
+        <OnboardingProgress />
         <Text weight="extrabold" size={28} tracking={-0.84}>
           What’s your number?
         </Text>
@@ -62,7 +64,13 @@ export default function PhoneSignIn() {
           keyboardType="phone-pad"
           textContentType="telephoneNumber"
           autoFocus
-          hint={error && <Text weight="semibold" size={12} color={colors.orange}>{error}</Text>}
+          hint={
+            error && (
+              <Text weight="semibold" size={12} color={colors.orange}>
+                {error}
+              </Text>
+            )
+          }
         />
       </View>
       <View style={[styles.cta, { paddingBottom: Math.max(insets.bottom, 24) }]}>
@@ -74,6 +82,6 @@ export default function PhoneSignIn() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.surface },
-  content: { gap: 14, paddingHorizontal: gutter + 4 },
+  content: { gap: 14, paddingTop: 6, paddingHorizontal: gutter + 4 },
   cta: { marginTop: 'auto', paddingHorizontal: gutter + 4 },
 });

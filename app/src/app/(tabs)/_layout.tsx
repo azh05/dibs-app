@@ -1,10 +1,15 @@
+import { Redirect } from 'expo-router';
 import { Tabs } from 'expo-router/js-tabs';
 
 import { TabBar } from '@/components/tab-bar';
+import { useStore } from '@/lib/store';
 import { colors } from '@/theme';
 
-// Saved and Leaderboard open from Profile but keep the tab bar (Profile stays active), as in Figma.
+// Saved and Leaderboard open from Profile but keep the tab bar (Profile stays active), as in Figma. An account
+// without a username picks one first, so friends can find it.
 export default function TabsLayout() {
+  const { needsUsername } = useStore();
+  if (needsUsername) return <Redirect href="/onboarding/username" />;
   return (
     <Tabs
       tabBar={(props) => <TabBar {...props} />}

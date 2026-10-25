@@ -73,7 +73,7 @@ test("friends: request, accept, feed and cheers", async () => {
   const { boba } = await seed(t);
   const maya = await signIn(t, 1, "maya");
   const jess = await signIn(t, 2, "jess");
-  expect((await maya.as.query(api.social.findByUsername, { prefix: "je" })).map((u) => u.username)).toEqual(["jess"]);
+  expect((await maya.as.query(api.social.findPeople, { query: "je" })).map((u) => u.username)).toEqual(["jess"]);
   expect(await maya.as.mutation(api.social.request, { userId: jess.userId })).toBe("pending");
   expect((await jess.as.query(api.social.friends, {})).incoming.map((u) => u.username)).toEqual(["maya"]);
   await jess.as.mutation(api.social.respond, { userId: maya.userId, accept: true });

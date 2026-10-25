@@ -17,21 +17,30 @@ import { colors, gutter } from '@/theme';
 
 type Person = { id: Id<'users'>; name: string; username: string | null; initials: string };
 
-// Find friends (Profile → Friends → "Find friends"): search by username, answer requests. Friends' used deals,
+// Find friends (Profile → Friends → "Find friends"): search by name or @username, answer requests. Friends' used deals,
 // saved events and badges then show on Profile, and they get their own leaderboard. Backend mode only.
 export default function FriendsScreen() {
   const insets = useSafeAreaInsets();
   const [query, setQuery] = useState('');
-  const results = useQuery(api.social.findByUsername, { prefix: query });
+  const results = useQuery(api.social.findPeople, { query });
   const lists = useQuery(api.social.friends);
   const request = useMutation(api.social.request);
   const respond = useMutation(api.social.respond);
   const [sent, setSent] = useState(new Set<string>());
 
-  const known = new Set([...(lists?.friends ?? []), ...(lists?.outgoing ?? []), ...(lists?.incoming ?? [])].map((p) => p.id));
+  const known = new Set(
+    [...(lists?.friends ?? []), ...(lists?.outgoing ?? []), ...(lists?.incoming ?? [])].map((p) => p.id),
+  );
   const add = (p: Person) => {
     setSent((s) => new Set(s).add(p.id));
-    request({ userId: p.id }).catch((e) => Alert.alert('Couldn’t add friend', errorText(e)));
+    request({ userId: p.id }).catch((e) => {
+      setSent((s) => {
+        const next = new Set(s);
+        next.delete(p.id);
+        return next;
+      });
+      Alert.alert('Couldn’t add friend', errorText(e));
+    });
   };
   const answer = (p: Person, accept: boolean) =>
     respond({ userId: p.id, accept }).catch((e) => Alert.alert('Something went wrong', errorText(e)));
@@ -48,7 +57,7 @@ export default function FriendsScreen() {
         </Text>
       </View>
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-        <SearchBar value={query} onChangeText={setQuery} placeholder="Search by @username" compact />
+        <SearchBar value={query} onChangeText={setQuery} placeholder="Search by name or @username" compact />
 
         {query.trim().length >= 2 && (
           <View style={{ gap: 2 }}>

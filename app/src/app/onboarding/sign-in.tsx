@@ -44,7 +44,7 @@ function ClerkSignIn() {
     try {
       const result = await social(p.key === 'apple' ? 'oauth_apple' : 'oauth_google');
       if (!result) return;
-      if (result.isNew) router.push('/onboarding/interests');
+      if (result.isNew) router.push({ pathname: '/onboarding/username', params: { onboarding: '1' } });
       else {
         router.dismissAll();
         router.replace('/deals');
@@ -116,7 +116,14 @@ function SignInLayout({
       </View>
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         {PROVIDERS.map((p) => (
-          <Button key={p.label} label={p.label} icon={p.icon} variant={p.variant} onPress={() => onProvider(p)} disabled={busy} />
+          <Button
+            key={p.label}
+            label={p.label}
+            icon={p.icon}
+            variant={p.variant}
+            onPress={() => onProvider(p)}
+            disabled={busy}
+          />
         ))}
         <Button
           label="Continue with email"

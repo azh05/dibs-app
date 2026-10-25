@@ -20,6 +20,9 @@ export const DEMO_ACCOUNT: Account = {
   studentDomain: 'ucla.edu',
 };
 
+/** Shown for an account with no name yet (backend: no Clerk name, e.g. phone sign-up). */
+export const NO_NAME = 'dibs user';
+
 const TAKEN_USERNAMES = new Set(['dibs', 'admin', 'support', 'kevint', 'sofiam']);
 
 export function isUsernameValid(username: string) {
@@ -36,7 +39,10 @@ export function isEmailValid(email: string) {
 
 /** "maya@ucla.edu" → "ucla.edu"; null for non-.edu addresses. */
 export function eduDomain(email: string) {
-  const match = email.trim().toLowerCase().match(/@([a-z0-9-]+\.)*([a-z0-9-]+\.edu)$/);
+  const match = email
+    .trim()
+    .toLowerCase()
+    .match(/@([a-z0-9-]+\.)*([a-z0-9-]+\.edu)$/);
   return match ? match[2] : null;
 }
 
@@ -52,8 +58,10 @@ export function passwordStrength(password: string) {
   if (password.length < 8) return { score: 0, label: STRENGTH_LABELS[0] };
   const score = Math.min(
     4,
-    1 + [/[a-z]/.test(password) && /[A-Z]/.test(password), /\d/.test(password), /[^A-Za-z0-9]/.test(password)].filter(Boolean)
-      .length,
+    1 +
+      [/[a-z]/.test(password) && /[A-Z]/.test(password), /\d/.test(password), /[^A-Za-z0-9]/.test(password)].filter(
+        Boolean,
+      ).length,
   );
   return { score, label: STRENGTH_LABELS[score] };
 }
