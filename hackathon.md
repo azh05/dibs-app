@@ -6,13 +6,13 @@
 * Live app: not deployed (Expo app runs in Expo Go)
 * Repo: https://github.com/azh05/dibs-app (private)
 * Frontend: not deployed
-* Convex deployment: Convex cloud dev deployment via CI (`.github/workflows/ci.yml`); URL not committed
+* Convex deployment: https://warmhearted-blackbird-205.convex.cloud (dev, deployed by CI)
 * Components: @convex-dev/geospatial (as dealGeo, locationGeo, areaGeo), @convex-dev/rate-limiter
 * Convex features: schema, indexes, queries, mutations, actions, HTTP actions, crons, scheduled functions, file storage, full text search, realtime useQuery, paginated queries
 * Auth: Clerk
 * AI models: claude-opus-5-5, jina-embeddings-v5-text-small
 * Started: 2026-10-24T05:44:04Z
-* Last updated: 2026-10-25T08:40:00Z
+* Last updated: 2026-10-25T08:42:01Z
 
 ## How we use Convex
 
