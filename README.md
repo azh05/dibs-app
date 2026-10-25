@@ -33,6 +33,10 @@ The app uses mock data unless `EXPO_PUBLIC_CONVEX_URL` and `EXPO_PUBLIC_CLERK_PU
 
 Convex cloud deployment → API with `DIBS_API_KEY` → a tunnel (or a host) so Convex can reach the API → Clerk (Convex integration, Native API, sign-in methods, webhook) → the app. Step-by-step instructions, including Clerk's test codes and a free check of the Convex-to-API path, are in [app/convex/README.md, "Setup, start to finish"](app/convex/README.md#setup-start-to-finish).
 
+## Deploys and CI
+
+The API runs on Render (https://dibs-app.onrender.com, root directory `api`, health check `/health`). `.github/workflows/ci.yml` runs on every PR and push to `main`: the API tests, then the app's typecheck, lint and Convex tests. On `main` it also runs `npx convex deploy` when `app/convex/` changed, to whichever deployment the `CONVEX_DEPLOY_KEY` secret belongs to (currently the shared dev deployment, so a local `npx convex dev` and CI overwrite each other's functions). Render's Auto-Deploy is set to "After CI Checks Pass" with a build filter on `api/**`, so only API changes restart it (a restart drops running scans). The app itself isn't deployed by CI: run it with Expo Go from Metro.
+
 ## How it fits together
 
 ```
