@@ -6,7 +6,6 @@ Short-lived local deals (grand-opening specials, BOGO offers, happy hours, promo
 | --- | --- | --- |
 | [`api/`](api/) | FastAPI backend: finds and verifies deals. Claude web search, Bright Data (Google + public Instagram posts), Apify (Google Maps shops + their Instagram, TikTok, Facebook and websites), user photos | [api/README.md](api/README.md) |
 | [`app/`](app/) | Expo (React Native) app built from the [Figma design](https://www.figma.com/design/6mfeMN9XPnjwR6dn2DwdsG): onboarding, Deals, Map, Friends, Earn credits, Alerts, Profile | [app/README.md](app/README.md) |
-| [`docs/`](docs/) | Team notes: [outside APIs, keys and user sign-in options](docs/apis-and-auth.md) | |
 | Convex | Backend for the app: Clerk sign-in, storage and the 24/7 scan schedule. Not in the repo yet | "Backend data model" tab of the Dibs App doc; [api/README.md, "Storing results"](api/README.md#storing-results-convex) |
 
 ## Quick start (API)
@@ -72,4 +71,4 @@ Real local notifications and the line check run on the device. Accounts, saves, 
 
 The schema the API writes and its upsert rules are in [api/README.md, "Storing results"](api/README.md#storing-results-convex). Until Convex exists, the app calls the API directly when `EXPO_PUBLIC_API_URL` is set (`/extract/search` for the feed, `/extract/photo` for Earn).
 
-API keys live only in `api/.env` (gitignored). Neither the app nor Convex calls Anthropic, Bright Data or Apify directly. Once Convex calls the API from the cloud, the two share a key (planned: a `DIBS_API_KEY` header, see [docs/apis-and-auth.md](docs/apis-and-auth.md)).
+API keys live only in `api/.env` (gitignored). Neither the app nor Convex calls Anthropic, Bright Data or Apify directly. Once Convex calls the API from the cloud, the two share a key (planned: a `DIBS_API_KEY` header; the "APIs & auth" tab of the Dibs App doc covers every outside API and sign-in option).

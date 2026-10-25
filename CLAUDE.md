@@ -16,7 +16,7 @@ Where things are documented (keep them in sync when behavior changes):
 
 - `api/README.md`: the HTTP API, verification rules, Bright Data and Apify setup, and the Convex schema/upsert contract ("Storing results (Convex)").
 - `app/README.md`: app flow, what runs for real, layout. `app/AGENTS.md` (loaded by `app/CLAUDE.md`): Expo rules; read it before touching the app.
-- `docs/apis-and-auth.md`: every outside API, how it authenticates, and the sign-in options (mirrors the "APIs & auth" tab of the Dibs App Google Doc).
+- The Dibs App Google Doc, "APIs & auth" tab: every outside API, how it authenticates, and the sign-in options.
 - The Dibs App Google Doc, "Backend data model" tab: the full Convex data model, scheduling and purging rules. The root `README.md` gives the overview.
 
 ## API (`api/`)
@@ -104,4 +104,4 @@ Not in the repo yet. The full design is in the "Backend data model" tab of the D
 - **Contract with the API**: `api/README.md` "Storing results (Convex)" is the schema for the tables the API fills. Every write is an upsert: `stores` by `external_id` (`Shop.id`), `sources` by normalized URL, `deals` by `dedupe_key` (store + offer + code, the same rule as `verify.py`), `deal_evidence` by `evidence_key` (`Deal.id`). Field names stay snake_case as the API returns them; keep that section in sync with `schemas.py` and the doc.
 - **Scheduling**: nothing runs on Apify's or Bright Data's own schedulers. An hourly Convex cron starts each `scan_area` at its local run times (daily food and drink at 10:00 and 16:00, weekly shop refresh, website crawl and non-food categories), POSTs `/extract/shops`, polls the `status_url`, and saves the result in one mutation. `JobStore` is in memory, so a run still going after 15 minutes is marked failed and retried. `ShopCache` (`.cache/shops.json`) is what moves into `stores`.
 - **Status and purging**: an hourly cron sets `upcoming`/`expired`/`stale` (14 days, `STALE_AFTER_DAYS`)/`hidden`; the feed shows live, needs_check and upcoming. A daily cron deletes deals 90 days after they expire or go stale, unless a user record points at them. Alerts go out only for a new `dedupe_key`.
-- **Auth**: users sign in with Clerk and Convex checks Clerk's token. The API has no auth yet; before Convex calls it from the cloud, add a shared-secret header check (planned `DIBS_API_KEY`). An OIDC token check for the API was prototyped with SpacetimeAuth (commit `2aed0bb`, not merged; its branch is deleted), as described in `docs/apis-and-auth.md`.
+- **Auth**: users sign in with Clerk and Convex checks Clerk's token. The API has no auth yet; before Convex calls it from the cloud, add a shared-secret header check (planned `DIBS_API_KEY`). The other sign-in options considered are in the "APIs & auth" tab of the Dibs App doc.
