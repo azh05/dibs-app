@@ -379,3 +379,11 @@ def test_instagram_deals_are_linked():
     out = pipeline.run_instagram(InstagramRequest(handles=["milksha_ca"]), today=TODAY)
     (d,) = out.deals
     assert d.id.startswith("deal:") and d.shop_id in {s.id for s in out.shops}
+
+
+def test_sources_carry_full_text():
+    pipeline, _, claude = ig_pipeline([])
+    claude.messages.responses = [msg([record_block([deal()])], stop_reason="tool_use")]
+    out = pipeline.run_instagram(InstagramRequest(handles=["milksha_ca"]), today=TODAY)
+    src = out.sources[0]
+    assert src.origin == "instagram" and src.text and src.handle

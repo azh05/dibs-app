@@ -55,6 +55,8 @@ Other request fields: `shop` ("Milksha Westwood"), `query` ("boba BOGO"), `allow
 
 Deals come back sorted live → needs_check → stale → expired.
 
+**Sources.** Each source carries the full `text` we read (caption, snippet, page or photo transcript), its `origin` (`serp`, `instagram`, `tiktok`, `facebook`, `website`, `photo`) and the posting account's `handle`, so a database can store what each deal was checked against. `/extract/search` has no text (Claude's web search results are encrypted).
+
 **Display fields.** Claude also fills these for the app. They are never verified and never affect status; a malformed value is cleared (or a long one shortened), not fatal to the deal.
 
 | Field | Meaning |
@@ -86,7 +88,7 @@ Deals come back sorted live → needs_check → stale → expired.
   "shops": [{"id": "ig:milksha_ca", "name": "Milksha Westwood", "instagram": "milksha_ca", "found_via": "deal", "...": "..."}],
   "rejected": [{"deal": {"...": "..."}, "reason": "source_not_in_search_results"}],
   "queries": ["Westwood boba deal October", "..."],
-  "sources": [{"url": "...", "title": "...", "page_age": "October 1, 2026"}],
+  "sources": [{"url": "...", "title": "...", "page_age": "October 1, 2026", "text": "full caption or page text", "origin": "instagram", "handle": "milksha_ca"}],
   "search_errors": [],
   "usage": {"input_tokens": 0, "output_tokens": 0, "web_search_requests": 0},
   "provider": "claude_web_search",
@@ -386,7 +388,7 @@ curl -s localhost:8000$JOB | python -m json.tool   # repeat until "status": "don
 uv run pytest -q
 ```
 
-223 tests: every verification rule, the display fields and the API key, the multi-turn tool loop (pause_turn, forced tool, give-up), malformed output, search errors, the Bright Data client (retries, polling, timeouts, error rows), both Bright Data pipelines, the Apify client (request shape, errors, memory cap, each Actor's output), the shop pipeline (attribution, sweep, cache, batching, per-channel failures), the Bright Data Google steps (handle matching, account lookup, deal search) and deal-to-shop linking, photo extraction (year inference, time windows, upload checks), the job flow, and the API. They use a fake Claude client returning real SDK `Message` objects and `httpx.MockTransport` for Bright Data and Apify, so no keys or credits are needed.
+225 tests: every verification rule, the display fields and the API key, the multi-turn tool loop (pause_turn, forced tool, give-up), malformed output, search errors, the Bright Data client (retries, polling, timeouts, error rows), both Bright Data pipelines, the Apify client (request shape, errors, memory cap, each Actor's output), the shop pipeline (attribution, sweep, cache, batching, per-channel failures), the Bright Data Google steps (handle matching, account lookup, deal search) and deal-to-shop linking, photo extraction (year inference, time windows, upload checks), the job flow, and the API. They use a fake Claude client returning real SDK `Message` objects and `httpx.MockTransport` for Bright Data and Apify, so no keys or credits are needed.
 
 ## Cost and settings
 

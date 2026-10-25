@@ -180,6 +180,11 @@ class SearchResultSource(BaseModel):
     url: str
     title: Optional[str] = None
     page_age: Optional[str] = None
+    text: Optional[str] = Field(
+        None, description="Full text we read (caption, snippet, page or photo transcript); null for Claude web search"
+    )
+    origin: Optional[Literal["serp", "instagram", "tiktok", "facebook", "website", "photo"]] = None
+    handle: Optional[str] = Field(None, description="Account that posted it, without @ (social posts)")
 
 
 class Usage(BaseModel):

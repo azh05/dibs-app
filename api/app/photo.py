@@ -211,7 +211,7 @@ class PhotoExtractor:
                 preset_flags.append([])
             fixed.append(RawDeal.model_validate({**deal.model_dump(exclude={"year_stated"}), **updates}))
 
-        source = SearchResultSource(url=url, title=filename)
+        source = SearchResultSource(url=url, title=filename, text=transcript, origin="photo")
         deals, rejected = verify_deals(
             fixed, [source], today, source_texts={normalize_url(url): transcript}, preset_flags=preset_flags
         )

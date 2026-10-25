@@ -239,3 +239,8 @@ def test_photo_deal_is_linked():
     (deal,) = resp.deals
     assert deal.id.startswith("deal:") and deal.shop_id == "name:chipotle"
     assert [s.id for s in resp.shops] == ["name:chipotle"]
+
+
+def test_photo_source_carries_transcript():
+    resp, _ = run([msg([record([CHIPOTLE])], stop_reason="tool_use")])
+    assert resp.sources[0].text == TRANSCRIPT and resp.sources[0].origin == "photo"

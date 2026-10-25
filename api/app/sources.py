@@ -160,7 +160,14 @@ def combine(*groups: Iterable[SourceDoc]) -> list[SourceDoc]:
 
 def to_search_sources(docs: list[SourceDoc]) -> list[SearchResultSource]:
     return [
-        SearchResultSource(url=d.url, title=d.title, page_age=d.post_date.isoformat() if d.post_date else d.page_age)
+        SearchResultSource(
+            url=d.url,
+            title=d.title,
+            page_age=d.post_date.isoformat() if d.post_date else d.page_age,
+            text=d.text,
+            origin=d.origin,
+            handle=d.handle,
+        )
         for d in docs
     ]
 
