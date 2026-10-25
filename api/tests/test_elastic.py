@@ -148,6 +148,23 @@ def test_setup_creates_indices_tools_and_agent_and_lists_missing_workflow_tools(
     assert "dibs.watch_deals" in out.getvalue()
 
 
+def test_match_watch_reads_workflow_point_and_threshold():
+    bodies = []
+
+    def handler(request):
+        if request.method == "GET":
+            src = {"query_text": "ramen", "location": "34.06,-118.44", "radius_m": "1600", "push_token": "tok"}
+            return httpx.Response(200, json={"found": True, "_source": src})
+        bodies.append(json.loads(request.content))
+        return httpx.Response(200, json={"hits": {"hits": [{"_source": {"deal": deal().model_dump(mode="json")}}]}})
+
+    watch, deals = DealIndex(fake_client(handler)).match_watch("w1")
+    assert watch["push_token"] == "tok" and len(deals) == 1
+    filters = bodies[0]["query"]["bool"]["filter"]
+    assert {"geo_distance": {"distance": "1600m", "location": {"lat": 34.06, "lon": -118.44}}} in filters
+    assert bodies[0]["min_score"] == elastic.WATCH_MIN_SCORE
+
+
 def test_when_line_and_push_message():
     assert when_line(deal(end_date=date(2026, 10, 24), end_time=time(18, 0))) == "Ends Oct 24, 6 PM"
     assert when_line(deal(end_date=date(2026, 11, 1))) == "Ends Nov 1"

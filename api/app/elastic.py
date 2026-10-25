@@ -202,6 +202,19 @@ def deal_doc(deal: Deal, shop: Optional[Shop], provider: str, area: Optional[str
     }
 
 
+def _point(value: Any) -> Optional[dict[str, float]]:
+    """A geo_point as the dibs-watch workflow writes it ("lat,lon") or as an object."""
+    try:
+        if isinstance(value, str) and "," in value:
+            lat, lon = (float(p) for p in value.split(",", 1))
+            return {"lat": lat, "lon": lon}
+        if isinstance(value, dict) and value.get("lat") is not None and value.get("lon") is not None:
+            return {"lat": float(value["lat"]), "lon": float(value["lon"])}
+    except ValueError:
+        pass
+    return None
+
+
 class DealIndex:
     def __init__(self, client: Optional[ElasticClient] = None, index: str = DEALS_INDEX):
         self.client = client or ElasticClient()
@@ -292,9 +305,10 @@ class DealIndex:
             {"terms": {"status": ["live", "needs_check"]}},
             {"range": {"indexed_at": {"gt": since}}},
         ]
-        loc = watch.get("location") or {}
-        if loc.get("lat") is not None and loc.get("lon") is not None:
-            filters.append({"geo_distance": {"distance": f"{int(watch.get('radius_m') or 1600)}m", "location": loc}})
+        loc = _point(watch.get("location"))
+        if loc:
+            radius = int(float(watch.get("radius_m") or 1600))
+            filters.append({"geo_distance": {"distance": f"{radius}m", "location": loc}})
         text = watch.get("query_text") or ""
         result = self.client.es(
             "POST",

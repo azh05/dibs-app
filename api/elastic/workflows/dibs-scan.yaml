@@ -1,27 +1,21 @@
 # Agent tool dibs.scan_area: "scan Sawtelle for boba right now".
 # Starts a /extract/shops job on the Dibs API; its deals are indexed into dibs-deals when the job finishes.
-# Set api_url to the API's public (tunnel) URL and api_key to its DIBS_API_KEY before saving.
+# Before saving: set api_url to the API's public (tunnel) URL and api_key to DIBS_API_KEY from api/.env.
 name: dibs-scan
-description: Start a fresh scan of an area for one kind of shop (takes a few minutes).
 enabled: true
-tags: [dibs]
-
+description: Start a fresh scan of an area for one kind of shop (takes a few minutes).
 consts:
   api_url: https://YOUR-TUNNEL-URL
   api_key: YOUR-DIBS_API_KEY
-
-inputs:
-  - name: neighborhood
-    type: string
-    required: true
-    description: Neighborhood to scan, e.g. "Sawtelle" or "Westwood"
-  - name: search_term
-    type: string
-    required: true
-    description: Kind of shop to look for on Google Maps, e.g. "boba" or "ramen"
-
 triggers:
   - type: manual
+    inputs:
+      - name: neighborhood
+        type: string
+        description: Neighborhood to scan, e.g. "Sawtelle" or "Westwood"
+      - name: search_term
+        type: string
+        description: Kind of shop to look for on Google Maps, e.g. "boba" or "ramen"
 
 steps:
   - name: start_scan

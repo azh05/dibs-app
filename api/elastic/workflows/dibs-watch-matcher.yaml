@@ -1,15 +1,12 @@
 # Every hour: for each saved watch, ask the Dibs API to check for new matching deals and push them.
 # The API does the matching (Jina similarity above DIBS_WATCH_MIN_SCORE, within the watch's radius).
-# Set api_url and api_key as in dibs-scan.yaml.
+# Before saving: set api_url and api_key as in dibs-scan.
 name: dibs-watch-matcher
-description: Hourly check of every deal watch; new matches are pushed to the watcher's phone.
 enabled: true
-tags: [dibs]
-
+description: Hourly check of every deal watch; new matches are pushed to the watcher's phone.
 consts:
   api_url: https://YOUR-TUNNEL-URL
   api_key: YOUR-DIBS_API_KEY
-
 triggers:
   - type: scheduled
     with:
@@ -26,7 +23,7 @@ steps:
 
   - name: check_each_watch
     type: foreach
-    foreach: "{{ steps.watches.output.hits.hits }}"
+    foreach: "${{ steps.watches.output.hits.hits }}"
     steps:
       - name: check_watch
         type: http
