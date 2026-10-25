@@ -14,7 +14,7 @@ import { colors, gutter } from '@/theme';
 const FIELDS: Record<FinishField, { label: string; placeholder: string; secure?: boolean; keyboard?: 'email-address' }> = {
   email_address: { label: 'Email', placeholder: 'you@school.edu', keyboard: 'email-address' },
   username: { label: 'Username', placeholder: 'username' },
-  password: { label: 'Password', placeholder: '8+ characters', secure: true },
+  password: { label: 'Password', placeholder: 'Choose a password', secure: true }, // Clerk's settings decide the minimum length
   first_name: { label: 'First name', placeholder: 'Maya' },
   last_name: { label: 'Last name', placeholder: 'Rodriguez' },
 };

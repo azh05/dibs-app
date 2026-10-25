@@ -136,7 +136,7 @@ export default function CreateAccount() {
           label="Password"
           value={password}
           onChangeText={setPassword}
-          placeholder="8+ characters"
+          placeholder="Choose a password"
           secureTextEntry={!showPassword}
           autoCapitalize="none"
           textContentType="newPassword"
