@@ -14,13 +14,12 @@ afterEach(() => {
 
 const AREA = { scan_area_key: "westwood|los angeles|california", neighborhood: "Westwood" };
 
-async function user(t: T, n: number, opts: { at?: { lat: number; lng: number }; radius?: number; types?: string[]; instant?: boolean } = {}) {
+async function user(t: T, n: number, opts: { at?: { lat: number; lng: number }; radius?: number; types?: string[] } = {}) {
   const as = t.withIdentity(identity(n));
   const userId = await as.mutation(api.users.store, {});
   const at = opts.at ?? WESTWOOD;
   await as.mutation(api.prefs.saveLocation, { label: "Home", ...at, radius_miles: opts.radius ?? 1 });
   await as.mutation(api.prefs.setTopics, { store_types: opts.types ?? ["boba_tea"], deal_types: [] });
-  if (opts.instant === false) await as.mutation(api.prefs.setInstantAlerts, { on: false });
   await as.mutation(api.prefs.registerDevice, { push_token: `ExponentPushToken[${n}]`, platform: "ios" });
   return { as, userId };
 }
@@ -44,7 +43,6 @@ test("a new deal alerts nearby followers of its type, once, by push", async () =
   const near = await user(t, 1);
   const far = await user(t, 2, { at: { lat: 34.1, lng: -118.3 } }); // ~10 mi away
   const notInterested = await user(t, 3, { types: ["gyms"] });
-  const muted = await user(t, 4, { instant: false });
   const wide = await user(t, 5, { at: { lat: 34.09, lng: -118.4419 }, radius: 5, types: ["gyms"] });
   await wide.as.mutation(api.prefs.setFollow, {
     storeId: await t.run(async (ctx) => {
@@ -67,7 +65,6 @@ test("a new deal alerts nearby followers of its type, once, by push", async () =
   expect(await inbox(wide.as)).toEqual(["followed_store"]);
   expect(await inbox(far.as)).toEqual([]);
   expect(await inbox(notInterested.as)).toEqual([]);
-  expect(await inbox(muted.as)).toEqual([]);
 
   const pushes = stub.calls.filter((c) => c.url.includes("exp.host"));
   expect(pushes).toHaveLength(1);
@@ -78,7 +75,7 @@ test("a new deal alerts nearby followers of its type, once, by push", async () =
   expect(sent[0].body).toBe("BOGO milk tea\nEnds Dec 31, 6 PM");
 
   // The token Expo called DeviceNotRegistered is gone.
-  expect(await t.run(async (ctx) => (await ctx.db.query("devices").collect()).length)).toBe(4);
+  expect(await t.run(async (ctx) => (await ctx.db.query("devices").collect()).length)).toBe(3);
 
   // Re-planning sends nothing new.
   const dealId = await t.run(async (ctx) => (await ctx.db.query("deals").collect()).find((d) => d.offer.startsWith("BOGO"))!._id);

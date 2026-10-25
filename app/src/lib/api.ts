@@ -241,13 +241,13 @@ function useApiDeals(): DealsState {
 
 export const useDeals: () => DealsState = usingBackend ? useBackendDeals : usingLiveApi ? useApiDeals : useMockDeals;
 
-/** The map's deals, measured from a point (the map's centre) instead of your place, like Beli: distances, the
- *  Filters radius and "nearest" sorting all count from where the map is looking. */
-function useBackendDealsAround(center: LatLng): DealsState {
+/** The map's deals within `radiusMi` of a point (the map's centre) instead of your place, like Beli: distances
+ *  and "nearest" sorting count from where the map is looking. */
+function useBackendDealsAround(center: LatLng, radiusMi: number): DealsState {
   const views = useQuery(api.deals.feed, {
     lat: center.latitude,
     lng: center.longitude,
-    radius_miles: FEED_RADIUS_MILES,
+    radius_miles: radiusMi,
   });
   return useMemo(
     () => ({
@@ -259,7 +259,7 @@ function useBackendDealsAround(center: LatLng): DealsState {
   );
 }
 
-function useLocalDealsAround(center: LatLng): DealsState {
+function useLocalDealsAround(center: LatLng, _radiusMi: number): DealsState {
   const state = useDeals();
   return useMemo(() => {
     const from = (coords: LatLng | null) =>
@@ -268,7 +268,7 @@ function useLocalDealsAround(center: LatLng): DealsState {
   }, [state, center]);
 }
 
-export const useDealsAround: (center: LatLng) => DealsState = usingBackend
+export const useDealsAround: (center: LatLng, radiusMi: number) => DealsState = usingBackend
   ? useBackendDealsAround
   : useLocalDealsAround;
 

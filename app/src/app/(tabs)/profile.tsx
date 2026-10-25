@@ -24,7 +24,7 @@ const editInterests = () => router.push({ pathname: '/onboarding/interests', par
 export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
   const store = useStore();
-  const { account, studentDomain, xp, saved, topics, instant, alertRadiusMi, lists, place } = store;
+  const { account, studentDomain, xp, saved, topics, alertRadiusMi, lists, place } = store;
   const social = useSocial();
   const [verifying, setVerifying] = useState(false);
 
@@ -225,7 +225,7 @@ export default function ProfileScreen() {
           <SettingRow
             icon="bell"
             title="Alert settings"
-            value={`${instant ? 'Instant' : 'Off'} · ${alertRadiusMi} mi`}
+            value={`Within ${alertRadiusMi} mi`}
             onPress={() => router.navigate('/alerts')}
           />
           <SettingRow

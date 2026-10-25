@@ -1,7 +1,7 @@
 import Slider from '@react-native-community/slider';
 import { router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { Pressable, ScrollView, StyleSheet, Switch, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import DotRead from '@/assets/shapes/dot-read.svg';
@@ -27,7 +27,7 @@ export default function AlertsScreen() {
   const insets = useSafeAreaInsets();
   const { deals, events } = useDeals();
   const store = useStore();
-  const { activity, instant, topics, alertRadiusMi, reminders } = store;
+  const { activity, topics, alertRadiusMi, reminders } = store;
 
   const latestId = activity[0]?.dealId;
   const latest = latestId ? findDeal(deals, latestId) : undefined;
@@ -43,22 +43,9 @@ export default function AlertsScreen() {
     <View style={[styles.screen, { paddingTop: insets.top }]}>
       <StatusBar style="dark" />
       <ScrollView contentContainerStyle={styles.content}>
-        <View style={styles.titleRow}>
-          <Text weight="extrabold" size={30} tracking={-0.9}>
-            Alerts
-          </Text>
-          <View style={styles.instant}>
-            <Text weight="bold" size={14} color={colors.inkSecondary}>
-              Instant
-            </Text>
-            <Switch
-              value={instant}
-              onValueChange={store.setInstant}
-              trackColor={{ true: colors.orange, false: colors.border }}
-              ios_backgroundColor={colors.border}
-            />
-          </View>
-        </View>
+        <Text weight="extrabold" size={30} tracking={-0.9}>
+          Alerts
+        </Text>
         <Text size={14} color={colors.inkSecondary}>
           Live alerts for the interests you picked.
         </Text>
@@ -112,7 +99,7 @@ export default function AlertsScreen() {
           </View>
         </View>
 
-        {instant && latest && (
+        {latest && (
           <NotificationCard
             tone="dark"
             title={latest.store}
@@ -180,8 +167,6 @@ export default function AlertsScreen() {
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.surface },
   content: { paddingTop: 8, paddingHorizontal: gutter, paddingBottom: 24, gap: 18 },
-  titleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  instant: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   rowBetween: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   reminder: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   activity: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 12 },
