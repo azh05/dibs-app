@@ -264,7 +264,7 @@ export default function MapScreen() {
         </View>
       ) : (
         <View
-          style={styles.bottom}
+          style={[styles.bottom, !prompted && !selected && styles.bottomBare]}
           pointerEvents="box-none"
           onLayout={(e) => setBottomHeight(e.nativeEvent.layout.height)}>
           <View style={styles.controls} pointerEvents="box-none">
@@ -352,6 +352,9 @@ function SheetHeader({
   );
 }
 
+/** Gap between the View Map / View List pill and the tab bar, the same on the map and the list. */
+const TOGGLE_BOTTOM = 14;
+
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: '#F2F0EB' },
   top: { position: 'absolute', left: 0, right: 0, top: 0, paddingHorizontal: gutter },
@@ -364,6 +367,8 @@ const styles = StyleSheet.create({
     borderBottomColor: colors.border,
   },
   bottom: { position: 'absolute', left: 0, right: 0, bottom: 0, gap: 12 },
+  // With no card under it, lift the controls so View List sits where View Map does on the list (TOGGLE_BOTTOM).
+  bottomBare: { paddingBottom: TOGGLE_BOTTOM - 2 },
   // View List centred, the recenter button on the right edge as in Figma.
   controls: { height: 48, alignItems: 'center', justifyContent: 'center' },
   recenter: {
@@ -395,7 +400,7 @@ const styles = StyleSheet.create({
   applied: { gap: 6 },
   list: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, backgroundColor: colors.surface },
   listContent: { gap: 14, paddingHorizontal: gutter, paddingBottom: 96 },
-  listToggle: { position: 'absolute', left: 0, right: 0, bottom: 16, alignItems: 'center' },
+  listToggle: { position: 'absolute', left: 0, right: 0, bottom: TOGGLE_BOTTOM, alignItems: 'center' },
   viewToggle: {
     flexDirection: 'row',
     alignItems: 'center',
