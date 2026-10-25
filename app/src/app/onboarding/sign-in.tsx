@@ -12,6 +12,7 @@ import { Wordmark } from '@/components/wordmark';
 import { DEMO_ACCOUNT } from '@/lib/account';
 import { usingBackend } from '@/lib/backend';
 import { clerkError, useSocialSignIn } from '@/lib/clerk-auth';
+import { resetTo } from '@/lib/navigation';
 import { useStore } from '@/lib/store';
 import { colors } from '@/theme';
 
@@ -46,8 +47,7 @@ function ClerkSignIn() {
       if (!result) return;
       if (result.isNew) router.push({ pathname: '/onboarding/username', params: { onboarding: '1' } });
       else {
-        router.dismissAll();
-        router.replace('/deals');
+        resetTo('/deals');
       }
     } catch (e) {
       Alert.alert('Couldn’t sign in', clerkError(e));
@@ -82,8 +82,7 @@ function DemoSignIn() {
 
   const logIn = () => {
     signIn(DEMO_ACCOUNT);
-    router.dismissAll();
-    router.replace('/deals');
+    resetTo('/deals');
   };
 
   return (

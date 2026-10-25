@@ -7,6 +7,7 @@ import { router } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
 
 import { pendingUsername } from '@/lib/backend-store';
+import { resetTo } from '@/lib/navigation';
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -147,8 +148,7 @@ export function goAfter(outcome: SignUpOutcome) {
     if (outcome.isNew && pendingUsername()) router.replace('/onboarding/interests');
     else if (outcome.isNew) router.replace({ pathname: '/onboarding/username', params: { onboarding: '1' } });
     else {
-      router.dismissAll();
-      router.replace('/deals');
+      resetTo('/deals');
     }
   } else if ('verify' in outcome) {
     router.replace({ pathname: '/onboarding/verify', params: { mode: outcome.verify, to: outcome.to } });

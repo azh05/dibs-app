@@ -1,4 +1,3 @@
-import { router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useState } from 'react';
 import { KeyboardAvoidingView, StyleSheet, View } from 'react-native';
@@ -9,6 +8,7 @@ import { OnboardingProgress } from '@/components/onboarding-progress';
 import { Text } from '@/components/text';
 import { TextField } from '@/components/text-field';
 import { alreadySignedIn, clerkError, useCodeAuth } from '@/lib/clerk-auth';
+import { resetTo } from '@/lib/navigation';
 import { colors, gutter } from '@/theme';
 
 // "Already have an account? Log in": email and password.
@@ -25,12 +25,10 @@ export default function LogIn() {
     setError(null);
     try {
       await logIn(email.trim(), password);
-      router.dismissAll();
-      router.replace('/deals');
+      resetTo('/deals');
     } catch (e) {
       if (alreadySignedIn(e)) {
-        router.dismissAll();
-        router.replace('/deals');
+        resetTo('/deals');
         return;
       }
       setError(clerkError(e));

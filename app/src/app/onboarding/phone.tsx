@@ -9,6 +9,7 @@ import { OnboardingProgress } from '@/components/onboarding-progress';
 import { Text } from '@/components/text';
 import { TextField } from '@/components/text-field';
 import { alreadySignedIn, clerkError, useCodeAuth } from '@/lib/clerk-auth';
+import { resetTo } from '@/lib/navigation';
 import { colors, gutter } from '@/theme';
 
 /** "(310) 555-0100" → "+13105550100"; numbers already in +country form pass through. */
@@ -35,8 +36,7 @@ export default function PhoneSignIn() {
       router.push({ pathname: '/onboarding/verify', params: { mode, to: phone } });
     } catch (e) {
       if (alreadySignedIn(e)) {
-        router.dismissAll();
-        router.replace('/deals');
+        resetTo('/deals');
         return;
       }
       setError(clerkError(e));

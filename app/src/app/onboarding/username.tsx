@@ -11,6 +11,7 @@ import { TextField } from '@/components/text-field';
 import { toHandle, UsernameField, useUsernameAvailable } from '@/components/username-field';
 import { NO_NAME } from '@/lib/account';
 import { errorText } from '@/lib/backend';
+import { resetTo } from '@/lib/navigation';
 import { useStore } from '@/lib/store';
 import { colors, gutter } from '@/theme';
 
@@ -40,10 +41,7 @@ export default function PickUsername() {
     try {
       await saveProfile({ name: name.trim(), username: handle });
       if (inOnboarding) router.replace('/onboarding/interests');
-      else {
-        router.dismissAll();
-        router.replace('/deals');
-      }
+      else resetTo('/deals');
     } catch (e) {
       setError(errorText(e));
     } finally {
@@ -53,8 +51,7 @@ export default function PickUsername() {
 
   const logOut = () => {
     signOut();
-    router.dismissAll();
-    router.replace('/');
+    resetTo('/');
   };
 
   return (
