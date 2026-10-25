@@ -22,7 +22,7 @@ export function Segmented<T extends string | number>({ options, value, onChange 
             accessibilityRole="button"
             accessibilityState={{ selected: active }}
             style={[styles.segment, active && styles.active]}>
-            <Text weight="bold" size={13} color={active ? colors.ink : colors.inkTertiary}>
+            <Text weight="bold" size={13} color={active ? colors.ink : colors.inkTertiary} numberOfLines={1}>
               {o.label}
             </Text>
           </Pressable>
@@ -34,7 +34,17 @@ export function Segmented<T extends string | number>({ options, value, onChange 
 
 const styles = StyleSheet.create({
   track: { flexDirection: 'row', gap: 4, padding: 4, borderRadius: radii.thumb, backgroundColor: colors.muted },
-  segment: { flex: 1, alignItems: 'center', paddingVertical: 10, borderRadius: 10 },
+  // Sized to the label, then sharing the spare width, so a long label ("Westwood Village") gets more room than
+  // "UCLA" instead of spilling over its neighbours.
+  segment: {
+    flexGrow: 1,
+    flexShrink: 1,
+    flexBasis: 'auto',
+    alignItems: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 8,
+    borderRadius: 10,
+  },
   active: {
     backgroundColor: colors.surface,
     shadowColor: '#000000',

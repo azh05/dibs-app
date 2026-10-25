@@ -45,19 +45,18 @@ export default function ProfileScreen() {
   const area = place.label.split(',')[0];
   const invite = () => inviteFriends(social.invites.code, social.invites.reward);
 
-  const openSettings = () =>
-    Alert.alert('Settings', undefined, [
-      { text: 'Edit interests', onPress: editInterests },
-      { text: 'Alert settings', onPress: () => router.navigate('/alerts') },
+  // Not in Figma: the old top-right gear menu only repeated the rows below, so sign-out lives at the bottom.
+  const logOut = () =>
+    Alert.alert('Log out?', undefined, [
+      { text: 'Cancel', style: 'cancel' },
       {
-        text: 'Sign out',
+        text: 'Log out',
         style: 'destructive',
         onPress: () => {
           store.signOut();
           router.replace('/');
         },
       },
-      { text: 'Cancel', style: 'cancel' },
     ]);
 
   return (
@@ -68,9 +67,6 @@ export default function ProfileScreen() {
           <Text weight="bold" size={15}>
             @{account.username}
           </Text>
-          <Pressable onPress={openSettings} hitSlop={8} accessibilityRole="button" accessibilityLabel="Settings">
-            <Icon name="gear" size={22} />
-          </Pressable>
         </View>
 
         <View style={styles.identity}>
@@ -238,6 +234,8 @@ export default function ProfileScreen() {
           />
         </View>
         {verifying && !studentDomain && <StudentVerify domain={null} onVerified={store.setStudentDomain} />}
+
+        <Button label="Log out" variant="outline" onPress={logOut} />
       </ScrollView>
     </View>
   );
