@@ -180,14 +180,6 @@ export const setTopics = mutation({
   },
 });
 
-export const setInstantAlerts = mutation({
-  args: { on: v.boolean() },
-  handler: async (ctx, { on }) => {
-    const user = await requireUser(ctx);
-    await ctx.db.patch("users", user._id, { instant_alerts: on });
-  },
-});
-
 // ---------------------------------------------------------------- store follows
 
 export const setFollow = mutation({

@@ -105,7 +105,6 @@ export function BackendStoreProvider({ children }: { children: ReactNode }) {
   const setReminder = useMutation(api.reminders.set);
   const cancelReminder = useMutation(api.reminders.cancel);
   const react = useMutation(api.social.react);
-  const setInstantAlerts = useMutation(api.prefs.setInstantAlerts);
   const setTopics = useMutation(api.prefs.setTopics);
   const setAlertRadius = useMutation(api.prefs.setAlertRadius);
   const saveLocation = useMutation(api.prefs.saveLocation);
@@ -190,9 +189,6 @@ export function BackendStoreProvider({ children }: { children: ReactNode }) {
     : { label: HOME.label, coords: HOME, areaKey: null };
   const [localRadius, setLocalRadius] = useState<number | null>(null);
   const alertRadiusMi = localRadius ?? primary?.radius_miles ?? 1;
-  const [localInstant, setLocalInstant] = useState<{ on: boolean; seen: boolean | undefined } | null>(null);
-  const instant =
-    localInstant && localInstant.seen === me?.instant_alerts ? localInstant.on : (me?.instant_alerts ?? true);
   const [filters, setFilters] = useState(DEFAULT_FILTERS);
   const [lineReports, setLineReports] = useState<LineReport[]>([]);
 
@@ -307,10 +303,11 @@ export function BackendStoreProvider({ children }: { children: ReactNode }) {
     toggleLiked: (id) =>
       optimistic(liked, id, !liked.set.has(id), () => react({ activityId: id as Id<'activity'>, kind: 'cheer' })),
 
-    instant,
-    setInstant: (on) => {
-      setLocalInstant({ on, seen: me?.instant_alerts });
-      if (isAuthenticated) setInstantAlerts({ on }).catch(fail);
+    registerPush: () => {
+      if (isAuthenticated)
+        registerForPush()
+          .then((push) => push && registerDevice(push))
+          .catch(() => undefined);
     },
     topics,
     toggleTopic: (topic) => {

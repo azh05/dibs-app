@@ -110,7 +110,13 @@ Phone and social sign-ups skip Create account, so they have no birthday. **Verif
 
 ### Push
 
-Run `npx eas-cli@latest init` once, so `app.json` gets an EAS `projectId`; the app needs it for an Expo push token. Until then, alerts still show in the Alerts tab, but nothing reaches the lock screen. Android needs a development build for remote push. After sign-in, the app registers its token (`prefs.registerDevice`). Convex sends alerts and reminders through Expo's push service, 100 per request, and drops tokens Expo reports as `DeviceNotRegistered`.
+**Not set up yet:** `app.json` has no EAS `projectId`, so the app gets no Expo push token and no device registers. Alerts still show in the Alerts tab, but nothing reaches the lock screen. To set it up (someone logged in to Expo):
+
+1. `cd app && npx eas-cli@latest init`, choosing an Expo organization the team shares. It writes `owner` and `extra.eas.projectId` to `app.json`; commit that.
+2. Android: remote push needs a development build and FCM V1 credentials (Firebase service account key, uploaded with `npx eas-cli@latest credentials`). iOS: a development build needs a paid Apple Developer account; let EAS create the APNs key when it asks.
+3. On a real phone, sign in and allow notifications, then check the `devices` table in the Convex dashboard for a row.
+
+The app registers its token (`prefs.registerDevice`) after sign-in and again once onboarding gets notification permission. Alerts are always on (there is no Instant toggle). Convex sends alerts and reminders through Expo's push service, 100 per request, and drops tokens Expo reports as `DeviceNotRegistered`.
 
 ## Environment (Convex dashboard, or `npx convex env set NAME value`)
 
@@ -162,7 +168,7 @@ Tests need none of these: `npm test` runs the convex-test suite with no keys and
   - Credits start pending. They post after 24 hours, or as soon as 2 other users confirm the deal. An "ended" report before then reverses them.
   - A photo of a deal we already know counts as a confirmation instead.
   - The same image can't be submitted twice (sha256 from storage metadata).
-- **Alerts** (`notify.ts`): store followers, plus users with a saved place in range whose store type or deal-type picks match, and Instant alerts on. One notification per user, deal and reason.
+- **Alerts** (`notify.ts`): store followers, plus users with a saved place in range whose store type or deal-type picks match. One notification per user, deal and reason.
 - **Gamification** (`lib/gamify.ts`):
   - XP: deal used 50, verified photo 100, line check 10 (5 a day).
   - Streaks in weeks, 24 badges, one weekly challenge.
@@ -228,7 +234,7 @@ areas.ts         scan areas (circles saved places share), their shop lists, /dis
 batches.ts       rotating store batches and daily area sweeps over each list (cron), tiers, daily budget
 scans.ts         area /extract/shops jobs (cron), /extract/search (user, rate-limited), scan cache, job polling
 deals.ts         feed, deal detail, store deals, status recompute
-prefs.ts         saved places, interests, Instant alerts, store follows, push devices
+prefs.ts         saved places, interests, store follows, push devices
 saves.ts         saved deals, Used it, lists
 reminders.ts     scheduled reminders (cancelled when turned off)
 photos.ts        photo upload, /extract/photo, result, admin review

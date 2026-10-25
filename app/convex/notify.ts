@@ -42,7 +42,7 @@ async function alertText(ctx: MutationCtx, deal: Doc<"deals">, store: Doc<"store
 }
 
 function eligible(user: Doc<"users"> | null, deal: Doc<"deals">): user is Doc<"users"> {
-  if (!user || user.deleted_at || !user.instant_alerts) return false;
+  if (!user || user.deleted_at) return false;
   if ((deal.age_21 || isAdultStoreType(deal.store_type)) && !user.age_21_verified_at) return false;
   if (deal.student_only && !user.edu_verified_at) return false;
   return true;

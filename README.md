@@ -66,7 +66,7 @@ Every deal must cite a source the API actually fetched, with a word-for-word quo
 Every screen in the Figma file, wired the way its prototype links are:
 
 - **Onboarding**: Welcome (with the cycling store-type list), sign in or create an account, pick interests from 72 store types and 8 deal types, then turn on live alerts.
-- **Deals and Map**: the live feed with your interests and deal types as chips, upcoming events, and a map with recency pins. Filters cover sort (best deals, relevance, distance), distance, store type, deal type, match my interests (on by default; picking store or deal types or searching overrides it), open now, community verified and likely expired. The deal and event pages have directions, follow and reminders.
+- **Deals and Map**: the live feed with your interests and deal types as chips, upcoming events, and a map with recency pins showing whatever is on screen. Filters cover sort (best deals, relevance, distance), distance, store type, deal type, match my interests (on by default; picking store or deal types or searching overrides it), open now, community verified and likely expired. The deal and event pages have directions, follow and reminders.
 - **Line check**: standing at a store asks how long the line is, and reports from the last hour show on the deal.
 - **Friends**: your rank in Westwood and at your school, friends ranked by money saved, and an activity feed.
 - **Earn credits**: snap an in-store deal and earn 500 credits once it's verified (the photo is checked by `/extract/photo`).

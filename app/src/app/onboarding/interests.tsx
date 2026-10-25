@@ -64,11 +64,12 @@ export default function PickInterests() {
   const verifyAge = () => checkAge(store);
 
   const turnOn = async () => {
-    store.setInstant(true);
     // Alerts and scans need a place: where the user is now, else Westwood.
     const here = await currentPlace().catch(() => null);
     store.savePlace(here ?? NEIGHBORHOODS[0]).catch(() => undefined);
     if (await requestAlertPermission()) {
+      // Sign-in registered for push before permission was asked; now there's a token to send.
+      store.registerPush();
       const first = deals.find((d) => topics.has(d.storeType) || d.tags.some((t) => topics.has(t)));
       if (first) sendDealAlert(first, FIRST_ALERT_DELAY_S).catch(() => undefined);
     }

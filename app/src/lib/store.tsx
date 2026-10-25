@@ -60,8 +60,8 @@ export type Store = {
   liked: Set<string>;
   toggleLiked: (postId: string) => void;
 
-  instant: boolean;
-  setInstant: (on: boolean) => void;
+  /** Register this device for push, once the user has allowed notifications. */
+  registerPush: () => void;
   topics: Set<string>;
   toggleTopic: (topic: string) => void;
   /** Turn a group of topics on or off at once ("Select all"). */
@@ -146,7 +146,6 @@ export function MockStoreProvider({ children }: { children: ReactNode }) {
   const [reminders, toggleReminder] = useToggleSet(['kda-chicha-popup']);
   const [liked, toggleLiked] = useToggleSet();
   const [confirmedToday, , setConfirmed] = useToggleSet();
-  const [instant, setInstant] = useState(true);
   const [topics, toggleTopic, setTopicsOn] = useToggleSet(DEFAULT_INTERESTS);
   const [alertRadiusMi, setAlertRadiusMi] = useState(1);
   const [place, setPlace] = useState<Place>({ label: HOME.label, coords: HOME, areaKey: null });
@@ -198,8 +197,7 @@ export function MockStoreProvider({ children }: { children: ReactNode }) {
     toggleReminder,
     liked,
     toggleLiked,
-    instant,
-    setInstant,
+    registerPush: () => undefined,
     topics,
     toggleTopic,
     setTopicsOn,
